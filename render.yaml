@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: alamos-ia-backend
+    env: node
+    plan: starter
+    rootDir: backend
+    buildCommand: npm install && npm run prisma:generate && npx prisma migrate deploy && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ADMIN_SECRET
+        sync: false
