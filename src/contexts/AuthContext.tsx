@@ -12,8 +12,8 @@ interface User {
 
 interface AuthContextType {
   user: User | null
-  login: (email: string, password: string, name?: string) => boolean
-  loginWithGoogle: (user: any) => boolean
+  login: (email: string, password: string, name?: string) => Promise<boolean>
+  loginWithGoogle: (user: any) => Promise<boolean>
   updateProfile: (updates: Partial<User>) => void
   logout: () => void
   isAuthenticated: boolean
@@ -23,6 +23,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null)
+  const API_BASE = import.meta.env.VITE_API_URL || 'https://api.alamosinnovacion.com'
 
   const normalizeEmail = (email: string) => email.trim().toLowerCase()
   const normalizeProjectIds = (user: User) => {
@@ -118,47 +119,65 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [user])
 
-  const login = (email: string, password: string, name?: string) => {
+  const login = async (email: string, password: string, name?: string) => {
     const normalizedEmail = normalizeEmail(email)
-    const existing = getUserFromList(normalizedEmail)
-    if (!existing && hasUsers()) {
+    try {
+      const response = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail, password })
+      })
+      if (!response.ok) {
+        return false
+      }
+      const data = await response.json()
+      const existing = getUserFromList(normalizedEmail)
+      const newUser: User = {
+        email: normalizedEmail,
+        name: data?.user?.name || name || existing?.name || normalizedEmail.split('@')[0],
+        role: data?.user?.role || existing?.role || 'Worker',
+        projectIds: normalizeProjectIds(existing || ({ email: normalizedEmail, provider: 'email' } as User)),
+        provider: 'email'
+      }
+      localStorage.setItem('authToken', data?.token || '')
+      setUser(newUser)
+      upsertUserInList(newUser)
+      return true
+    } catch (error) {
+      console.error('Login error:', error)
       return false
     }
-    if (!existing) {
-      return false
-    }
-    if (!existing.password || existing.password !== password) {
-      return false
-    }
-    const newUser: User = {
-      email: normalizedEmail,
-      name: name || existing?.name || normalizedEmail.split('@')[0],
-      role: existing?.role || 'Admin',
-      projectIds: normalizeProjectIds(existing || { email: normalizedEmail, provider: 'email' } as User),
-      provider: 'email'
-    }
-    setUser(newUser)
-    upsertUserInList(newUser)
-    return true
   }
 
-  const loginWithGoogle = (googleUser: any) => {
+  const loginWithGoogle = async (googleUser: any) => {
     const normalizedEmail = normalizeEmail(googleUser.email)
-    const existing = getUserFromList(normalizedEmail)
-    if (!existing && hasUsers()) {
+    try {
+      const response = await fetch(`${API_BASE}/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail, name: googleUser.name })
+      })
+      if (!response.ok) {
+        return false
+      }
+      const data = await response.json()
+      const existing = getUserFromList(normalizedEmail)
+      const newUser: User = {
+        email: normalizedEmail,
+        name: data?.user?.name || googleUser.name || existing?.name,
+        picture: googleUser.picture || existing?.picture,
+        role: data?.user?.role || existing?.role || 'Worker',
+        projectIds: normalizeProjectIds(existing || ({ email: normalizedEmail, provider: 'google' } as User)),
+        provider: 'google'
+      }
+      localStorage.setItem('authToken', data?.token || '')
+      setUser(newUser)
+      upsertUserInList(newUser)
+      return true
+    } catch (error) {
+      console.error('Google login error:', error)
       return false
     }
-    const newUser: User = {
-      email: normalizedEmail,
-      name: googleUser.name || existing?.name,
-      picture: googleUser.picture || existing?.picture,
-      role: existing?.role || 'Admin',
-      projectIds: normalizeProjectIds(existing || { email: normalizedEmail, provider: 'google' } as User),
-      provider: 'google'
-    }
-    setUser(newUser)
-    upsertUserInList(newUser)
-    return true
   }
 
   const updateProfile = (updates: Partial<User>) => {
@@ -176,6 +195,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = () => {
     setUser(null)
+    localStorage.removeItem('authToken')
   }
 
   return (

@@ -21,6 +21,7 @@ const Admin = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
   const isAdmin = user?.role === 'Admin'
+  const API_BASE = import.meta.env.VITE_API_URL || 'https://api.alamosinnovacion.com'
   const [users, setUsers] = useState<UserRow[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [roleFilter, setRoleFilter] = useState('All')
@@ -32,11 +33,13 @@ const Admin = () => {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    password: '',
     role: 'Worker',
     projectIds: [] as string[],
     projectToAdd: ''
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [submitError, setSubmitError] = useState('')
 
   useEffect(() => {
     const storedUsers = localStorage.getItem('users')
@@ -102,13 +105,16 @@ const Admin = () => {
     })
   }, [users, searchTerm, roleFilter, projects])
 
-  const validate = () => {
+  const validate = (mode: 'add' | 'edit') => {
     const nextErrors: Record<string, string> = {}
     if (!formData.name.trim()) nextErrors.name = 'Name is required'
     if (!formData.email.trim()) nextErrors.email = 'Email is required'
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (formData.email && !emailRegex.test(formData.email)) {
       nextErrors.email = 'Invalid email'
+    }
+    if (mode === 'add' && !formData.password.trim()) {
+      nextErrors.password = 'Password is required'
     }
     if (formData.role === 'Customer' && formData.projectIds.length === 0) {
       nextErrors.projectIds = 'At least one project is required'
@@ -117,15 +123,41 @@ const Admin = () => {
     return Object.keys(nextErrors).length === 0
   }
 
-  const handleAddUser = (e: React.FormEvent) => {
+  const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!validate()) return
+    setSubmitError('')
+    if (!validate('add')) return
     const normalizedEmail = formData.email.trim().toLowerCase()
     const newUser: UserRow = {
       name: formData.name.trim(),
       email: normalizedEmail,
       role: formData.role as 'Admin' | 'Worker' | 'Customer',
       projectIds: formData.projectIds
+    }
+    try {
+      const token = localStorage.getItem('authToken')
+      const response = await fetch(`${API_BASE}/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          email: normalizedEmail,
+          password: formData.password.trim(),
+          name: formData.name.trim(),
+          role: formData.role
+        })
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        setSubmitError(data?.error || 'Failed to create user in backend.')
+        return
+      }
+    } catch (error) {
+      console.error('Create user error:', error)
+      setSubmitError('Failed to create user in backend.')
+      return
     }
     const nextUsers = [...users]
     const existingIndex = nextUsers.findIndex((u) => u.email === newUser.email)
@@ -137,7 +169,7 @@ const Admin = () => {
     setUsers(nextUsers)
     localStorage.setItem('users', JSON.stringify(nextUsers))
     setIsAddModalOpen(false)
-    setFormData({ name: '', email: '', role: 'Worker', projectIds: [], projectToAdd: '' })
+    setFormData({ name: '', email: '', password: '', role: 'Worker', projectIds: [], projectToAdd: '' })
     setErrors({})
   }
 
@@ -150,11 +182,13 @@ const Admin = () => {
     setFormData({
       name: user.name || '',
       email: user.email,
+      password: '',
       role: user.role || 'Worker',
       projectIds: user.projectIds || [],
       projectToAdd: ''
     })
     setErrors({})
+    setSubmitError('')
     setIsEditModalOpen(true)
   }
 
@@ -169,7 +203,7 @@ const Admin = () => {
 
   const handleUpdateUser = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!validate()) return
+    if (!validate('edit')) return
     if (!selectedUser) return
     const normalizedEmail = formData.email.trim().toLowerCase()
     const updatedUser: UserRow = {
@@ -187,6 +221,7 @@ const Admin = () => {
     setIsEditModalOpen(false)
     setSelectedUser(null)
     setErrors({})
+    setSubmitError('')
   }
 
   const handleAddProject = () => {
@@ -371,6 +406,21 @@ const Admin = () => {
           </div>
           <div className="form-row">
             <div className="form-group">
+              <label htmlFor="admin-password">Password</label>
+              <input
+                id="admin-password"
+                type="password"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                className={errors.password ? 'error' : ''}
+                placeholder="Password"
+                required
+              />
+              {errors.password && <span className="error-message">{errors.password}</span>}
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
               <label htmlFor="admin-role">Role</label>
               <select
                 id="admin-role"
@@ -435,6 +485,7 @@ const Admin = () => {
               Add User
             </button>
           </div>
+          {submitError && <div className="error-message" style={{ marginTop: '0.75rem' }}>{submitError}</div>}
         </form>
       </Modal>
 
@@ -540,6 +591,7 @@ const Admin = () => {
               Save Changes
             </button>
           </div>
+          {submitError && <div className="error-message" style={{ marginTop: '0.75rem' }}>{submitError}</div>}
         </form>
       </Modal>
 

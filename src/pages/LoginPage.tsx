@@ -15,7 +15,7 @@ const LoginPage = () => {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
-  const handleEmailLogin = (e: React.FormEvent) => {
+  const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
 
@@ -29,7 +29,7 @@ const LoginPage = () => {
       return
     }
 
-    const success = login(email, password.trim())
+    const success = await login(email, password.trim())
     if (!success) {
       setError('Invalid email or password')
       return
@@ -50,7 +50,7 @@ const LoginPage = () => {
           throw new Error('Failed to fetch user info')
         }
         const userInfo = await response.json()
-        const success = loginWithGoogle(userInfo)
+        const success = await loginWithGoogle(userInfo)
         if (!success) {
           setError('This email is not authorized. Please contact the admin.')
           return

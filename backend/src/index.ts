@@ -61,7 +61,24 @@ app.post('/auth/google', async (req, res) => {
 
 app.post('/auth/register', async (req, res) => {
   const adminKey = req.headers['x-admin-key']
-  if (!ADMIN_SECRET || adminKey !== ADMIN_SECRET) {
+  const authHeader = req.headers.authorization
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined
+  let isAdmin = false
+
+  if (ADMIN_SECRET && adminKey === ADMIN_SECRET) {
+    isAdmin = true
+  }
+  if (!isAdmin && token) {
+    try {
+      const payload = jwt.verify(token, JWT_SECRET) as { role?: string }
+      if (payload?.role === 'Admin') {
+        isAdmin = true
+      }
+    } catch {
+      // ignore invalid token
+    }
+  }
+  if (!isAdmin) {
     return res.status(403).json({ error: 'Forbidden.' })
   }
 

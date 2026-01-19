@@ -20,7 +20,7 @@ const LoginModal = ({ isOpen, onClose }: LoginModalProps) => {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
-  const handleEmailLogin = (e: React.FormEvent) => {
+  const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
 
@@ -37,7 +37,7 @@ const LoginModal = ({ isOpen, onClose }: LoginModalProps) => {
     }
 
     // Login with email
-    const success = login(email, password.trim())
+    const success = await login(email, password.trim())
     if (!success) {
       setError('Invalid email or password')
       return
@@ -61,7 +61,7 @@ const LoginModal = ({ isOpen, onClose }: LoginModalProps) => {
           throw new Error('Failed to fetch user info')
         }
         const userInfo = await response.json()
-        const success = loginWithGoogle(userInfo)
+        const success = await loginWithGoogle(userInfo)
         if (!success) {
           setError('This email is not authorized. Please contact the admin.')
           return
