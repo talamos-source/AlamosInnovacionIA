@@ -61,9 +61,11 @@ const AppRoutes = () => {
 }
 
 function App() {
+  const basePath = window.location.pathname.startsWith('/private') ? '/private' : ''
+
   const AppContent = () => (
     <AuthProvider>
-      <Router>
+      <Router basename={basePath || undefined}>
         <AppRoutes />
       </Router>
     </AuthProvider>
