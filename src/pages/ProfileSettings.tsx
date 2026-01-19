@@ -75,7 +75,7 @@ const ProfileSettings = () => {
       }
       // If user isn't found, create a basic profile entry
       const fallbackName = queryEmail.split('@')[0] || ''
-      const newUser = { email: queryEmail, name: fallbackName, role: 'Worker' as const, picture: undefined, projectIds: [] as string[] }
+      const newUser = { email: queryEmail, name: fallbackName, role: 'Worker' as const, picture: undefined, projectIds: [] as string[], password: '' }
       usersList.push(newUser)
       localStorage.setItem('users', JSON.stringify(usersList))
       setName(newUser.name || '')

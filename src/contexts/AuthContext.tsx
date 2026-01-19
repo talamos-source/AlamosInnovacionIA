@@ -12,8 +12,8 @@ interface User {
 
 interface AuthContextType {
   user: User | null
-  login: (email: string, password: string, name?: string) => Promise<boolean>
-  loginWithGoogle: (user: any) => Promise<boolean>
+  login: (email: string, password: string, name?: string) => Promise<{ success: boolean; error?: string }>
+  loginWithGoogle: (user: any) => Promise<{ success: boolean; error?: string }>
   updateProfile: (updates: Partial<User>) => void
   logout: () => void
   isAuthenticated: boolean
@@ -23,7 +23,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null)
-  const API_BASE = import.meta.env.VITE_API_URL || 'https://api.alamosinnovacion.com'
+const API_BASE = import.meta.env.VITE_API_URL || 'https://alamosinnovacionia.onrender.com'
 
   const normalizeEmail = (email: string) => email.trim().toLowerCase()
   const normalizeProjectIds = (user: User) => {
@@ -39,17 +39,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const users: User[] = existing ? JSON.parse(existing) : []
     const target = normalizeEmail(email)
     return users.find((u) => normalizeEmail(u.email) === target)
-  }
-
-  const hasUsers = () => {
-    const existing = localStorage.getItem('users')
-    if (!existing) return false
-    try {
-      const users: User[] = JSON.parse(existing)
-      return users.length > 0
-    } catch {
-      return false
-    }
   }
 
   const upsertUserInList = (nextUser: User) => {
@@ -128,7 +117,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         body: JSON.stringify({ email: normalizedEmail, password })
       })
       if (!response.ok) {
-        return false
+        let errorMessage = 'Invalid email or password.'
+        try {
+          const errorData = await response.json()
+          if (errorData?.error) {
+            errorMessage = errorData.error
+          }
+        } catch {
+          // ignore parse errors
+        }
+        return { success: false, error: errorMessage }
       }
       const data = await response.json()
       const existing = getUserFromList(normalizedEmail)
@@ -142,10 +140,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       localStorage.setItem('authToken', data?.token || '')
       setUser(newUser)
       upsertUserInList(newUser)
-      return true
+      return { success: true }
     } catch (error) {
       console.error('Login error:', error)
-      return false
+      return { success: false, error: 'Network error. Check API URL or connection.' }
     }
   }
 
@@ -158,7 +156,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         body: JSON.stringify({ email: normalizedEmail, name: googleUser.name })
       })
       if (!response.ok) {
-        return false
+        let errorMessage = 'Unauthorized email.'
+        try {
+          const errorData = await response.json()
+          if (errorData?.error) {
+            errorMessage = errorData.error
+          }
+        } catch {
+          // ignore parse errors
+        }
+        return { success: false, error: errorMessage }
       }
       const data = await response.json()
       const existing = getUserFromList(normalizedEmail)
@@ -173,10 +180,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       localStorage.setItem('authToken', data?.token || '')
       setUser(newUser)
       upsertUserInList(newUser)
-      return true
+      return { success: true }
     } catch (error) {
       console.error('Google login error:', error)
-      return false
+      return { success: false, error: 'Network error. Check API URL or connection.' }
     }
   }
 

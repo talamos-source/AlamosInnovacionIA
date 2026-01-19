@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { Mail } from 'lucide-react'
 import { useGoogleLogin } from '@react-oauth/google'
 import { useAuth } from '../contexts/AuthContext'
 import '../components/LoginModal.css'
@@ -29,9 +28,9 @@ const LoginPage = () => {
       return
     }
 
-    const success = await login(email, password.trim())
-    if (!success) {
-      setError('Invalid email or password')
+    const result = await login(email, password.trim())
+    if (!result.success) {
+      setError(result.error || 'Invalid email or password')
       return
     }
     setEmail('')
@@ -50,9 +49,9 @@ const LoginPage = () => {
           throw new Error('Failed to fetch user info')
         }
         const userInfo = await response.json()
-        const success = await loginWithGoogle(userInfo)
-        if (!success) {
-          setError('This email is not authorized. Please contact the admin.')
+        const result = await loginWithGoogle(userInfo)
+        if (!result.success) {
+          setError(result.error || 'This email is not authorized. Please contact the admin.')
           return
         }
       } catch (error) {

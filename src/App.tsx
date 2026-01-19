@@ -24,7 +24,6 @@ import { useAuth } from './contexts/AuthContext'
 // You can get one from: https://console.cloud.google.com/apis/credentials
 // Create a .env file in the root directory with: VITE_GOOGLE_CLIENT_ID=your-client-id
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
-const isGoogleOAuthEnabled = GOOGLE_CLIENT_ID && GOOGLE_CLIENT_ID.length > 0
 
 const AppRoutes = () => {
   const { isAuthenticated, user } = useAuth()
