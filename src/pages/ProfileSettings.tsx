@@ -13,7 +13,11 @@ const ProfileSettings = () => {
   const [searchParams] = useSearchParams()
   const [name, setName] = useState(user?.name || '')
   const [email, setEmail] = useState(user?.email || '')
-  const [password, setPassword] = useState('')
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [storedPassword, setStoredPassword] = useState('')
+  const [passwordError, setPasswordError] = useState('')
   const [role, setRole] = useState<'Admin' | 'Worker' | 'Customer'>(user?.role || 'Admin')
   const [projectIds, setProjectIds] = useState<string[]>(user?.projectIds || [])
   const [projectToAdd, setProjectToAdd] = useState('')
@@ -42,12 +46,16 @@ const ProfileSettings = () => {
     if (!targetEmail) {
       setName(user?.name || '')
       setEmail(user?.email || '')
-      setPassword(user?.password || '')
+      setStoredPassword(user?.password || '')
       setRole(user?.role || 'Admin')
       setProjectIds(user?.projectIds || [])
       setProjectToAdd('')
       setAvatarPreview(user?.picture)
       setNotFound(false)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setPasswordError('')
       return
     }
 
@@ -65,12 +73,16 @@ const ProfileSettings = () => {
       if (target) {
         setName(target.name || '')
         setEmail(target.email)
-        setPassword(target.password || '')
+        setStoredPassword(target.password || '')
         setRole(target.role || 'Worker')
         setProjectIds(target.projectIds || [])
         setProjectToAdd('')
         setAvatarPreview(target.picture)
         setNotFound(false)
+        setCurrentPassword('')
+        setNewPassword('')
+        setConfirmPassword('')
+        setPasswordError('')
         return
       }
       // If user isn't found, create a basic profile entry
@@ -80,24 +92,32 @@ const ProfileSettings = () => {
       localStorage.setItem('users', JSON.stringify(usersList))
       setName(newUser.name || '')
       setEmail(newUser.email)
-      setPassword(newUser.password || '')
+      setStoredPassword(newUser.password || '')
       setRole(newUser.role)
       setProjectIds([])
       setProjectToAdd('')
       setAvatarPreview(undefined)
       setNotFound(false)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setPasswordError('')
       return
     }
 
     if (!isViewingOtherUser) {
       setName(user?.name || '')
       setEmail(user?.email || '')
-      setPassword(user?.password || '')
+      setStoredPassword(user?.password || '')
       setRole(user?.role || 'Admin')
       setProjectIds(user?.projectIds || [])
       setProjectToAdd('')
       setAvatarPreview(user?.picture)
       setNotFound(false)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setPasswordError('')
       return
     }
   }, [user, targetEmail, isViewingOtherUser, queryEmail])
@@ -148,8 +168,33 @@ const ProfileSettings = () => {
       return
     }
     setProjectError('')
-    const trimmedPassword = password.trim()
+    const trimmedCurrent = currentPassword.trim()
+    const trimmedNew = newPassword.trim()
+    const trimmedConfirm = confirmPassword.trim()
     setPasswordUpdated(false)
+    setPasswordError('')
+
+    const wantsPasswordChange = !!trimmedNew || !!trimmedConfirm || !!trimmedCurrent
+    if (wantsPasswordChange) {
+      if (trimmedNew.length === 0 || trimmedConfirm.length === 0) {
+        setPasswordError('Please enter the new password twice')
+        return
+      }
+      if (trimmedNew !== trimmedConfirm) {
+        setPasswordError('New passwords do not match')
+        return
+      }
+      if (!isViewingOtherUser) {
+        if (storedPassword && trimmedCurrent !== storedPassword) {
+          setPasswordError('Current password is incorrect')
+          return
+        }
+        if (!storedPassword && trimmedCurrent.length === 0) {
+          setPasswordError('Please enter your current password')
+          return
+        }
+      }
+    }
 
     if (isViewingOtherUser) {
       const storedUsers = localStorage.getItem('users')
@@ -160,7 +205,7 @@ const ProfileSettings = () => {
         email: email.trim(),
         role,
         projectIds,
-        ...(trimmedPassword ? { password: trimmedPassword } : {})
+        ...(trimmedNew ? { password: trimmedNew } : {})
       }
       if (index >= 0) {
         usersList[index] = { ...usersList[index], ...updated }
@@ -168,21 +213,25 @@ const ProfileSettings = () => {
         usersList.push(updated)
       }
       localStorage.setItem('users', JSON.stringify(usersList))
-      if (trimmedPassword) {
+      if (trimmedNew) {
         setPasswordUpdated(true)
       }
-      setPassword('')
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
       return
     }
     if (isWorker) {
       updateProfile({
         name: name.trim(),
-        ...(trimmedPassword ? { password: trimmedPassword } : {})
+        ...(trimmedNew ? { password: trimmedNew } : {})
       })
-      if (trimmedPassword) {
+      if (trimmedNew) {
         setPasswordUpdated(true)
       }
-      setPassword('')
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
       return
     }
     updateProfile({
@@ -190,12 +239,14 @@ const ProfileSettings = () => {
       email: email.trim(),
       role,
       projectIds,
-      ...(trimmedPassword ? { password: trimmedPassword } : {})
+      ...(trimmedNew ? { password: trimmedNew } : {})
     })
-    if (trimmedPassword) {
+    if (trimmedNew) {
       setPasswordUpdated(true)
     }
-    setPassword('')
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmPassword('')
   }
 
   return (
@@ -242,16 +293,49 @@ const ProfileSettings = () => {
                   />
                 </div>
 
+                {!isViewingOtherUser && (
+                  <div className="form-group">
+                    <label htmlFor="profile-current-password">Current Password</label>
+                    <input
+                      id="profile-current-password"
+                      type="password"
+                      value={currentPassword}
+                      onChange={(e) => {
+                        setCurrentPassword(e.target.value)
+                        setPasswordError('')
+                      }}
+                      placeholder="Current password"
+                    />
+                  </div>
+                )}
                 <div className="form-group">
-                  <label htmlFor="profile-password">Password</label>
+                  <label htmlFor="profile-new-password">New Password</label>
                   <input
-                    id="profile-password"
+                    id="profile-new-password"
                     type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Password"
+                    value={newPassword}
+                    onChange={(e) => {
+                      setNewPassword(e.target.value)
+                      setPasswordError('')
+                    }}
+                    placeholder="New password"
                     disabled={isViewingOtherUser && !isAdmin}
                   />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="profile-confirm-password">Confirm New Password</label>
+                  <input
+                    id="profile-confirm-password"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value)
+                      setPasswordError('')
+                    }}
+                    placeholder="Confirm new password"
+                    disabled={isViewingOtherUser && !isAdmin}
+                  />
+                  {passwordError && <span className="error-message">{passwordError}</span>}
                 </div>
 
                 <div className="form-group">
