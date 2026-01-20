@@ -1,11 +1,12 @@
-import { useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import './Page.css'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://alamosinnovacionia.onrender.com'
 
 const ResetPassword = () => {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const token = searchParams.get('token') || ''
   const email = searchParams.get('email') || ''
 
@@ -75,6 +76,15 @@ const ResetPassword = () => {
     }
   }
 
+  useEffect(() => {
+    if (success && token) {
+      const timer = setTimeout(() => {
+        navigate('/login')
+      }, 2500)
+      return () => clearTimeout(timer)
+    }
+  }, [success, token, navigate])
+
   return (
     <div className="page" style={{ maxWidth: '100%', padding: '2rem' }}>
       <div className="login-page">
@@ -125,6 +135,16 @@ const ResetPassword = () => {
               <button type="submit" className="btn-primary btn-full">
                 Update Password
               </button>
+              {success && (
+                <button
+                  type="button"
+                  className="btn-secondary btn-full"
+                  onClick={() => navigate('/login')}
+                  style={{ marginTop: '0.75rem' }}
+                >
+                  Go to Login
+                </button>
+              )}
             </form>
           ) : (
             <form onSubmit={handleRequestReset} className="login-form">
