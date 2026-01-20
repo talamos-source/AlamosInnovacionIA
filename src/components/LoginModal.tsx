@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Mail } from 'lucide-react'
 import { useGoogleLogin } from '@react-oauth/google'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import Modal from './Modal'
 import './LoginModal.css'
@@ -16,6 +16,7 @@ interface LoginModalProps {
 
 const LoginModal = ({ isOpen, onClose }: LoginModalProps) => {
   const { login, loginWithGoogle } = useAuth()
+  const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -37,14 +38,19 @@ const LoginModal = ({ isOpen, onClose }: LoginModalProps) => {
     }
 
     // Login with email
-    const success = await login(email, password.trim())
-    if (!success) {
-      setError('Invalid email or password')
+    const result = await login(email, password.trim())
+    if (!result.success) {
+      setError(result.error || 'Invalid email or password')
       return
     }
     onClose()
     setEmail('')
     setPassword('')
+  }
+
+  const handleForgotPassword = () => {
+    onClose()
+    navigate('/reset-password')
   }
 
   // Google login hook - only works if GoogleOAuthProvider is present
@@ -61,9 +67,9 @@ const LoginModal = ({ isOpen, onClose }: LoginModalProps) => {
           throw new Error('Failed to fetch user info')
         }
         const userInfo = await response.json()
-        const success = await loginWithGoogle(userInfo)
-        if (!success) {
-          setError('This email is not authorized. Please contact the admin.')
+        const result = await loginWithGoogle(userInfo)
+        if (!result.success) {
+          setError(result.error || 'This email is not authorized. Please contact the admin.')
           return
         }
         onClose()
@@ -102,8 +108,7 @@ const LoginModal = ({ isOpen, onClose }: LoginModalProps) => {
         <form onSubmit={handleEmailLogin} className="login-form">
           <div className="form-group">
             <label htmlFor="email">Email Address</label>
-            <div className="input-with-icon">
-              <Mail size={18} className="input-icon" />
+            <div className="input-with-icon no-icon">
               <input
                 type="email"
                 id="email"
@@ -138,9 +143,23 @@ const LoginModal = ({ isOpen, onClose }: LoginModalProps) => {
               </div>
             </div>
 
-          <button type="submit" className="btn-primary btn-full">
-            Continue with Email
-          </button>
+        <button type="submit" className="btn-primary btn-full">
+          Continue with Email
+        </button>
+        <button
+          type="button"
+          onClick={handleForgotPassword}
+          style={{
+            marginTop: '0.75rem',
+            background: 'none',
+            border: 'none',
+            color: '#2C3E50',
+            cursor: 'pointer',
+            fontSize: '0.875rem'
+          }}
+        >
+          Forgot password?
+        </button>
         </form>
 
         <>

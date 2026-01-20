@@ -2,6 +2,8 @@ import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import bcrypt from 'bcryptjs'
+import crypto from 'crypto'
+import { google } from 'googleapis'
 import jwt from 'jsonwebtoken'
 import { PrismaClient } from '@prisma/client'
 
@@ -22,9 +24,68 @@ app.use(express.json({ limit: '10mb' }))
 const PORT = process.env.PORT || 4000
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret'
 const ADMIN_SECRET = process.env.ADMIN_SECRET || ''
+const APP_BASE_URL = process.env.APP_BASE_URL || 'https://www.alamosinnovacion.com/private'
+const PASSWORD_RESET_EXP_MIN = Number(process.env.PASSWORD_RESET_EXP_MIN || '15')
+
+const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID || ''
+const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET || ''
+const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN || ''
+const GMAIL_SENDER = process.env.GMAIL_SENDER || ''
+const GMAIL_REDIRECT_URI =
+  process.env.GMAIL_REDIRECT_URI || 'https://developers.google.com/oauthplayground'
 
 const signToken = (payload: { id: string; email: string; role: string }) =>
   jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' })
+
+const createResetToken = () => {
+  const raw = crypto.randomBytes(32).toString('hex')
+  const hash = crypto.createHash('sha256').update(raw).digest('hex')
+  return { raw, hash }
+}
+
+const sendPasswordResetEmail = async (to: string, resetLink: string) => {
+  if (!GMAIL_CLIENT_ID || !GMAIL_CLIENT_SECRET || !GMAIL_REFRESH_TOKEN || !GMAIL_SENDER) {
+    throw new Error('Gmail API credentials are not configured.')
+  }
+
+  const oAuth2Client = new google.auth.OAuth2(
+    GMAIL_CLIENT_ID,
+    GMAIL_CLIENT_SECRET,
+    GMAIL_REDIRECT_URI
+  )
+  oAuth2Client.setCredentials({ refresh_token: GMAIL_REFRESH_TOKEN })
+
+  const gmail = google.gmail({ version: 'v1', auth: oAuth2Client })
+  const subject = 'Reset your password'
+  const text = `Hello,\n\nUse this link to reset your password (valid for ${PASSWORD_RESET_EXP_MIN} minutes):\n${resetLink}\n\nIf you did not request this, ignore this email.`
+  const html = `
+    <p>Hello,</p>
+    <p>Use this link to reset your password (valid for ${PASSWORD_RESET_EXP_MIN} minutes):</p>
+    <p><a href="${resetLink}">${resetLink}</a></p>
+    <p>If you did not request this, ignore this email.</p>
+  `
+
+  const message = [
+    `From: ${GMAIL_SENDER}`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset="UTF-8"',
+    '',
+    html || text
+  ].join('\n')
+
+  const encodedMessage = Buffer.from(message)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
+
+  await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw: encodedMessage }
+  })
+}
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true })
@@ -63,6 +124,71 @@ app.post('/auth/google', async (req, res) => {
 
   const token = signToken({ id: user.id, email: user.email, role: user.role })
   res.json({ token, user: { id: user.id, email: user.email, role: user.role, name: name || user.name } })
+})
+
+app.post('/auth/forgot', async (req, res) => {
+  const { email } = req.body as { email?: string }
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required.' })
+  }
+
+  const normalizedEmail = email.toLowerCase()
+  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } })
+
+  if (!user) {
+    return res.json({ ok: true })
+  }
+
+  const { raw, hash } = createResetToken()
+  const expiresAt = new Date(Date.now() + PASSWORD_RESET_EXP_MIN * 60 * 1000)
+
+  await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } })
+  await prisma.passwordResetToken.create({
+    data: {
+      userId: user.id,
+      tokenHash: hash,
+      expiresAt
+    }
+  })
+
+  const baseUrl = APP_BASE_URL.replace(/\/$/, '')
+  const resetLink = `${baseUrl}/reset-password?token=${raw}&email=${encodeURIComponent(normalizedEmail)}`
+
+  try {
+    await sendPasswordResetEmail(normalizedEmail, resetLink)
+    return res.json({ ok: true })
+  } catch (error) {
+    console.error('Failed to send reset email:', error)
+    return res.status(500).json({ error: 'Failed to send reset email.' })
+  }
+})
+
+app.post('/auth/reset', async (req, res) => {
+  const { token, password } = req.body as { token?: string; password?: string }
+  if (!token || !password) {
+    return res.status(400).json({ error: 'Token and password are required.' })
+  }
+
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
+  const record = await prisma.passwordResetToken.findUnique({
+    where: { tokenHash }
+  })
+
+  if (!record || record.usedAt || record.expiresAt < new Date()) {
+    return res.status(400).json({ error: 'Token is invalid or expired.' })
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10)
+  await prisma.user.update({
+    where: { id: record.userId },
+    data: { passwordHash }
+  })
+  await prisma.passwordResetToken.update({
+    where: { tokenHash },
+    data: { usedAt: new Date() }
+  })
+
+  return res.json({ ok: true })
 })
 
 app.post('/auth/register', async (req, res) => {

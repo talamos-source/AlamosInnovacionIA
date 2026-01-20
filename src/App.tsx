@@ -18,6 +18,7 @@ import Admin from './pages/Admin'
 import CompanySettings from './pages/CompanySettings'
 import InvoicePage from './pages/InvoicePage'
 import LoginPage from './pages/LoginPage'
+import ResetPassword from './pages/ResetPassword'
 import { useAuth } from './contexts/AuthContext'
 
 // Google OAuth Client ID - Replace with your actual Client ID
@@ -29,7 +30,12 @@ const AppRoutes = () => {
   const { isAuthenticated, user } = useAuth()
 
   if (!isAuthenticated) {
-    return <LoginPage />
+    return (
+      <Routes>
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="*" element={<LoginPage />} />
+      </Routes>
+    )
   }
 
   const isCustomer = user?.role === 'Customer'

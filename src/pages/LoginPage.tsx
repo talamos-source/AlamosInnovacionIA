@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useGoogleLogin } from '@react-oauth/google'
 import { useAuth } from '../contexts/AuthContext'
 import '../components/LoginModal.css'
@@ -131,6 +132,18 @@ const LoginPage = () => {
             <button type="submit" className="btn-primary btn-full">
               Continue with Email
             </button>
+              <Link
+                to="/reset-password"
+                style={{
+                  display: 'inline-block',
+                  marginTop: '0.75rem',
+                  color: '#2C3E50',
+                  fontSize: '0.875rem',
+                  textDecoration: 'none'
+                }}
+              >
+                Forgot password?
+              </Link>
           </form>
 
           <div className="login-divider">
