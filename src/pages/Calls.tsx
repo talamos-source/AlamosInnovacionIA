@@ -223,27 +223,6 @@ const Calls = () => {
     handleInputChange(field, value)
   }
 
-  const formatCurrencyInput = (value: string) => {
-    const normalized = value.replace(/[^\d.,]/g, '').replace(',', '.')
-    const amount = Number(normalized)
-    if (!Number.isFinite(amount)) return ''
-    return new Intl.NumberFormat('es-ES', {
-      style: 'currency',
-      currency: 'EUR',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    }).format(amount)
-  }
-
-  const handleBudgetInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const rawValue = e.target.value
-    if (!rawValue.trim()) {
-      handleInputChange('budget', '')
-      return
-    }
-    handleInputChange('budget', formatCurrencyInput(rawValue))
-  }
-
   const isValidDate = (value: string) => {
     if (!/^\d{2}\/\d{2}\/\d{4}$/.test(value)) return false
     const [dayStr, monthStr, yearStr] = value.split('/')
@@ -581,13 +560,16 @@ const Calls = () => {
 
               <div className="form-group">
                 <label htmlFor="budget">Budget (optional)</label>
+              <div className="input-with-suffix">
                 <input
                   type="text"
                   id="budget"
                   value={formData.budget}
-                  onChange={handleBudgetInput}
+                  onChange={(e) => handleInputChange('budget', e.target.value)}
                   placeholder="e.g., 500000"
                 />
+                <span className="input-suffix">€</span>
+              </div>
               </div>
             </div>
 

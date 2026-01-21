@@ -1570,6 +1570,25 @@
   transition: all 0.2s ease;
 }
 
+.input-with-suffix {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-with-suffix input {
+  padding-right: 2rem;
+  width: 100%;
+}
+
+.input-suffix {
+  position: absolute;
+  right: 0.75rem;
+  color: #94a3b8;
+  font-size: 0.9rem;
+  pointer-events: none;
+}
+
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
