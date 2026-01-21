@@ -81,7 +81,7 @@ const Calls = () => {
     'País Vasco o Euskadi', 'Principado de Asturias', 'Región de Murcia', 'Ceuta', 'Melilla'
   ]
 
-  const aidTypes = ['Grant', 'Loan', 'Equity', 'Tax Credit', 'Other']
+  const aidTypes = ['Grant', 'Loan', 'Mixed (Grant + Loan)', 'Equity', 'Tax Credit', 'Other']
   const geographicScopes = ['International', 'EU', 'National', 'Regional']
   const companySizes = ['Small', 'Medium', 'Large']
   const statuses = ['Draft', 'Upcoming', 'Open', 'Closed', 'Archived']
