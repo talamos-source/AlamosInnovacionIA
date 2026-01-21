@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Globe, MapPin, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import Modal from '../components/Modal'
@@ -43,6 +43,8 @@ const Customers = () => {
   const [currentPage, setCurrentPage] = useState(1)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null)
+  const [importFeedback, setImportFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const csvInputRef = useRef<HTMLInputElement | null>(null)
   const itemsPerPage = 10
 
   // Form state
@@ -312,6 +314,192 @@ const Customers = () => {
     setIsModalOpen(true)
   }
 
+  const parseCsv = (raw: string) => {
+    const rows: string[][] = []
+    let current = ''
+    let row: string[] = []
+    let inQuotes = false
+
+    const pushCell = () => {
+      row.push(current)
+      current = ''
+    }
+
+    const pushRow = () => {
+      rows.push(row)
+      row = []
+    }
+
+    for (let i = 0; i < raw.length; i += 1) {
+      const char = raw[i]
+      const next = raw[i + 1]
+
+      if (char === '"') {
+        if (inQuotes && next === '"') {
+          current += '"'
+          i += 1
+        } else {
+          inQuotes = !inQuotes
+        }
+        continue
+      }
+
+      if (char === ',' && !inQuotes) {
+        pushCell()
+        continue
+      }
+
+      if ((char === '\n' || char === '\r') && !inQuotes) {
+        if (char === '\r' && next === '\n') {
+          i += 1
+        }
+        pushCell()
+        pushRow()
+        continue
+      }
+
+      current += char
+    }
+
+    pushCell()
+    pushRow()
+
+    return rows
+      .map(rowValues => rowValues.map(value => value.trim()))
+      .filter(rowValues => rowValues.some(value => value !== ''))
+  }
+
+  const handleCsvImport = async (file: File) => {
+    try {
+      const text = await file.text()
+      const rows = parseCsv(text)
+
+      if (rows.length < 2) {
+        setImportFeedback({ type: 'error', message: 'El CSV no tiene filas de datos para importar.' })
+        return
+      }
+
+      const headerRow = rows[0].map(value => value.replace(/^\uFEFF/, '').toLowerCase())
+      const requiredHeaders = [
+        'name',
+        'legalname',
+        'taxid',
+        'website',
+        'incorporationdate',
+        'companysize',
+        'country',
+        'region',
+        'address',
+        'status',
+        'category',
+        'description',
+        'notes'
+      ]
+
+      const headerIndex = new Map<string, number>()
+      headerRow.forEach((header, index) => headerIndex.set(header, index))
+
+      const missingHeaders = requiredHeaders.filter(header => !headerIndex.has(header))
+      if (missingHeaders.length > 0) {
+        setImportFeedback({
+          type: 'error',
+          message: `Faltan columnas en el CSV: ${missingHeaders.join(', ')}. Usa el template.`
+        })
+        return
+      }
+
+      const rowErrors: string[] = []
+      const newCustomers: Customer[] = []
+      const now = new Date().toISOString()
+
+      const getCell = (row: string[], key: string) => row[headerIndex.get(key) ?? -1] ?? ''
+
+      rows.slice(1).forEach((row, index) => {
+        const name = getCell(row, 'name')
+        const legalName = getCell(row, 'legalname')
+        const taxId = getCell(row, 'taxid')
+        const website = getCell(row, 'website')
+        const incorporationDate = getCell(row, 'incorporationdate')
+        const companySize = getCell(row, 'companysize')
+        const country = getCell(row, 'country')
+        const region = getCell(row, 'region')
+        const address = getCell(row, 'address')
+        const status = getCell(row, 'status') || 'Active'
+        const category = getCell(row, 'category')
+        const description = getCell(row, 'description')
+        const notes = getCell(row, 'notes')
+
+        const errors: string[] = []
+        if (!name) errors.push('name')
+        if (!legalName) errors.push('legalName')
+        if (!taxId) errors.push('taxId')
+        if (!website) errors.push('website')
+        if (website && !/^https?:\/\/.+/.test(website)) errors.push('website format')
+        if (!incorporationDate || !/^\d{2}\/\d{2}\/\d{4}$/.test(incorporationDate)) errors.push('incorporationDate')
+        if (!companySize) errors.push('companySize')
+        if (!country) errors.push('country')
+        if (country === 'España' && !region) errors.push('region')
+        if (!address) errors.push('address')
+        if (!category) errors.push('category')
+        if (!description) errors.push('description')
+
+        if (errors.length > 0) {
+          rowErrors.push(`Fila ${index + 2}: ${errors.join(', ')}`)
+          return
+        }
+
+        newCustomers.push({
+          id: `customer-${Date.now()}-${index}`,
+          name,
+          company: legalName,
+          country,
+          region: region || '',
+          partner: {
+            name: 'Default Partner',
+            initials: 'DP'
+          },
+          website,
+          category,
+          status,
+          taxId: taxId || undefined,
+          incorporationDate: incorporationDate || undefined,
+          companySize: companySize || undefined,
+          address: address || undefined,
+          description: description || undefined,
+          notes: notes || undefined,
+          createdAt: now,
+          updatedAt: now
+        })
+      })
+
+      if (newCustomers.length === 0) {
+        setImportFeedback({ type: 'error', message: 'No se pudo importar ninguna fila. Revisa el CSV.' })
+        if (rowErrors.length > 0) {
+          console.warn('Errores de importación CSV:', rowErrors)
+        }
+        return
+      }
+
+      setCustomers(prev => [...prev, ...newCustomers])
+      setImportFeedback({
+        type: rowErrors.length > 0 ? 'error' : 'success',
+        message: rowErrors.length > 0
+          ? `Importados ${newCustomers.length} clientes. ${rowErrors.length} filas con errores.`
+          : `Importados ${newCustomers.length} clientes correctamente.`
+      })
+      if (rowErrors.length > 0) {
+        console.warn('Errores de importación CSV:', rowErrors)
+      }
+    } catch (error) {
+      console.error('Error importing CSV:', error)
+      setImportFeedback({ type: 'error', message: 'Ocurrió un error al leer el archivo CSV.' })
+    } finally {
+      if (csvInputRef.current) {
+        csvInputRef.current.value = ''
+      }
+    }
+  }
+
   return (
     <div className="page">
       <div className="page-header">
@@ -393,8 +581,34 @@ const Customers = () => {
           </div>
         </div>
 
+        <input
+          ref={csvInputRef}
+          type="file"
+          accept=".csv,text/csv"
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            if (file) {
+              handleCsvImport(file)
+            }
+          }}
+          style={{ display: 'none' }}
+        />
+
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => csvInputRef.current?.click()}
+        >
+          Import CSV
+        </button>
         <button className="btn-primary" onClick={handleNewClient}>+ New Client</button>
       </div>
+
+      {importFeedback && (
+        <div className={`import-feedback import-feedback-${importFeedback.type}`}>
+          {importFeedback.message}
+        </div>
+      )}
 
       <Modal 
         isOpen={isModalOpen} 

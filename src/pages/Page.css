@@ -168,6 +168,11 @@
   border-bottom: 2px solid #e2e8f0;
 }
 
+.data-table.title-case th {
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
 .data-table td {
   padding: 1rem;
   border-bottom: 1px solid #e2e8f0;
@@ -783,6 +788,27 @@
   align-items: center;
   margin-bottom: 1.5rem;
   flex-wrap: wrap;
+}
+
+.import-feedback {
+  margin-bottom: 1rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+
+.import-feedback-success {
+  color: #27AE60;
+  background-color: rgba(39, 174, 96, 0.1);
+  border-color: rgba(39, 174, 96, 0.2);
+}
+
+.import-feedback-error {
+  color: #FF7F50;
+  background-color: rgba(255, 127, 80, 0.1);
+  border-color: rgba(255, 127, 80, 0.2);
 }
 
 .search-bar-inline {
