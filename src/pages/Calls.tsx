@@ -69,7 +69,7 @@ const Calls = () => {
     'España', 'Estonia', 'Faroe Islands', 'Finlandia', 'Francia', 'Georgia', 'Grecia',
     'Iceland', 'Irlanda', 'Israel', 'Italia', 'Japan', 'Kosovo',
     'Letonia', 'Lituania', 'Luxemburgo', 'Malta', 'Moldova', 'Mónaco', 'Montenegro',
-    'Morocco', 'North Macedonia', 'Norway', 'Países Bajos', 'Portugal', 'Región de Murcia',
+    'Morocco', 'North Macedonia', 'Norway', 'Países Bajos', 'Portugal',
     'San Marino', 'Serbia', 'Tunisia', 'Türkiye', 'Ukraine', 'United Kingdom', 'United States'
   ].sort()
 
@@ -167,10 +167,8 @@ const Calls = () => {
     }
   }
 
-  const handleDelete = (callId: string) => {
-    if (window.confirm('Are you sure you want to delete this call?')) {
-      setCalls(prev => prev.filter(c => c.id !== callId))
-    }
+  const handleDelete = (_callId: string) => {
+    window.alert('La eliminación está desactivada para conservar el histórico de calls.')
   }
 
   const handleNewCall = () => {
@@ -225,6 +223,40 @@ const Calls = () => {
     handleInputChange(field, value)
   }
 
+  const formatCurrencyInput = (value: string) => {
+    const normalized = value.replace(/[^\d.,]/g, '').replace(',', '.')
+    const amount = Number(normalized)
+    if (!Number.isFinite(amount)) return ''
+    return new Intl.NumberFormat('es-ES', {
+      style: 'currency',
+      currency: 'EUR',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(amount)
+  }
+
+  const handleBudgetInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawValue = e.target.value
+    if (!rawValue.trim()) {
+      handleInputChange('budget', '')
+      return
+    }
+    handleInputChange('budget', formatCurrencyInput(rawValue))
+  }
+
+  const isValidDate = (value: string) => {
+    if (!/^\d{2}\/\d{2}\/\d{4}$/.test(value)) return false
+    const [dayStr, monthStr, yearStr] = value.split('/')
+    const day = Number(dayStr)
+    const month = Number(monthStr)
+    const year = Number(yearStr)
+    if (!day || !month || !year) return false
+    if (month < 1 || month > 12) return false
+    if (year < 1900) return false
+    const daysInMonth = new Date(year, month, 0).getDate()
+    return day >= 1 && day <= daysInMonth
+  }
+
   const handleMultiSelect = (field: string, value: string) => {
     const currentValues = formData[field as keyof typeof formData] as string[]
     const newValues = currentValues.includes(value)
@@ -257,12 +289,12 @@ const Calls = () => {
       newErrors.sourceUrl = 'Source URL must be a valid URL (e.g., https://example.com)'
     }
 
-    // Validate date format
-    if (formData.openDate && !/^\d{2}\/\d{2}\/\d{4}$/.test(formData.openDate)) {
-      newErrors.openDate = 'Date must be in format dd/mm/yyyy'
+    // Validate date format and calendar validity
+    if (formData.openDate && !isValidDate(formData.openDate)) {
+      newErrors.openDate = 'Date must be valid and in format dd/mm/yyyy'
     }
-    if (formData.deadline && !/^\d{2}\/\d{2}\/\d{4}$/.test(formData.deadline)) {
-      newErrors.deadline = 'Date must be in format dd/mm/yyyy'
+    if (formData.deadline && !isValidDate(formData.deadline)) {
+      newErrors.deadline = 'Date must be valid and in format dd/mm/yyyy'
     }
 
     // Validate year
@@ -553,7 +585,7 @@ const Calls = () => {
                   type="text"
                   id="budget"
                   value={formData.budget}
-                  onChange={(e) => handleInputChange('budget', e.target.value)}
+                  onChange={handleBudgetInput}
                   placeholder="e.g., 500000"
                 />
               </div>
