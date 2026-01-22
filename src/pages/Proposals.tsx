@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Search, ChevronDown, ChevronLeft, ChevronRight, X, Users } from 'lucide-react'
+import { Search, ChevronDown, ChevronLeft, ChevronRight, X, Users, Calendar, Clock } from 'lucide-react'
 import ActionsMenu from '../components/ActionsMenu'
 import Modal from '../components/Modal'
 import { formatCurrency, formatNumber, parseEuropeanNumber } from '../utils/formatCurrency'
@@ -1060,19 +1060,32 @@ const Proposals = () => {
                 paginatedProposals.map(proposal => (
                   <tr key={proposal.id} className="customer-row">
                     <td className="name-cell">
-                      <div className="customer-name">{proposal.proposal}</div>
-                      <div className="customer-company">Created {formatDate(proposal.createdAt)}</div>
+                      <div className="proposal-cell">
+                        <div className="proposal-title">{proposal.proposal}</div>
+                        <div className="proposal-subline">
+                          <Calendar size={14} className="proposal-icon" />
+                          Created {formatDate(proposal.createdAt)}
+                        </div>
+                      </div>
                     </td>
                     <td>
-                      <div className="customer-name">{proposal.call}</div>
-                      <div className="customer-company">Deadline: {formatDate(getCallDeadline(proposal.callId))}</div>
+                      <div className="proposal-cell">
+                        <div className="proposal-title">{proposal.call}</div>
+                        <div className="proposal-subline">
+                          <Clock size={14} className="proposal-icon" />
+                          Deadline: {formatDate(getCallDeadline(proposal.callId))}
+                        </div>
+                      </div>
                     </td>
                     <td>
-                      <div className="clients-list">
+                      <div className="proposal-clients">
                         {proposal.primaryClients.length > 0 ? (
                           <>
-                            <div className="customer-name">{proposal.primaryClients.length}</div>
-                            <div className="customer-company">
+                            <div className="proposal-count">
+                              <Users size={14} className="proposal-icon" />
+                              {proposal.primaryClients.length}
+                            </div>
+                            <div className="proposal-subline">
                               {proposal.primaryClients.map(getClientName).join(', ')}
                             </div>
                           </>
@@ -1082,11 +1095,14 @@ const Proposals = () => {
                       </div>
                     </td>
                     <td>
-                      <div className="clients-list">
+                      <div className="proposal-clients">
                         {proposal.secondaryClients.length > 0 ? (
                           <>
-                            <div className="customer-name">{proposal.secondaryClients.length}</div>
-                            <div className="customer-company">
+                            <div className="proposal-count">
+                              <Users size={14} className="proposal-icon" />
+                              {proposal.secondaryClients.length}
+                            </div>
+                            <div className="proposal-subline">
                               {proposal.secondaryClients.map(getClientName).join(', ')}
                             </div>
                           </>
@@ -1096,7 +1112,7 @@ const Proposals = () => {
                       </div>
                     </td>
                     <td>{formatCurrency(proposal.budgetFunding)}</td>
-                    <td>{formatCurrency(proposal.fee)}</td>
+                    <td className="proposal-fee">{formatCurrency(proposal.fee)}</td>
                     <td>
                       <span className={`status-badge status-${proposal.status.toLowerCase().replace(' ', '-')}`}>
                         {proposal.status}

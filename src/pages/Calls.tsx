@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Search, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Search, ChevronDown, ChevronLeft, ChevronRight, Clock } from 'lucide-react'
 import ActionsMenu from '../components/ActionsMenu'
 import Modal from '../components/Modal'
 import { formatCurrency } from '../utils/formatCurrency'
@@ -804,8 +804,13 @@ const Calls = () => {
                         {call.scope}
                       </span>
                     </td>
-                    <td>{formatDate(call.deadline)}</td>
-                    <td>{formatCurrency(call.budget)}</td>
+                    <td>
+                      <div className="call-deadline">
+                        <Clock size={14} className="call-deadline-icon" />
+                        {formatDate(call.deadline)}
+                      </div>
+                    </td>
+                    <td className="call-budget">{formatCurrency(call.budget)}</td>
                     <td>
                       <span className={`status-badge status-${call.status.toLowerCase()}`}>
                         {call.status}
