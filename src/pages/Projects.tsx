@@ -1430,7 +1430,9 @@ const Projects = () => {
                           Add Task
                         </button>
                       </div>
-                      {project.tasks.map(task => (
+                      {[...(project.tasks || [])]
+                        .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+                        .map(task => (
                         <div key={task.id} className="task-item">
                           <div 
                             className="task-dot" 
