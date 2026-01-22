@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react'
 
 interface User {
   email: string
@@ -24,6 +24,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null)
 const API_BASE = import.meta.env.VITE_API_URL || 'https://alamosinnovacionia.onrender.com'
+  const SESSION_TIMEOUT_MS = 30 * 60 * 1000
+  const ACTIVITY_KEY = 'lastActivityAt'
+  const lastActivityWriteRef = useRef(0)
 
   const normalizeEmail = (email: string) => email.trim().toLowerCase()
   const normalizeProjectIds = (user: User) => {
@@ -65,22 +68,42 @@ const API_BASE = import.meta.env.VITE_API_URL || 'https://alamosinnovacionia.onr
     localStorage.setItem('users', JSON.stringify(users))
   }
 
+  const recordActivity = useCallback((force = false) => {
+    const now = Date.now()
+    if (force || now - lastActivityWriteRef.current > 60000) {
+      localStorage.setItem(ACTIVITY_KEY, String(now))
+      lastActivityWriteRef.current = now
+    }
+  }, [ACTIVITY_KEY])
+
+  const logout = useCallback(() => {
+    setUser(null)
+    localStorage.removeItem('authToken')
+  }, [])
+
   // Load user from localStorage on mount
   useEffect(() => {
     const savedUser = localStorage.getItem('user')
     if (savedUser) {
       try {
+        const lastActivity = Number(localStorage.getItem(ACTIVITY_KEY) || '0')
+        if (lastActivity && Date.now() - lastActivity > SESSION_TIMEOUT_MS) {
+          localStorage.removeItem('user')
+          localStorage.removeItem('authToken')
+          return
+        }
         const parsed = JSON.parse(savedUser) as User
         const fromList = parsed?.email ? getUserFromList(parsed.email) : undefined
         const resolved = fromList
           ? { ...parsed, ...fromList, provider: parsed.provider }
           : parsed
         setUser({ ...resolved, projectIds: normalizeProjectIds(resolved) })
+        recordActivity(true)
       } catch (error) {
         console.error('Error loading user from localStorage:', error)
       }
     }
-  }, [])
+  }, [recordActivity])
 
   // Normalize any stored users to lowercase emails once
   useEffect(() => {
@@ -107,6 +130,33 @@ const API_BASE = import.meta.env.VITE_API_URL || 'https://alamosinnovacionia.onr
       localStorage.removeItem('user')
     }
   }, [user])
+
+  useEffect(() => {
+    if (!user) return
+
+    const handleActivity = () => recordActivity()
+    const events: Array<keyof WindowEventMap> = [
+      'mousemove',
+      'keydown',
+      'click',
+      'scroll',
+      'touchstart'
+    ]
+
+    events.forEach((event) => window.addEventListener(event, handleActivity, { passive: true }))
+
+    const interval = window.setInterval(() => {
+      const lastActivity = Number(localStorage.getItem(ACTIVITY_KEY) || '0')
+      if (lastActivity && Date.now() - lastActivity > SESSION_TIMEOUT_MS) {
+        logout()
+      }
+    }, 60000)
+
+    return () => {
+      events.forEach((event) => window.removeEventListener(event, handleActivity))
+      window.clearInterval(interval)
+    }
+  }, [user, recordActivity, logout])
 
   const login = async (email: string, password: string, name?: string) => {
     const normalizedEmail = normalizeEmail(email)
@@ -140,6 +190,7 @@ const API_BASE = import.meta.env.VITE_API_URL || 'https://alamosinnovacionia.onr
       localStorage.setItem('authToken', data?.token || '')
       setUser(newUser)
       upsertUserInList(newUser)
+      recordActivity(true)
       return { success: true }
     } catch (error) {
       console.error('Login error:', error)
@@ -180,6 +231,7 @@ const API_BASE = import.meta.env.VITE_API_URL || 'https://alamosinnovacionia.onr
       localStorage.setItem('authToken', data?.token || '')
       setUser(newUser)
       upsertUserInList(newUser)
+      recordActivity(true)
       return { success: true }
     } catch (error) {
       console.error('Google login error:', error)
@@ -198,11 +250,6 @@ const API_BASE = import.meta.env.VITE_API_URL || 'https://alamosinnovacionia.onr
       upsertUserInList(updated)
       return updated
     })
-  }
-
-  const logout = () => {
-    setUser(null)
-    localStorage.removeItem('authToken')
   }
 
   return (
