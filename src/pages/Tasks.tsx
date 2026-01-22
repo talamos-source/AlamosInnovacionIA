@@ -326,7 +326,7 @@ const Tasks = () => {
   }
 
   // Handle Delete Task
-  const handleDeleteTask = (task: Task) => {
+  const handleDeleteTask = (_task: Task) => {
     window.alert('La eliminación está desactivada para conservar el histórico de tareas.')
   }
 

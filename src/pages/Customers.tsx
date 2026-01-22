@@ -292,7 +292,7 @@ const Customers = () => {
     }
   }
 
-  const handleDelete = (customerId: string) => {
+  const handleDelete = (_customerId: string) => {
     window.alert('La eliminación está desactivada para mantener el histórico de clientes.')
   }
 

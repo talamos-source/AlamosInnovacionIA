@@ -197,7 +197,7 @@ const OtherServices = () => {
     }
   }
 
-  const handleDelete = (serviceId: string) => {
+  const handleDelete = (_serviceId: string) => {
     window.alert('La eliminación está desactivada para conservar el histórico de servicios.')
   }
 

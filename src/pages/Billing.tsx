@@ -679,7 +679,7 @@ const Billing = () => {
   }
 
   // Handle Delete Billing
-  const handleDeleteBilling = (billing: BillingItem) => {
+  const handleDeleteBilling = (_billing: BillingItem) => {
     window.alert('La eliminación está desactivada para conservar el histórico de billing.')
   }
 
