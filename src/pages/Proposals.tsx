@@ -239,7 +239,7 @@ const Proposals = () => {
     }
   }
 
-  const handleDelete = (proposalId: string) => {
+  const handleDelete = (_proposalId: string) => {
     window.alert('La eliminación está desactivada para conservar el histórico de proposals.')
   }
 
