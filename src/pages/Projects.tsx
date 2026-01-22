@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Search, ChevronDown, Calendar, Users, MoreVertical, Clock, Pencil, Trash2, Plus, Edit, FileText, ListTodo } from 'lucide-react'
+import { Search, ChevronDown, Calendar, Users, MoreVertical, Clock, Pencil, Trash2, Plus, Edit, FileText, ListTodo, Copy } from 'lucide-react'
 import { formatCurrency } from '../utils/formatCurrency'
 import Modal from '../components/Modal'
 import { useAuth } from '../contexts/AuthContext'
@@ -534,6 +534,28 @@ const Projects = () => {
     setBillingFormData(prev => ({ ...prev, dueDate: value }))
   }
 
+  const formatDateForInput = (dateString?: string) => {
+    if (!dateString) return ''
+    const date = new Date(dateString)
+    const day = date.getDate().toString().padStart(2, '0')
+    const month = (date.getMonth() + 1).toString().padStart(2, '0')
+    const year = date.getFullYear()
+    return `${day}/${month}/${year}`
+  }
+
+  const isValidDate = (value: string) => {
+    if (!/^\d{2}\/\d{2}\/\d{4}$/.test(value)) return false
+    const [dayStr, monthStr, yearStr] = value.split('/')
+    const day = Number(dayStr)
+    const month = Number(monthStr)
+    const year = Number(yearStr)
+    if (!day || !month || !year) return false
+    if (month < 1 || month > 12) return false
+    if (year < 1900) return false
+    const daysInMonth = new Date(year, month, 0).getDate()
+    return day >= 1 && day <= daysInMonth
+  }
+
   const handleBillingFormChange = (field: string, value: string) => {
     setBillingFormData(prev => ({ ...prev, [field]: value }))
     if (billingErrors[field]) {
@@ -549,7 +571,11 @@ const Projects = () => {
     if (!billingFormData.clientId) newErrors.clientId = 'Client is required'
     if (!billingFormData.description.trim()) newErrors.description = 'Description is required'
     if (!billingFormData.amount.trim()) newErrors.amount = 'Amount is required'
-    if (!billingFormData.dueDate.trim()) newErrors.dueDate = 'Due Date is required'
+    if (!billingFormData.dueDate.trim()) {
+      newErrors.dueDate = 'Due Date is required'
+    } else if (!isValidDate(billingFormData.dueDate)) {
+      newErrors.dueDate = 'Due Date must be valid (dd/mm/yyyy)'
+    }
 
     // Validate amount is a valid number
     if (billingFormData.amount.trim()) {
@@ -626,6 +652,24 @@ const Projects = () => {
     setSelectedProject(null)
   }
 
+  const handleDuplicateBilling = (project: Project, billing: BillingItem) => {
+    const clientId = [
+      ...project.primaryClients,
+      ...(project.secondaryClients || [])
+    ].find(id => getClientName(id) === billing.clientName) || project.primaryClients[0] || ''
+
+    setSelectedProject(project)
+    setBillingFormData({
+      clientId,
+      description: billing.description || '',
+      amount: billing.amount,
+      dueDate: formatDateForInput(billing.dueDate),
+      notes: ''
+    })
+    setBillingErrors({})
+    setIsAddBillingModalOpen(true)
+  }
+
   // Handle Edit Billing
   const handleEditBilling = (project: Project, billingItem: BillingItem) => {
     setSelectedProject(project)
@@ -636,16 +680,6 @@ const Projects = () => {
       ...project.primaryClients,
       ...(project.secondaryClients || [])
     ].find(id => getClientName(id) === billingItem.clientName) || project.primaryClients[0] || ''
-
-    // Convert date from YYYY-MM-DD to dd/mm/yyyy
-    const formatDateForInput = (dateString: string) => {
-      if (!dateString) return ''
-      const date = new Date(dateString)
-      const day = date.getDate().toString().padStart(2, '0')
-      const month = (date.getMonth() + 1).toString().padStart(2, '0')
-      const year = date.getFullYear()
-      return `${day}/${month}/${year}`
-    }
 
     // Extract amount value
     const amountValue = parseFloat(billingItem.amount.replace(/[^\d.,-]/g, '').replace(',', '.') || '0')
@@ -683,7 +717,11 @@ const Projects = () => {
     if (!editBillingFormData.clientId) newErrors.clientId = 'Client is required'
     if (!editBillingFormData.description.trim()) newErrors.description = 'Description is required'
     if (!editBillingFormData.amount.trim()) newErrors.amount = 'Amount is required'
-    if (!editBillingFormData.dueDate.trim()) newErrors.dueDate = 'Due Date is required'
+    if (!editBillingFormData.dueDate.trim()) {
+      newErrors.dueDate = 'Due Date is required'
+    } else if (!isValidDate(editBillingFormData.dueDate)) {
+      newErrors.dueDate = 'Due Date must be valid (dd/mm/yyyy)'
+    }
 
     // Validate amount is a valid number
     if (editBillingFormData.amount.trim()) {
@@ -790,7 +828,11 @@ const Projects = () => {
     const newErrors: Record<string, string> = {}
     
     if (!taskFormData.title.trim()) newErrors.title = 'Task Title is required'
-    if (!taskFormData.dueDate.trim()) newErrors.dueDate = 'Due Date is required'
+    if (!taskFormData.dueDate.trim()) {
+      newErrors.dueDate = 'Due Date is required'
+    } else if (!isValidDate(taskFormData.dueDate)) {
+      newErrors.dueDate = 'Due Date must be valid (dd/mm/yyyy)'
+    }
 
     setTaskErrors(newErrors)
     if (Object.keys(newErrors).length > 0) return
@@ -851,20 +893,23 @@ const Projects = () => {
     setSelectedProject(null)
   }
 
+  const handleDuplicateTask = (project: Project, task: Task) => {
+    setSelectedProject(project)
+    setTaskFormData({
+      title: task.title,
+      description: task.description || '',
+      dueDate: formatDateForInput(task.dueDate),
+      priority: task.priority || 'Medium',
+      status: task.status || 'Pending'
+    })
+    setTaskErrors({})
+    setIsAddTaskModalOpen(true)
+  }
+
   // Handle Edit Task
   const handleEditTask = (project: Project, task: Task) => {
     setSelectedProject(project)
     setSelectedTask(task)
-    
-    // Convert date from YYYY-MM-DD to dd/mm/yyyy
-    const formatDateForInput = (dateString: string) => {
-      if (!dateString) return ''
-      const date = new Date(dateString)
-      const day = date.getDate().toString().padStart(2, '0')
-      const month = (date.getMonth() + 1).toString().padStart(2, '0')
-      const year = date.getFullYear()
-      return `${day}/${month}/${year}`
-    }
     
     setTaskFormData({
       title: task.title,
@@ -883,7 +928,11 @@ const Projects = () => {
     const newErrors: Record<string, string> = {}
     
     if (!taskFormData.title.trim()) newErrors.title = 'Task Title is required'
-    if (!taskFormData.dueDate.trim()) newErrors.dueDate = 'Due Date is required'
+    if (!taskFormData.dueDate.trim()) {
+      newErrors.dueDate = 'Due Date is required'
+    } else if (!isValidDate(taskFormData.dueDate)) {
+      newErrors.dueDate = 'Due Date must be valid (dd/mm/yyyy)'
+    }
 
     setTaskErrors(newErrors)
     if (Object.keys(newErrors).length > 0) return
@@ -1222,6 +1271,14 @@ const Projects = () => {
                               <Clock size={14} />
                               {billing.invoiceStatus}
                             </span>
+                          <button
+                            className="billing-action-btn"
+                            type="button"
+                            title="Duplicate"
+                            onClick={() => handleDuplicateBilling(project, billing)}
+                          >
+                            <Copy size={16} />
+                          </button>
                             <button 
                               className="billing-action-btn" 
                               type="button" 
@@ -1348,6 +1405,14 @@ const Projects = () => {
                             </span>
                           </div>
                           <div className="task-actions">
+                            <button
+                              className="task-action-btn"
+                              type="button"
+                              title="Duplicate"
+                              onClick={() => handleDuplicateTask(project, task)}
+                            >
+                              <Copy size={16} />
+                            </button>
                             <button 
                               className="task-action-btn" 
                               type="button" 
