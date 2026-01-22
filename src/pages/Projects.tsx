@@ -224,15 +224,9 @@ const Projects = () => {
 
     const proposals = loadProposals()
     const services = loadServices()
-    const allCustomers = loadCustomers()
     const existingProjects = loadProjects()
     const existingProjectIds = new Set(existingProjects.map(p => p.id))
     const newProjects: Project[] = []
-
-    const getClientNameLocal = (clientId: string) => {
-      const client = allCustomers.find(c => c.id === clientId)
-      return client ? client.name : clientId
-    }
 
     // Create projects from Granted proposals that don't exist yet
     proposals
@@ -241,10 +235,6 @@ const Projects = () => {
         const projectId = `proposal-${proposal.id}`
         if (!existingProjectIds.has(projectId)) {
           const callData = calls.find(c => c.id === proposal.callId)
-          const primaryClientName = proposal.primaryClients.length > 0 
-            ? getClientNameLocal(proposal.primaryClients[0]) 
-            : 'Client'
-          
           newProjects.push({
             id: projectId,
             title: proposal.proposal,
@@ -260,20 +250,6 @@ const Projects = () => {
             fee: proposal.fee,
             status: 'Ongoing',
             startDate: new Date().toISOString().split('T')[0],
-            billingSchedule: [{
-              id: `billing-${proposal.id}`,
-              percentage: '100%',
-              clientName: primaryClientName,
-              dueDate: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-              amount: proposal.fee,
-              invoiceStatus: 'Invoice_pending'
-            }],
-          tasks: [{
-            id: `task-${proposal.id}-1`,
-            title: 'Revisión justificación',
-            dueDate: new Date(Date.now() + 150 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-            priority: 'Medium' as const
-          }],
             createdAt: new Date().toISOString()
           })
         }
@@ -285,8 +261,6 @@ const Projects = () => {
       .forEach(service => {
         const projectId = `service-${service.id}`
         if (!existingProjectIds.has(projectId)) {
-          const primaryClientName = getClientNameLocal(service.primaryClient)
-          
           newProjects.push({
             id: projectId,
             title: service.title,
@@ -298,20 +272,6 @@ const Projects = () => {
             fee: service.fee,
             status: 'Ongoing',
             startDate: new Date().toISOString().split('T')[0],
-            billingSchedule: [{
-              id: `billing-${service.id}`,
-              percentage: '100%',
-              clientName: primaryClientName,
-              dueDate: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-              amount: service.fee,
-              invoiceStatus: 'Invoice_pending'
-            }],
-            tasks: [{
-              id: `task-${service.id}-1`,
-              title: 'Revisión justificación',
-              dueDate: new Date(Date.now() + 150 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-              priority: 'Medium'
-            }],
             createdAt: new Date().toISOString()
           })
         }
@@ -799,45 +759,12 @@ const Projects = () => {
   }
 
   // Handle Delete Billing
-  const handleDeleteBilling = (project: Project, billingItemId: string) => {
-    if (!window.confirm('Are you sure you want to delete this billing milestone?')) {
-      return
-    }
-
-    const updatedBillingSchedule = project.billingSchedule?.filter(billing => billing.id !== billingItemId) || []
-
-    const updatedProject: Project = {
-      ...project,
-      billingSchedule: updatedBillingSchedule.length > 0 ? updatedBillingSchedule : undefined
-    }
-
-    // Update project in state and save to localStorage
-    setProjects(prev => {
-      const updated = prev.map(p => p.id === project.id ? updatedProject : p)
-      try {
-        localStorage.setItem('projects', JSON.stringify(updated))
-      } catch (error) {
-        console.error('Error deleting billing:', error)
-      }
-      return updated
-    })
+  const handleDeleteBilling = (_project: Project, _billingItemId: string) => {
+    window.alert('La eliminación está desactivada para conservar el histórico de billing.')
   }
 
   const handleDeleteProject = () => {
-    if (!projectToDelete) return
-
-    // Remove project from state and localStorage
-    setProjects(prev => {
-      const updated = prev.filter(p => p.id !== projectToDelete.id)
-      try {
-        localStorage.setItem('projects', JSON.stringify(updated))
-      } catch (error) {
-        console.error('Error deleting project:', error)
-      }
-      return updated
-    })
-
-    // Close modal and reset
+    window.alert('La eliminación está desactivada para conservar el histórico de proyectos.')
     setIsDeleteProjectModalOpen(false)
     setProjectToDelete(null)
   }
@@ -1017,28 +944,8 @@ const Projects = () => {
   }
 
   // Handle Delete Task
-  const handleDeleteTask = (project: Project, taskId: string) => {
-    if (!window.confirm('Are you sure you want to delete this task?')) {
-      return
-    }
-
-    const updatedTasks = project.tasks?.filter(task => task.id !== taskId) || []
-
-    const updatedProject: Project = {
-      ...project,
-      tasks: updatedTasks.length > 0 ? updatedTasks : undefined
-    }
-
-    // Update project in state and save to localStorage
-    setProjects(prev => {
-      const updated = prev.map(p => p.id === project.id ? updatedProject : p)
-      try {
-        localStorage.setItem('projects', JSON.stringify(updated))
-      } catch (error) {
-        console.error('Error deleting task:', error)
-      }
-      return updated
-    })
+  const handleDeleteTask = (_project: Project, _taskId: string) => {
+    window.alert('La eliminación está desactivada para conservar el histórico de tareas.')
   }
 
   // Get date color based on due date and status
@@ -2063,7 +1970,7 @@ const Projects = () => {
         }}
         title="Delete Project"
       >
-        <div style={{ padding: '1rem' }}>
+          <div style={{ padding: '1rem' }}>
           <div style={{ 
             marginBottom: '1.5rem',
             padding: '1rem',
@@ -2073,7 +1980,7 @@ const Projects = () => {
             color: '#991b1b'
           }}>
             <p style={{ margin: 0, fontWeight: '500' }}>
-              Are you sure you want to delete this project?
+              Are you sure you want to delete this project{projectToDelete ? `: ${projectToDelete.title}` : ''}?
             </p>
           </div>
           <div className="modal-actions">
