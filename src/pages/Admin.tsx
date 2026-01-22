@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Plus, Eye, Pencil, Trash2, Settings } from 'lucide-react'
+import { Search, Plus, Eye, Pencil, Trash2, Settings, Upload, Download } from 'lucide-react'
 import Modal from '../components/Modal'
 import { useAuth } from '../contexts/AuthContext'
+import { APP_DATA_UPDATED_AT_KEY, applySnapshot, getLocalSnapshot } from '../utils/appData'
 import './Page.css'
 
 interface UserRow {
@@ -21,7 +22,7 @@ const Admin = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
   const isAdmin = user?.role === 'Admin'
-  const API_BASE = import.meta.env.VITE_API_URL || 'https://api.alamosinnovacion.com'
+  const API_BASE = import.meta.env.VITE_API_URL || 'https://alamosinnovacionia.onrender.com'
   const [users, setUsers] = useState<UserRow[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [roleFilter, setRoleFilter] = useState('All')
@@ -40,6 +41,8 @@ const Admin = () => {
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitError, setSubmitError] = useState('')
+  const [dataSyncMessage, setDataSyncMessage] = useState('')
+  const [dataSyncError, setDataSyncError] = useState('')
 
   useEffect(() => {
     const storedUsers = localStorage.getItem('users')
@@ -201,6 +204,88 @@ const Admin = () => {
     navigate('/company-settings')
   }
 
+  const uploadSnapshot = async (snapshot: Record<string, string>) => {
+    const token = localStorage.getItem('authToken')
+    if (!token) {
+      setDataSyncError('No auth token found. Please login again.')
+      return false
+    }
+    try {
+      const response = await fetch(`${API_BASE}/app-data`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ data: snapshot })
+      })
+      if (!response.ok) {
+        setDataSyncError('Failed to upload data to server.')
+        return false
+      }
+      const now = new Date().toISOString()
+      localStorage.setItem(APP_DATA_UPDATED_AT_KEY, now)
+      setDataSyncMessage('Data uploaded successfully.')
+      return true
+    } catch (error) {
+      console.error('Upload snapshot error:', error)
+      setDataSyncError('Failed to upload data to server.')
+      return false
+    }
+  }
+
+  const handleExportData = () => {
+    setDataSyncMessage('')
+    setDataSyncError('')
+    const snapshot = getLocalSnapshot()
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `alamos-data-${new Date().toISOString().slice(0, 10)}.json`
+    link.click()
+    URL.revokeObjectURL(url)
+    setDataSyncMessage('Exported local data.')
+  }
+
+  const handleImportData = async (file: File) => {
+    setDataSyncMessage('')
+    setDataSyncError('')
+    try {
+      const text = await file.text()
+      const parsed = JSON.parse(text) as Record<string, string>
+      applySnapshot(parsed)
+      await uploadSnapshot(parsed)
+      setDataSyncMessage('Imported data and synced to server.')
+    } catch (error) {
+      console.error('Import data error:', error)
+      setDataSyncError('Invalid file format. Please upload a JSON export.')
+    }
+  }
+
+  const handleUploadLocalData = async () => {
+    setDataSyncMessage('')
+    setDataSyncError('')
+    const snapshot = getLocalSnapshot()
+    if (Object.keys(snapshot).length === 0) {
+      setDataSyncError('No local data found to upload.')
+      return
+    }
+    await uploadSnapshot(snapshot)
+  }
+
+  const handleResetServerData = async () => {
+    setDataSyncMessage('')
+    setDataSyncError('')
+    const emptySnapshot: Record<string, string> = {}
+    applySnapshot(emptySnapshot)
+    localStorage.removeItem(APP_DATA_UPDATED_AT_KEY)
+    const success = await uploadSnapshot(emptySnapshot)
+    if (success) {
+      setDataSyncMessage('Server data reset. Start with a clean slate.')
+    }
+  }
+
   const handleUpdateUser = (e: React.FormEvent) => {
     e.preventDefault()
     if (!validate('edit')) return
@@ -246,10 +331,7 @@ const Admin = () => {
   }
 
   const confirmDeleteUser = () => {
-    if (!selectedUser) return
-    const nextUsers = users.filter((u) => u.email !== selectedUser.email)
-    setUsers(nextUsers)
-    localStorage.setItem('users', JSON.stringify(nextUsers))
+    window.alert('La eliminación está desactivada para mantener el histórico de usuarios.')
     setIsDeleteModalOpen(false)
     setSelectedUser(null)
   }
@@ -366,6 +448,43 @@ const Admin = () => {
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="content-section" style={{ marginTop: '2rem' }}>
+        <h2>Data Sync</h2>
+        <p className="page-subtitle">
+          Export Safari data, import it here, or upload current data to the server so it appears in all browsers.
+        </p>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <button className="btn-secondary" onClick={handleExportData}>
+            <Download size={16} />
+            Export Local Data
+          </button>
+          <label className="btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Upload size={16} />
+            Import JSON
+            <input
+              type="file"
+              accept="application/json"
+              style={{ display: 'none' }}
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (file) {
+                  handleImportData(file)
+                  event.currentTarget.value = ''
+                }
+              }}
+            />
+          </label>
+          <button className="btn-primary" onClick={handleUploadLocalData}>
+            Upload Local Data to Server
+          </button>
+          <button className="btn-alert" onClick={handleResetServerData}>
+            Reset Server Data
+          </button>
+        </div>
+        {dataSyncMessage && <div style={{ marginTop: '0.75rem', color: '#16a34a' }}>{dataSyncMessage}</div>}
+        {dataSyncError && <div style={{ marginTop: '0.75rem', color: '#dc2626' }}>{dataSyncError}</div>}
       </div>
 
       <Modal
@@ -601,13 +720,13 @@ const Admin = () => {
         title="Delete User"
       >
         <div className="form-section">
-          <p>Are you sure you want to delete this user?</p>
+          <p>La eliminación está desactivada para mantener el histórico de usuarios.</p>
           <div className="form-actions">
             <button type="button" className="btn-secondary" onClick={() => setIsDeleteModalOpen(false)}>
-              Cancel
+              Close
             </button>
             <button type="button" className="btn-danger" onClick={confirmDeleteUser}>
-              Delete
+              Ok
             </button>
           </div>
         </div>

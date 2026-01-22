@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Search, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import ActionsMenu from '../components/ActionsMenu'
 import Modal from '../components/Modal'
-import { formatCurrency } from '../utils/formatCurrency'
+import { formatCurrency, parseEuropeanNumber } from '../utils/formatCurrency'
 import './Page.css'
 
 interface Service {
@@ -133,8 +133,8 @@ const OtherServices = () => {
 
     // Validate fee is a valid number
     if (formData.fee.trim()) {
-      const feeValue = parseFloat(formData.fee.replace(/[^\d.,-]/g, '').replace(',', '.'))
-      if (isNaN(feeValue) || feeValue < 0) {
+      const feeValue = parseEuropeanNumber(formData.fee)
+      if (!Number.isFinite(feeValue) || feeValue < 0) {
         newErrors.fee = 'Fee must be a valid positive number'
       }
     }
@@ -198,9 +198,7 @@ const OtherServices = () => {
   }
 
   const handleDelete = (serviceId: string) => {
-    if (window.confirm('Are you sure you want to delete this service?')) {
-      setServices(prev => prev.filter(s => s.id !== serviceId))
-    }
+    window.alert('La eliminación está desactivada para conservar el histórico de servicios.')
   }
 
   const handleNewService = () => {

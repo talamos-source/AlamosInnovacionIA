@@ -1,0 +1,2 @@
+name,legalName,taxId,website,incorporationDate,companySize,country,region,address,status,category,description,notes
+Acme Example,Acme Example S.L.,B12345678,https://acme.example.com,15/03/2012,Medium,España,Comunidad de Madrid,"Calle Gran Via 1, 28013, Madrid",Active,Contractor,"AI consulting and automation.","Primary contact: maria@acme.example.com"

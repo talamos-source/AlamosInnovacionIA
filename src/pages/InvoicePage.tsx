@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { formatCurrency } from '../utils/formatCurrency'
+import { formatCurrency, parseEuropeanNumber } from '../utils/formatCurrency'
 import './Page.css'
 
 const formatDate = (iso: string) => {
@@ -51,7 +51,7 @@ const InvoicePage = () => {
     )
   }
 
-  const taxableBase = parseFloat(invoice.amount || '0')
+  const taxableBase = parseEuropeanNumber(invoice.amount) || 0
   const vatAmount = vatOption === '21' ? taxableBase * 0.21 : 0
   const total = vatOption === '21' ? taxableBase + vatAmount : taxableBase
 

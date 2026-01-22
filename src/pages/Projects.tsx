@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { Search, ChevronDown, Calendar, Users, MoreVertical, Clock, Pencil, Trash2, Plus, Edit, FileText, ListTodo, Copy } from 'lucide-react'
-import { formatCurrency } from '../utils/formatCurrency'
+import { formatCurrency, formatNumber, parseEuropeanNumber } from '../utils/formatCurrency'
 import Modal from '../components/Modal'
 import { useAuth } from '../contexts/AuthContext'
 import './Page.css'
@@ -591,8 +591,8 @@ const Projects = () => {
 
     // Validate amount is a valid number
     if (billingFormData.amount.trim()) {
-      const amountValue = parseFloat(billingFormData.amount.replace(/[^\d.,-]/g, '').replace(',', '.'))
-      if (isNaN(amountValue) || amountValue <= 0) {
+      const amountValue = parseEuropeanNumber(billingFormData.amount)
+      if (!Number.isFinite(amountValue) || amountValue <= 0) {
         newErrors.amount = 'Amount must be a valid positive number'
       }
     }
@@ -613,11 +613,11 @@ const Projects = () => {
       return dateString
     }
 
-    const amountValue = parseFloat(billingFormData.amount.replace(/[^\d.,-]/g, '').replace(',', '.'))
+    const amountValue = parseEuropeanNumber(billingFormData.amount)
     const clientName = getClientName(billingFormData.clientId)
 
     // Calculate percentage based on fee
-    const projectFee = parseFloat(resolvedProject.fee?.replace(/[^\d.,-]/g, '').replace(',', '.') || '0')
+    const projectFee = parseEuropeanNumber(resolvedProject.fee) || 0
     const percentage = projectFee > 0 ? ((amountValue / projectFee) * 100).toFixed(0) + '%' : '0%'
 
     const newBillingItem: BillingItem = {
@@ -625,7 +625,7 @@ const Projects = () => {
       percentage: percentage,
       clientName: clientName,
       dueDate: convertDateToISO(billingFormData.dueDate),
-      amount: amountValue.toFixed(2),
+      amount: formatNumber(amountValue, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       invoiceStatus: 'Invoice_pending',
       description: billingFormData.description.trim() || undefined
     }
@@ -696,12 +696,12 @@ const Projects = () => {
     ].find(id => getClientName(id) === billingItem.clientName) || project.primaryClients[0] || ''
 
     // Extract amount value
-    const amountValue = parseFloat(billingItem.amount.replace(/[^\d.,-]/g, '').replace(',', '.') || '0')
+    const amountValue = parseEuropeanNumber(billingItem.amount) || 0
     
     setEditBillingFormData({
       clientId: clientId,
       description: billingItem.description || '', // Use description field from billing item
-      amount: amountValue.toFixed(2).replace('.', ','),
+      amount: formatNumber(amountValue, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       dueDate: formatDateForInput(billingItem.dueDate),
       notes: ''
     })
@@ -739,8 +739,8 @@ const Projects = () => {
 
     // Validate amount is a valid number
     if (editBillingFormData.amount.trim()) {
-      const amountValue = parseFloat(editBillingFormData.amount.replace(/[^\d.,-]/g, '').replace(',', '.'))
-      if (isNaN(amountValue) || amountValue <= 0) {
+      const amountValue = parseEuropeanNumber(editBillingFormData.amount)
+      if (!Number.isFinite(amountValue) || amountValue <= 0) {
         newErrors.amount = 'Amount must be a valid positive number'
       }
     }
@@ -761,11 +761,11 @@ const Projects = () => {
       return dateString
     }
 
-    const amountValue = parseFloat(editBillingFormData.amount.replace(/[^\d.,-]/g, '').replace(',', '.'))
+    const amountValue = parseEuropeanNumber(editBillingFormData.amount)
     const clientName = getClientName(editBillingFormData.clientId)
 
     // Calculate percentage based on fee
-    const projectFee = parseFloat(selectedProject.fee?.replace(/[^\d.,-]/g, '').replace(',', '.') || '0')
+    const projectFee = parseEuropeanNumber(selectedProject.fee) || 0
     const percentage = projectFee > 0 ? ((amountValue / projectFee) * 100).toFixed(0) + '%' : '0%'
 
     const updatedBillingItem: BillingItem = {
@@ -773,7 +773,7 @@ const Projects = () => {
       percentage: percentage,
       clientName: clientName,
       dueDate: convertDateToISO(editBillingFormData.dueDate),
-      amount: amountValue.toFixed(2),
+      amount: formatNumber(amountValue, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       description: editBillingFormData.description.trim() || undefined
     }
 
@@ -1339,9 +1339,9 @@ const Projects = () => {
                         </div>
                       ))}
                       {(() => {
-                        const projectFee = parseFloat(project.fee?.replace(/[^\d.,-]/g, '').replace(',', '.') || '0')
+                        const projectFee = parseEuropeanNumber(project.fee) || 0
                         const totalBilling = project.billingSchedule.reduce((sum, billing) => {
-                          const amount = parseFloat(billing.amount.replace(/[^\d.,-]/g, '').replace(',', '.') || '0')
+                          const amount = parseEuropeanNumber(billing.amount) || 0
                           return sum + amount
                         }, 0)
                         

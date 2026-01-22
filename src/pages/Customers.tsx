@@ -112,8 +112,12 @@ const Customers = () => {
     }
   }, [customers])
 
+  const sortedCustomers = [...customers].sort((a, b) =>
+    a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })
+  )
+
   // Filter customers
-  const filteredCustomers = customers.filter(customer => {
+  const filteredCustomers = sortedCustomers.filter(customer => {
     const searchLower = searchTerm.toLowerCase()
     
     // Search across all table fields
@@ -289,9 +293,7 @@ const Customers = () => {
   }
 
   const handleDelete = (customerId: string) => {
-    if (window.confirm('Are you sure you want to delete this customer?')) {
-      setCustomers(prev => prev.filter(c => c.id !== customerId))
-    }
+    window.alert('La eliminación está desactivada para mantener el histórico de clientes.')
   }
 
   const handleNewClient = () => {

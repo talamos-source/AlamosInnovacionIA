@@ -327,32 +327,7 @@ const Tasks = () => {
 
   // Handle Delete Task
   const handleDeleteTask = (task: Task) => {
-    if (!window.confirm('Are you sure you want to delete this task?')) {
-      return
-    }
-
-    const selectedProject = projects.find(p => p.id === task.projectId)
-    if (!selectedProject) return
-
-    const updatedTasks = selectedProject.tasks?.filter(t => t.id !== task.id) || []
-
-    const updatedProject: Project = {
-      ...selectedProject,
-      tasks: updatedTasks.length > 0 ? updatedTasks : undefined
-    }
-
-    // Update projects in localStorage
-    const updatedProjects = projects.map(p => 
-      p.id === task.projectId ? updatedProject : p
-    )
-
-    try {
-      localStorage.setItem('projects', JSON.stringify(updatedProjects))
-      setProjects(updatedProjects)
-      setAllTasks(prev => prev.filter(t => t.id !== task.id))
-    } catch (error) {
-      console.error('Error deleting task:', error)
-    }
+    window.alert('La eliminación está desactivada para conservar el histórico de tareas.')
   }
 
   // Format date for display

@@ -37,6 +37,20 @@ const GMAIL_REDIRECT_URI =
 const signToken = (payload: { id: string; email: string; role: string }) =>
   jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' })
 
+const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const authHeader = req.headers.authorization
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized.' })
+  }
+  try {
+    jwt.verify(token, JWT_SECRET)
+    return next()
+  } catch {
+    return res.status(401).json({ error: 'Unauthorized.' })
+  }
+}
+
 const createResetToken = () => {
   const raw = crypto.randomBytes(32).toString('hex')
   const hash = crypto.createHash('sha256').update(raw).digest('hex')
@@ -241,6 +255,34 @@ app.post('/auth/register', async (req, res) => {
   })
 
   res.json({ id: user.id, email: user.email, role: user.role, name: user.name })
+})
+
+app.get('/app-data', requireAuth, async (_req, res) => {
+  try {
+    const record = await prisma.appData.findUnique({ where: { id: 'default' } })
+    return res.json({ data: record?.data ?? null, updatedAt: record?.updatedAt ?? null })
+  } catch (error) {
+    console.error('Failed to fetch app data:', error)
+    return res.status(500).json({ error: 'Failed to fetch app data.' })
+  }
+})
+
+app.put('/app-data', requireAuth, async (req, res) => {
+  const { data } = req.body as { data?: unknown }
+  if (!data || typeof data !== 'object') {
+    return res.status(400).json({ error: 'Data is required.' })
+  }
+  try {
+    const record = await prisma.appData.upsert({
+      where: { id: 'default' },
+      create: { id: 'default', data },
+      update: { data }
+    })
+    return res.json({ ok: true, updatedAt: record.updatedAt })
+  } catch (error) {
+    console.error('Failed to save app data:', error)
+    return res.status(500).json({ error: 'Failed to save app data.' })
+  }
 })
 
 app.listen(PORT, () => {

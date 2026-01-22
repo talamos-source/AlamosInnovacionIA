@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Search, ChevronDown, Clock, Send, CheckCircle, AlertCircle, Plus, Pencil, Trash2, FileText } from 'lucide-react'
-import { formatCurrency } from '../utils/formatCurrency'
+import { formatCurrency, formatNumber, parseEuropeanNumber } from '../utils/formatCurrency'
 import Modal from '../components/Modal'
 import { useAuth } from '../contexts/AuthContext'
 import './Page.css'
@@ -244,10 +244,10 @@ const Billing = () => {
     const overdue = overdueBillings.length
 
     // Calculate totals
-    const pendingTotal = pendingBillings.reduce((sum, b) => sum + parseFloat(b.amount), 0)
-    const sentTotal = sentBillings.reduce((sum, b) => sum + parseFloat(b.amount), 0)
-    const paidTotal = paidBillings.reduce((sum, b) => sum + parseFloat(b.amount), 0)
-    const overdueTotal = overdueBillings.reduce((sum, b) => sum + parseFloat(b.amount), 0)
+    const pendingTotal = pendingBillings.reduce((sum, b) => sum + (parseEuropeanNumber(b.amount) || 0), 0)
+    const sentTotal = sentBillings.reduce((sum, b) => sum + (parseEuropeanNumber(b.amount) || 0), 0)
+    const paidTotal = paidBillings.reduce((sum, b) => sum + (parseEuropeanNumber(b.amount) || 0), 0)
+    const overdueTotal = overdueBillings.reduce((sum, b) => sum + (parseEuropeanNumber(b.amount) || 0), 0)
 
     return { 
       pending, 
@@ -389,8 +389,8 @@ const Billing = () => {
 
     // Validate amount is a valid number
     if (newBillingFormData.amount.trim()) {
-      const amountValue = parseFloat(newBillingFormData.amount.replace(/[^\d.,-]/g, '').replace(',', '.'))
-      if (isNaN(amountValue) || amountValue <= 0) {
+      const amountValue = parseEuropeanNumber(newBillingFormData.amount)
+      if (!Number.isFinite(amountValue) || amountValue <= 0) {
         newErrors.amount = 'Amount must be a valid positive number'
       }
     }
@@ -419,13 +419,13 @@ const Billing = () => {
       return dateString
     }
 
-    const amountValue = parseFloat(newBillingFormData.amount.replace(/[^\d.,-]/g, '').replace(',', '.'))
+    const amountValue = parseEuropeanNumber(newBillingFormData.amount)
     const clientName = getClientName(newBillingFormData.clientId)
     const project = projects.find(p => p.id === newBillingFormData.projectId)
     if (!project) return
 
     // Calculate percentage based on fee
-    const projectFee = parseFloat(project.fee?.replace(/[^\d.,-]/g, '').replace(',', '.') || '0')
+    const projectFee = parseEuropeanNumber(project.fee) || 0
     const percentage = projectFee > 0 ? ((amountValue / projectFee) * 100).toFixed(0) + '%' : '0%'
 
     const newBillingItem: BillingItem = {
@@ -433,7 +433,7 @@ const Billing = () => {
       percentage: percentage,
       clientName: clientName,
       dueDate: convertDateToISO(newBillingFormData.dueDate),
-      amount: amountValue.toFixed(2),
+      amount: formatNumber(amountValue, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       invoiceStatus: 'Invoice_pending',
       description: newBillingFormData.description.trim() || undefined,
       projectId: project.id,
@@ -520,7 +520,7 @@ const Billing = () => {
 
     setEditFormData({
       description: billing.description || '',
-      amount: parseFloat(billing.amount).toFixed(2).replace('.', ','),
+      amount: formatNumber(parseEuropeanNumber(billing.amount) || 0, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       dueDate: formatDateForInput(billing.dueDate),
       invoiceStatus: billing.invoiceStatus
     })
@@ -570,8 +570,8 @@ const Billing = () => {
 
     // Validate amount is a valid number
     if (editFormData.amount.trim()) {
-      const amountValue = parseFloat(editFormData.amount.replace(/[^\d.,-]/g, '').replace(',', '.'))
-      if (isNaN(amountValue) || amountValue <= 0) {
+      const amountValue = parseEuropeanNumber(editFormData.amount)
+      if (!Number.isFinite(amountValue) || amountValue <= 0) {
         newErrors.amount = 'Amount must be a valid positive number'
       }
     }
@@ -600,7 +600,7 @@ const Billing = () => {
       return dateString
     }
 
-    const amountValue = parseFloat(editFormData.amount.replace(/[^\d.,-]/g, '').replace(',', '.'))
+    const amountValue = parseEuropeanNumber(editFormData.amount)
 
     // Load projects and update the billing item
     try {
@@ -616,14 +616,14 @@ const Billing = () => {
       if (billingIndex === undefined || billingIndex === -1) return
 
       // Calculate percentage based on fee
-      const projectFee = parseFloat(project.fee?.replace(/[^\d.,-]/g, '').replace(',', '.') || '0')
+    const projectFee = parseEuropeanNumber(project.fee) || 0
       const percentage = projectFee > 0 ? ((amountValue / projectFee) * 100).toFixed(0) + '%' : '0%'
 
       // Update billing item
       const updatedBillingItem: BillingItem = {
         ...selectedBilling,
         description: editFormData.description.trim() || undefined,
-        amount: amountValue.toFixed(2),
+        amount: formatNumber(amountValue, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
         dueDate: convertDateToISO(editFormData.dueDate),
         invoiceStatus: editFormData.invoiceStatus,
         percentage: percentage
@@ -680,53 +680,7 @@ const Billing = () => {
 
   // Handle Delete Billing
   const handleDeleteBilling = (billing: BillingItem) => {
-    if (!window.confirm('Are you sure you want to delete this billing item?')) {
-      return
-    }
-
-    try {
-      const savedProjects = localStorage.getItem('projects')
-      if (!savedProjects) return
-
-      const projects: Project[] = JSON.parse(savedProjects)
-      const project = projects.find(p => p.id === billing.projectId)
-      if (!project) return
-
-      // Remove billing item from project
-      const updatedBillingSchedule = project.billingSchedule?.filter(b => b.id !== billing.id) || []
-
-      const updatedProject: Project = {
-        ...project,
-        billingSchedule: updatedBillingSchedule.length > 0 ? updatedBillingSchedule : undefined
-      }
-
-      // Update projects in localStorage
-      const updatedProjects = projects.map(p => 
-        p.id === project.id ? updatedProject : p
-      )
-
-      localStorage.setItem('projects', JSON.stringify(updatedProjects))
-      
-      // Reload billings
-      const loadBillings = () => {
-        const billings: BillingItem[] = []
-        updatedProjects.forEach(proj => {
-          if (proj.billingSchedule && proj.billingSchedule.length > 0) {
-            proj.billingSchedule.forEach(b => {
-              billings.push({
-                ...b,
-                projectId: proj.id,
-                projectName: proj.title
-              })
-            })
-          }
-        })
-        setAllBillings(billings)
-      }
-      loadBillings()
-    } catch (error) {
-      console.error('Error deleting billing:', error)
-    }
+    window.alert('La eliminación está desactivada para conservar el histórico de billing.')
   }
 
   return (
@@ -994,7 +948,7 @@ const Billing = () => {
                     </td>
                     <td>{billing.clientName}</td>
                     <td>{billing.description || '-'}</td>
-                    <td>{formatCurrency(parseFloat(billing.amount))}</td>
+                    <td>{formatCurrency(billing.amount)}</td>
                     <td>
                       <span style={{ color: overdue ? '#FF5722' : '#2C3E50' }}>
                         {formatDate(billing.dueDate)}
@@ -1093,7 +1047,7 @@ const Billing = () => {
         title="Invoice"
       >
         {selectedInvoice ? (() => {
-          const taxableBase = parseFloat(selectedInvoice.amount || '0')
+          const taxableBase = parseEuropeanNumber(selectedInvoice.amount) || 0
           const vatOption = selectedInvoice.vatOption || '21'
           const vatAmount = vatOption === '21' ? taxableBase * 0.21 : 0
           const total = vatOption === '21' ? taxableBase + vatAmount : taxableBase

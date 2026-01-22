@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { Search, ChevronDown, ChevronLeft, ChevronRight, X, Users } from 'lucide-react'
 import ActionsMenu from '../components/ActionsMenu'
 import Modal from '../components/Modal'
-import { formatCurrency } from '../utils/formatCurrency'
+import { formatCurrency, formatNumber, parseEuropeanNumber } from '../utils/formatCurrency'
 import './Page.css'
 
 interface Proposal {
@@ -16,6 +16,7 @@ interface Proposal {
   budgetFunding: string
   fee: string
   status: string
+  createdAt?: string
   internalNotes?: string
   primaryClientsFinancials?: Record<string, PrimaryClientFinancials>
   secondaryClientsFinancials?: Record<string, SecondaryClientFinancials>
@@ -25,6 +26,7 @@ interface Call {
   id: string
   name: string
   status: string
+  deadline?: string
 }
 
 interface Customer {
@@ -320,17 +322,23 @@ const Proposals = () => {
       const updated = { ...current, [field]: value }
 
       // Calculate Total Funding
-      const grant = parseFloat(updated.grant) || 0
-      const loan = parseFloat(updated.loan) || 0
-      const equity = parseFloat(updated.equity) || 0
-      updated.totalFunding = (grant + loan + equity).toFixed(2)
+      const grant = parseEuropeanNumber(updated.grant) || 0
+      const loan = parseEuropeanNumber(updated.loan) || 0
+      const equity = parseEuropeanNumber(updated.equity) || 0
+      updated.totalFunding = formatNumber(grant + loan + equity, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      })
 
       // Calculate Fee
-      const grantFee = parseFloat(updated.grantFee) || 0
-      const loanFee = parseFloat(updated.loanFee) || 0
-      const equityFee = parseFloat(updated.equityFee) || 0
+      const grantFee = parseEuropeanNumber(updated.grantFee) || 0
+      const loanFee = parseEuropeanNumber(updated.loanFee) || 0
+      const equityFee = parseEuropeanNumber(updated.equityFee) || 0
       const fee = (grant * grantFee / 100) + (loan * loanFee / 100) + (equity * equityFee / 100)
-      updated.fee = fee.toFixed(2)
+      updated.fee = formatNumber(fee, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      })
 
       return { ...prev, [clientId]: updated }
     })
@@ -387,17 +395,23 @@ const Proposals = () => {
       const updated = { ...current, [field]: value }
 
       // Calculate Total Funding
-      const grant = parseFloat(updated.grant) || 0
-      const loan = parseFloat(updated.loan) || 0
-      const equity = parseFloat(updated.equity) || 0
-      updated.totalFunding = (grant + loan + equity).toFixed(2)
+      const grant = parseEuropeanNumber(updated.grant) || 0
+      const loan = parseEuropeanNumber(updated.loan) || 0
+      const equity = parseEuropeanNumber(updated.equity) || 0
+      updated.totalFunding = formatNumber(grant + loan + equity, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      })
 
       // Calculate Fee
-      const grantFee = parseFloat(updated.grantFee) || 0
-      const loanFee = parseFloat(updated.loanFee) || 0
-      const equityFee = parseFloat(updated.equityFee) || 0
+      const grantFee = parseEuropeanNumber(updated.grantFee) || 0
+      const loanFee = parseEuropeanNumber(updated.loanFee) || 0
+      const equityFee = parseEuropeanNumber(updated.equityFee) || 0
       const fee = (grant * grantFee / 100) + (loan * loanFee / 100) + (equity * equityFee / 100)
-      updated.fee = fee.toFixed(2)
+      updated.fee = formatNumber(fee, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      })
 
       return { ...prev, [clientId]: updated }
     })
@@ -429,18 +443,22 @@ const Proposals = () => {
       formData.primaryClients.forEach(clientId => {
         const financials = primaryClientsFinancials[clientId]
         if (financials) {
-          totalBudgetFunding += parseFloat(financials.totalFunding) || 0
-          totalFee += parseFloat(financials.fee) || 0
+          totalBudgetFunding += parseEuropeanNumber(financials.totalFunding) || 0
+          totalFee += parseEuropeanNumber(financials.fee) || 0
         }
       })
 
       formData.secondaryClients.forEach(clientId => {
         const financials = secondaryClientsFinancials[clientId]
         if (financials) {
-          totalBudgetFunding += parseFloat(financials.totalFunding) || 0
-          totalFee += parseFloat(financials.fee) || 0
+          totalBudgetFunding += parseEuropeanNumber(financials.totalFunding) || 0
+          totalFee += parseEuropeanNumber(financials.fee) || 0
         }
       })
+
+      const existingCreatedAt = editingProposalId
+        ? proposals.find(p => p.id === editingProposalId)?.createdAt
+        : undefined
 
       const proposalData: Proposal = {
         id: editingProposalId || `proposal-${Date.now()}`,
@@ -449,9 +467,16 @@ const Proposals = () => {
         callId: formData.associatedCall,
         primaryClients: formData.primaryClients,
         secondaryClients: formData.secondaryClients,
-        budgetFunding: totalBudgetFunding.toFixed(2),
-        fee: totalFee.toFixed(2),
+        budgetFunding: formatNumber(totalBudgetFunding, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        }),
+        fee: formatNumber(totalFee, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        }),
         status: formData.status,
+        createdAt: existingCreatedAt || new Date().toISOString(),
         internalNotes: formData.internalNotes.trim() || undefined,
         primaryClientsFinancials: primaryClientsFinancials,
         secondaryClientsFinancials: secondaryClientsFinancials
@@ -485,6 +510,21 @@ const Proposals = () => {
   const getClientName = (clientId: string) => {
     const client = customers.find(c => c.id === clientId)
     return client?.name || clientId
+  }
+
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return '-'
+    const date = new Date(dateString)
+    if (Number.isNaN(date.getTime())) return dateString
+    const day = date.getDate().toString().padStart(2, '0')
+    const month = date.toLocaleString('es-ES', { month: 'short' })
+    const year = date.getFullYear()
+    return `${day} ${month} ${year}`
+  }
+
+  const getCallDeadline = (callId: string) => {
+    const call = calls.find(c => c.id === callId)
+    return call?.deadline
   }
 
   return (
@@ -999,8 +1039,8 @@ const Proposals = () => {
               <tr>
                 <th>PROPOSAL</th>
                 <th>CALL</th>
-                <th>PRIMARY CLIENTS</th>
-                <th>SECONDARY CLIENTS</th>
+                <th>CONTRACTOR</th>
+                <th>SECONDARY</th>
                 <th>BUDGET FUNDING</th>
                 <th>FEE</th>
                 <th>STATUS</th>
@@ -1021,17 +1061,21 @@ const Proposals = () => {
                   <tr key={proposal.id} className="customer-row">
                     <td className="name-cell">
                       <div className="customer-name">{proposal.proposal}</div>
+                      <div className="customer-company">Created {formatDate(proposal.createdAt)}</div>
                     </td>
-                    <td>{proposal.call}</td>
+                    <td>
+                      <div className="customer-name">{proposal.call}</div>
+                      <div className="customer-company">Deadline: {formatDate(getCallDeadline(proposal.callId))}</div>
+                    </td>
                     <td>
                       <div className="clients-list">
                         {proposal.primaryClients.length > 0 ? (
-                          proposal.primaryClients.map((clientId, idx) => {
-                            const client = customers.find(c => c.id === clientId)
-                            return (
-                              <span key={idx} className="client-tag primary">{client?.name || clientId}</span>
-                            )
-                          })
+                          <>
+                            <div className="customer-name">{proposal.primaryClients.length}</div>
+                            <div className="customer-company">
+                              {proposal.primaryClients.map(getClientName).join(', ')}
+                            </div>
+                          </>
                         ) : (
                           <span className="empty-text">-</span>
                         )}
@@ -1040,12 +1084,12 @@ const Proposals = () => {
                     <td>
                       <div className="clients-list">
                         {proposal.secondaryClients.length > 0 ? (
-                          proposal.secondaryClients.map((clientId, idx) => {
-                            const client = customers.find(c => c.id === clientId)
-                            return (
-                              <span key={idx} className="client-tag secondary">{client?.name || clientId}</span>
-                            )
-                          })
+                          <>
+                            <div className="customer-name">{proposal.secondaryClients.length}</div>
+                            <div className="customer-company">
+                              {proposal.secondaryClients.map(getClientName).join(', ')}
+                            </div>
+                          </>
                         ) : (
                           <span className="empty-text">-</span>
                         )}

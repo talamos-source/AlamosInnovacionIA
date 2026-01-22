@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { GoogleOAuthProvider } from '@react-oauth/google'
 import { AuthProvider } from './contexts/AuthContext'
 import Layout from './components/Layout'
+import AppDataSync from './components/AppDataSync'
 import Dashboard from './pages/Dashboard'
 import Customers from './pages/Customers'
 import CustomerDetail from './pages/CustomerDetail'
@@ -70,6 +71,7 @@ function App() {
 
   const AppContent = () => (
     <AuthProvider>
+      <AppDataSync />
       <Router basename={basePath || undefined}>
         <AppRoutes />
       </Router>

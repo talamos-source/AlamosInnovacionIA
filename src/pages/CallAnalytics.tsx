@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { ChevronDown } from 'lucide-react'
-import { formatCurrency } from '../utils/formatCurrency'
+import { formatCurrency, formatNumber, parseEuropeanNumber } from '../utils/formatCurrency'
 import './Page.css'
 
 interface Proposal {
@@ -121,18 +121,18 @@ const CallAnalytics = () => {
     const dismissed = filteredProposals.filter(p => p.status === 'Dismissed').length
     
     const successRate = funded + dismissed > 0 
-      ? ((funded / (funded + dismissed)) * 100).toFixed(1) 
+      ? (funded / (funded + dismissed)) * 100 
       : null
 
     const totalFees = filteredProposals.reduce((sum, p) => {
-      const fee = parseFloat(p.fee?.replace(/[^\d.,-]/g, '').replace(',', '.') || '0')
+      const fee = parseEuropeanNumber(p.fee) || 0
       return sum + fee
     }, 0)
 
     const achieved = filteredProposals
       .filter(p => p.status === 'Granted')
       .reduce((sum, p) => {
-        const fee = parseFloat(p.fee?.replace(/[^\d.,-]/g, '').replace(',', '.') || '0')
+        const fee = parseEuropeanNumber(p.fee) || 0
         return sum + fee
       }, 0)
 
@@ -207,14 +207,14 @@ const CallAnalytics = () => {
         : null
 
       const totalFee = callProposals.reduce((sum, p) => {
-        const fee = parseFloat(p.fee?.replace(/[^\d.,-]/g, '').replace(',', '.') || '0')
+        const fee = parseEuropeanNumber(p.fee) || 0
         return sum + fee
       }, 0)
 
       const achieved = callProposals
         .filter(p => p.status === 'Granted')
         .reduce((sum, p) => {
-          const fee = parseFloat(p.fee?.replace(/[^\d.,-]/g, '').replace(',', '.') || '0')
+          const fee = parseEuropeanNumber(p.fee) || 0
           return sum + fee
         }, 0)
 
@@ -566,7 +566,9 @@ const CallAnalytics = () => {
               marginBottom: '0.5rem',
               lineHeight: '1.1'
             }}>
-              {overview.successRate !== null ? `${overview.successRate}%` : '-'}
+              {overview.successRate !== null
+                ? `${formatNumber(overview.successRate, { maximumFractionDigits: 1 })}%`
+                : '-'}
             </div>
             <div style={{ 
               fontSize: '0.7rem', 
@@ -662,20 +664,20 @@ const CallAnalytics = () => {
             No data available for the selected filters
           </div>
         ) : (
-          <table className="data-table">
+          <table className="data-table title-case">
             <thead>
               <tr>
-                <th>CALL</th>
-                <th>YEAR</th>
-                <th>TOTAL</th>
-                <th>IN PROGRESS</th>
-                <th>PENDING</th>
-                <th>GRANTED</th>
-                <th>DISMISSED</th>
-                <th>SUCCESS %</th>
-                <th>TOTAL FEE</th>
-                <th>PROBABILITY</th>
-                <th>ACHIEVED</th>
+                <th>Call</th>
+                <th>Year</th>
+                <th>Total</th>
+                <th>In progress</th>
+                <th>Pending</th>
+                <th>Granted</th>
+                <th>Dismissed</th>
+                <th>Success %</th>
+                <th>Total fee</th>
+                <th>Probability</th>
+                <th>Achieved</th>
               </tr>
             </thead>
             <tbody>
@@ -759,7 +761,7 @@ const CallAnalytics = () => {
                   <td>
                     {perf.successRate !== null ? (
                       <span style={{ color: perf.successRate === 100 ? '#4CAF50' : '#64748b', fontWeight: '500' }}>
-                        {perf.successRate.toFixed(1)}%
+                        {formatNumber(perf.successRate, { maximumFractionDigits: 1 })}%
                       </span>
                     ) : (
                       <span style={{ color: '#64748b' }}>-</span>

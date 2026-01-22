@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Globe, Building2, FileText, Briefcase } from 'lucide-react'
-import { formatCurrency } from '../utils/formatCurrency'
+import { formatCurrency, parseEuropeanNumber } from '../utils/formatCurrency'
 import './Page.css'
 
 interface Customer {
@@ -120,8 +120,8 @@ const CustomerDetail = () => {
 
   // Calculate key metrics
   const primaryProposals = proposals.filter(p => p.primaryClients.includes(customer.id))
-  const totalBudget = primaryProposals.reduce((sum, p) => sum + (parseFloat(p.budgetFunding) || 0), 0)
-  const totalFees = primaryProposals.reduce((sum, p) => sum + (parseFloat(p.fee) || 0), 0)
+  const totalBudget = primaryProposals.reduce((sum, p) => sum + (parseEuropeanNumber(p.budgetFunding) || 0), 0)
+  const totalFees = primaryProposals.reduce((sum, p) => sum + (parseEuropeanNumber(p.fee) || 0), 0)
 
   return (
     <div className="page">
