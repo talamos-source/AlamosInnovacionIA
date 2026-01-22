@@ -161,6 +161,7 @@ const Projects = () => {
     paymentConditions: ''
   })
   const [billingFormData, setBillingFormData] = useState({
+    projectId: '',
     clientId: '',
     description: '',
     amount: '',
@@ -177,6 +178,7 @@ const Projects = () => {
   const [billingErrors, setBillingErrors] = useState<Record<string, string>>({})
   const [editBillingErrors, setEditBillingErrors] = useState<Record<string, string>>({})
   const [taskFormData, setTaskFormData] = useState({
+    projectId: '',
     title: '',
     description: '',
     dueDate: '',
@@ -557,17 +559,27 @@ const Projects = () => {
   }
 
   const handleBillingFormChange = (field: string, value: string) => {
-    setBillingFormData(prev => ({ ...prev, [field]: value }))
+    setBillingFormData(prev => {
+      const updated = { ...prev, [field]: value }
+      if (field === 'projectId') {
+        updated.clientId = ''
+      }
+      return updated
+    })
     if (billingErrors[field]) {
       setBillingErrors(prev => ({ ...prev, [field]: '' }))
+    }
+    if (field === 'projectId') {
+      const nextProject = projects.find(p => p.id === value) || null
+      setSelectedProject(nextProject)
     }
   }
 
   const handleAddBilling = () => {
-    if (!selectedProject) return
-
     const newErrors: Record<string, string> = {}
-    
+    const resolvedProject = selectedProject || projects.find(p => p.id === billingFormData.projectId) || null
+
+    if (!billingFormData.projectId) newErrors.projectId = 'Project is required'
     if (!billingFormData.clientId) newErrors.clientId = 'Client is required'
     if (!billingFormData.description.trim()) newErrors.description = 'Description is required'
     if (!billingFormData.amount.trim()) newErrors.amount = 'Amount is required'
@@ -586,7 +598,7 @@ const Projects = () => {
     }
 
     setBillingErrors(newErrors)
-    if (Object.keys(newErrors).length > 0) return
+    if (Object.keys(newErrors).length > 0 || !resolvedProject) return
 
     // Convert date from dd/mm/yyyy to YYYY-MM-DD
     const convertDateToISO = (dateString: string) => {
@@ -605,7 +617,7 @@ const Projects = () => {
     const clientName = getClientName(billingFormData.clientId)
 
     // Calculate percentage based on fee
-    const projectFee = parseFloat(selectedProject.fee?.replace(/[^\d.,-]/g, '').replace(',', '.') || '0')
+    const projectFee = parseFloat(resolvedProject.fee?.replace(/[^\d.,-]/g, '').replace(',', '.') || '0')
     const percentage = projectFee > 0 ? ((amountValue / projectFee) * 100).toFixed(0) + '%' : '0%'
 
     const newBillingItem: BillingItem = {
@@ -619,18 +631,18 @@ const Projects = () => {
     }
 
     const updatedBillingSchedule = [
-      ...(selectedProject.billingSchedule || []),
+      ...(resolvedProject.billingSchedule || []),
       newBillingItem
     ]
 
     const updatedProject: Project = {
-      ...selectedProject,
+      ...resolvedProject,
       billingSchedule: updatedBillingSchedule
     }
 
     // Update project in state and save to localStorage
     setProjects(prev => {
-      const updated = prev.map(p => p.id === selectedProject.id ? updatedProject : p)
+      const updated = prev.map(p => p.id === resolvedProject.id ? updatedProject : p)
       try {
         localStorage.setItem('projects', JSON.stringify(updated))
       } catch (error) {
@@ -641,7 +653,8 @@ const Projects = () => {
 
     // Reset form
     setBillingFormData({
-      clientId: selectedProject.primaryClients[0] || '',
+      projectId: '',
+      clientId: '',
       description: '',
       amount: '',
       dueDate: '',
@@ -660,6 +673,7 @@ const Projects = () => {
 
     setSelectedProject(project)
     setBillingFormData({
+      projectId: project.id,
       clientId,
       description: billing.description || '',
       amount: billing.amount,
@@ -820,13 +834,17 @@ const Projects = () => {
     if (taskErrors[field]) {
       setTaskErrors(prev => ({ ...prev, [field]: '' }))
     }
+    if (field === 'projectId') {
+      const nextProject = projects.find(p => p.id === value) || null
+      setSelectedProject(nextProject)
+    }
   }
 
   const handleAddTask = () => {
-    if (!selectedProject) return
-
     const newErrors: Record<string, string> = {}
-    
+    const resolvedProject = selectedProject || projects.find(p => p.id === taskFormData.projectId) || null
+
+    if (!taskFormData.projectId) newErrors.projectId = 'Project is required'
     if (!taskFormData.title.trim()) newErrors.title = 'Task Title is required'
     if (!taskFormData.dueDate.trim()) {
       newErrors.dueDate = 'Due Date is required'
@@ -835,7 +853,7 @@ const Projects = () => {
     }
 
     setTaskErrors(newErrors)
-    if (Object.keys(newErrors).length > 0) return
+    if (Object.keys(newErrors).length > 0 || !resolvedProject) return
 
     // Convert date from dd/mm/yyyy to YYYY-MM-DD
     const convertDateToISO = (dateString: string) => {
@@ -860,18 +878,18 @@ const Projects = () => {
     }
 
     const updatedTasks = [
-      ...(selectedProject.tasks || []),
+      ...(resolvedProject.tasks || []),
       newTask
     ]
 
     const updatedProject: Project = {
-      ...selectedProject,
+      ...resolvedProject,
       tasks: updatedTasks
     }
 
     // Update project in state and save to localStorage
     setProjects(prev => {
-      const updated = prev.map(p => p.id === selectedProject.id ? updatedProject : p)
+      const updated = prev.map(p => p.id === resolvedProject.id ? updatedProject : p)
       try {
         localStorage.setItem('projects', JSON.stringify(updated))
       } catch (error) {
@@ -882,6 +900,7 @@ const Projects = () => {
 
     // Reset form
     setTaskFormData({
+      projectId: '',
       title: '',
       description: '',
       dueDate: '',
@@ -896,6 +915,7 @@ const Projects = () => {
   const handleDuplicateTask = (project: Project, task: Task) => {
     setSelectedProject(project)
     setTaskFormData({
+      projectId: project.id,
       title: task.title,
       description: task.description || '',
       dueDate: formatDateForInput(task.dueDate),
@@ -912,6 +932,7 @@ const Projects = () => {
     setSelectedTask(task)
     
     setTaskFormData({
+      projectId: project.id,
       title: task.title,
       description: task.description || '',
       dueDate: formatDateForInput(task.dueDate),
@@ -983,6 +1004,7 @@ const Projects = () => {
     setSelectedProject(null)
     setSelectedTask(null)
     setTaskFormData({
+      projectId: '',
       title: '',
       description: '',
       dueDate: '',
@@ -1204,6 +1226,15 @@ const Projects = () => {
                               className="actions-menu-item" 
                               onClick={() => {
                                 setSelectedProject(project)
+                                setBillingFormData({
+                                  projectId: project.id,
+                                  clientId: '',
+                                  description: '',
+                                  amount: '',
+                                  dueDate: '',
+                                  notes: ''
+                                })
+                                setBillingErrors({})
                                 setIsAddBillingModalOpen(true)
                                 setOpenMenuId(null)
                               }}
@@ -1215,6 +1246,15 @@ const Projects = () => {
                               className="actions-menu-item" 
                               onClick={() => {
                                 setSelectedProject(project)
+                                setTaskFormData({
+                                  projectId: project.id,
+                                  title: '',
+                                  description: '',
+                                  dueDate: '',
+                                  priority: 'Medium',
+                                  status: 'Pending'
+                                })
+                                setTaskErrors({})
                                 setIsAddTaskModalOpen(true)
                                 setOpenMenuId(null)
                               }}
@@ -1375,6 +1415,7 @@ const Projects = () => {
                           onClick={() => {
                             setSelectedProject(project)
                             setTaskFormData({
+                              projectId: project.id,
                               title: '',
                               description: '',
                               dueDate: '',
@@ -1552,6 +1593,7 @@ const Projects = () => {
           setIsAddBillingModalOpen(false)
           setSelectedProject(null)
           setBillingFormData({
+            projectId: '',
             clientId: '',
             description: '',
             amount: '',
@@ -1563,6 +1605,24 @@ const Projects = () => {
         title="Add Billing Milestone"
       >
         <form onSubmit={(e) => { e.preventDefault(); handleAddBilling(); }} className="modal-form">
+          <div className="form-group">
+            <label htmlFor="billing-project">Associated Project <span className="required">*</span></label>
+            <div className="select-wrapper">
+              <select
+                id="billing-project"
+                value={billingFormData.projectId}
+                onChange={(e) => handleBillingFormChange('projectId', e.target.value)}
+                className={billingErrors.projectId ? 'error' : ''}
+              >
+                <option value="">Select a project</option>
+                {projects.map(project => (
+                  <option key={project.id} value={project.id}>{project.title}</option>
+                ))}
+              </select>
+              <ChevronDown size={16} className="select-chevron" />
+            </div>
+            {billingErrors.projectId && <span className="error-message">{billingErrors.projectId}</span>}
+          </div>
           <div className="form-group">
             <label htmlFor="billing-client">Client <span className="required">*</span></label>
             <div className="select-wrapper">
@@ -1644,6 +1704,7 @@ const Projects = () => {
                 setIsAddBillingModalOpen(false)
                 setSelectedProject(null)
                 setBillingFormData({
+                    projectId: '',
                   clientId: '',
                   description: '',
                   amount: '',
@@ -1669,6 +1730,7 @@ const Projects = () => {
           setIsAddTaskModalOpen(false)
           setSelectedProject(null)
           setTaskFormData({
+            projectId: '',
             title: '',
             description: '',
             dueDate: '',
@@ -1680,6 +1742,24 @@ const Projects = () => {
         title="Add Task"
       >
         <form onSubmit={(e) => { e.preventDefault(); handleAddTask(); }} className="modal-form">
+          <div className="form-group">
+            <label htmlFor="task-project">Associated Project <span className="required">*</span></label>
+            <div className="select-wrapper">
+              <select
+                id="task-project"
+                value={taskFormData.projectId}
+                onChange={(e) => handleTaskFormChange('projectId', e.target.value)}
+                className={taskErrors.projectId ? 'error' : ''}
+              >
+                <option value="">Select a project</option>
+                {projects.map(project => (
+                  <option key={project.id} value={project.id}>{project.title}</option>
+                ))}
+              </select>
+              <ChevronDown size={16} className="select-chevron" />
+            </div>
+            {taskErrors.projectId && <span className="error-message">{taskErrors.projectId}</span>}
+          </div>
           <div className="form-group">
             <label htmlFor="task-title">Task Title <span className="required">*</span></label>
             <input
@@ -1758,6 +1838,7 @@ const Projects = () => {
                 setIsAddTaskModalOpen(false)
                 setSelectedProject(null)
                 setTaskFormData({
+                  projectId: '',
                   title: '',
                   description: '',
                   dueDate: '',
@@ -1903,6 +1984,7 @@ const Projects = () => {
           setSelectedProject(null)
           setSelectedTask(null)
           setTaskFormData({
+            projectId: '',
             title: '',
             description: '',
             dueDate: '',
@@ -1993,6 +2075,7 @@ const Projects = () => {
                 setSelectedProject(null)
                 setSelectedTask(null)
                 setTaskFormData({
+                  projectId: '',
                   title: '',
                   description: '',
                   dueDate: '',
