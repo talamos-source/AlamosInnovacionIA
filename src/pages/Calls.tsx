@@ -64,13 +64,13 @@ const Calls = () => {
 
   // Countries list (same as Customers)
   const countries = [
-    'Albania', 'Alemania', 'Andorra', 'Armenia', 'Austria', 'Bélgica', 'Bosnia and Herzegovina',
-    'China', 'Chipre', 'Ciudad del Vaticano', 'Croacia', 'Egypt', 'Eslovaquia', 'Eslovenia',
-    'España', 'Estonia', 'Faroe Islands', 'Finlandia', 'Francia', 'Georgia', 'Grecia',
-    'Iceland', 'Irlanda', 'Israel', 'Italia', 'Japan', 'Kosovo',
-    'Letonia', 'Lituania', 'Luxemburgo', 'Malta', 'Moldova', 'Mónaco', 'Montenegro',
-    'Morocco', 'North Macedonia', 'Norway', 'Países Bajos', 'Portugal',
-    'San Marino', 'Serbia', 'Tunisia', 'Türkiye', 'Ukraine', 'United Kingdom', 'United States'
+    'Albania', 'Andorra', 'Armenia', 'Austria', 'Belgium', 'Bosnia and Herzegovina', 'Bulgaria',
+    'China', 'Croatia', 'Cyprus', 'Czech Republic', 'Denmark', 'Egypt', 'Estonia', 'Faroe Islands',
+    'Finland', 'France', 'Georgia', 'Germany', 'Greece', 'Hungary', 'Iceland', 'Ireland', 'Israel',
+    'Italy', 'Japan', 'Kosovo', 'Latvia', 'Lithuania', 'Luxembourg', 'Malta', 'Moldova', 'Monaco',
+    'Montenegro', 'Morocco', 'Netherlands', 'North Macedonia', 'Norway', 'Poland', 'Portugal',
+    'Romania', 'San Marino', 'Serbia', 'Slovakia', 'Slovenia', 'Spain', 'Sweden', 'Tunisia',
+    'Türkiye', 'Ukraine', 'United Kingdom', 'United States', 'Vatican City'
   ].sort()
 
   // Spanish regions (same as Customers)
@@ -85,6 +85,35 @@ const Calls = () => {
   const geographicScopes = ['International', 'EU', 'National', 'Regional']
   const companySizes = ['Small', 'Medium', 'Large']
   const statuses = ['Draft', 'Upcoming', 'Open', 'Closed', 'Archived']
+  const euDefaultCountries = [
+    'Germany',
+    'Austria',
+    'Belgium',
+    'Bulgaria',
+    'Cyprus',
+    'Croatia',
+    'Denmark',
+    'Slovakia',
+    'Slovenia',
+    'Spain',
+    'Estonia',
+    'Finland',
+    'France',
+    'Greece',
+    'Hungary',
+    'Ireland',
+    'Italy',
+    'Latvia',
+    'Lithuania',
+    'Luxembourg',
+    'Malta',
+    'Netherlands',
+    'Poland',
+    'Portugal',
+    'Czech Republic',
+    'Romania',
+    'Sweden'
+  ]
 
   // Load calls from localStorage on component mount
   const loadCalls = (): Call[] => {
@@ -210,9 +239,20 @@ const Calls = () => {
     // Clear eligible region if Spain is not in eligible countries
     if (field === 'eligibleCountries') {
       const countries = Array.isArray(value) ? value : []
-      if (!countries.includes('España')) {
+      if (!countries.includes('Spain')) {
         setFormData(prev => ({ ...prev, eligibleRegion: [] }))
       }
+    }
+    if (field === 'geographicScope' && typeof value === 'string') {
+      setFormData(prev => {
+        if (prev.eligibleCountries.length > 0) {
+          return prev
+        }
+        return {
+          ...prev,
+          eligibleCountries: [...euDefaultCountries]
+        }
+      })
     }
   }
 
@@ -243,7 +283,7 @@ const Calls = () => {
       : [...currentValues, value]
     handleInputChange(field, newValues)
     // Clear eligible region if Spain is deselected
-    if (field === 'eligibleCountries' && value === 'España' && !newValues.includes('España')) {
+    if (field === 'eligibleCountries' && value === 'Spain' && !newValues.includes('Spain')) {
       setFormData(prev => ({ ...prev, eligibleRegion: [] }))
     }
   }
@@ -659,7 +699,7 @@ const Calls = () => {
               <label>Eligible Region (optional)</label>
               <div className="button-select-container">
                 <div className="button-select-grid">
-                  {formData.eligibleCountries.includes('España') ? (
+                  {formData.eligibleCountries.includes('Spain') ? (
                     spanishRegions.map(region => (
                       <button
                         key={region}
