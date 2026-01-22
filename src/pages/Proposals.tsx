@@ -153,7 +153,7 @@ const Proposals = () => {
   const [formData, setFormData] = useState({
     proposalName: '',
     associatedCall: '',
-    status: 'in progress',
+    status: 'In Progress',
     primaryClients: [] as string[],
     secondaryClients: [] as string[],
     internalNotes: ''
@@ -174,6 +174,7 @@ const Proposals = () => {
   // Filter proposals
   const filteredProposals = proposals.filter(proposal => {
     const searchLower = searchTerm.toLowerCase()
+    const normalizedStatus = proposal.status === 'in progress' ? 'In Progress' : proposal.status
     
     // Get client names for search
     const primaryClientNames = proposal.primaryClients.map(id => {
@@ -193,13 +194,13 @@ const Proposals = () => {
       secondaryClientNames.some(name => name.toLowerCase().includes(searchLower)) ||
       proposal.budgetFunding.toLowerCase().includes(searchLower) ||
       proposal.fee.toLowerCase().includes(searchLower) ||
-      proposal.status.toLowerCase().includes(searchLower)
+      normalizedStatus.toLowerCase().includes(searchLower)
     
     const matchesStatus = !filters.status || filters.status === 'All' || 
-      (filters.status === 'In Progress' && proposal.status === 'in progress') ||
-      (filters.status === 'Pending' && proposal.status === 'Pending') ||
-      (filters.status === 'Granted' && proposal.status === 'Granted') ||
-      (filters.status === 'Dismissed' && proposal.status === 'Dismissed')
+      (filters.status === 'In Progress' && normalizedStatus === 'In Progress') ||
+      (filters.status === 'Pending' && normalizedStatus === 'Pending') ||
+      (filters.status === 'Granted' && normalizedStatus === 'Granted') ||
+      (filters.status === 'Dismissed' && normalizedStatus === 'Dismissed')
     const matchesCall = !filters.call || filters.call === 'All' || proposal.call === filters.call
     const matchesPrimaryClient = !filters.primaryClient || filters.primaryClient === 'All' || 
       proposal.primaryClients.includes(filters.primaryClient) ||
@@ -224,7 +225,7 @@ const Proposals = () => {
       setFormData({
         proposalName: proposal.proposal,
         associatedCall: proposal.callId,
-        status: proposal.status,
+        status: proposal.status === 'in progress' ? 'In Progress' : proposal.status,
         primaryClients: proposal.primaryClients,
         secondaryClients: proposal.secondaryClients,
         internalNotes: proposal.internalNotes || ''
@@ -239,9 +240,7 @@ const Proposals = () => {
   }
 
   const handleDelete = (proposalId: string) => {
-    if (window.confirm('Are you sure you want to delete this proposal?')) {
-      setProposals(prev => prev.filter(p => p.id !== proposalId))
-    }
+    window.alert('La eliminación está desactivada para conservar el histórico de proposals.')
   }
 
   const handleNewProposal = () => {
@@ -249,7 +248,7 @@ const Proposals = () => {
     setFormData({
       proposalName: '',
       associatedCall: '',
-      status: 'in progress',
+      status: 'In Progress',
       primaryClients: [],
       secondaryClients: [],
       internalNotes: ''
@@ -409,6 +408,7 @@ const Proposals = () => {
     
     if (!formData.proposalName.trim()) newErrors.proposalName = 'Proposal Name is required'
     if (!formData.associatedCall) newErrors.associatedCall = 'Associated Call is required'
+    if (!formData.status) newErrors.status = 'Status is required'
     if (formData.primaryClients.length === 0) newErrors.primaryClients = 'At least one Primary Client is required'
 
     setErrors(newErrors)
@@ -469,7 +469,7 @@ const Proposals = () => {
       setFormData({
         proposalName: '',
         associatedCall: '',
-        status: 'in progress',
+        status: 'In Progress',
         primaryClients: [],
         secondaryClients: [],
         internalNotes: ''
@@ -581,46 +581,48 @@ const Proposals = () => {
               {errors.proposalName && <span className="error-message">{errors.proposalName}</span>}
             </div>
 
-            <div className="form-row">
-              <div className="form-group">
-                <label htmlFor="associatedCall">Associated Call <span className="required">*</span></label>
-                <select
-                  id="associatedCall"
-                  value={formData.associatedCall}
-                  onChange={(e) => handleInputChange('associatedCall', e.target.value)}
-                  className={errors.associatedCall ? 'error' : ''}
-                >
-                  <option value="">Select a call</option>
-                  {availableCalls.length === 0 ? (
-                    <option value="" disabled>No calls available. Please add calls first.</option>
-                  ) : (
-                    availableCalls.map(call => (
-                      <option key={call.id} value={call.id}>{call.name}</option>
-                    ))
-                  )}
-                </select>
-                {errors.associatedCall && <span className="error-message">{errors.associatedCall}</span>}
-              </div>
+        <div className="form-row">
+          <div className="form-group">
+            <label htmlFor="associatedCall">Associated Call <span className="required">*</span></label>
+            <select
+              id="associatedCall"
+              value={formData.associatedCall}
+              onChange={(e) => handleInputChange('associatedCall', e.target.value)}
+              className={errors.associatedCall ? 'error' : ''}
+            >
+              <option value="">Select a call</option>
+              {availableCalls.length === 0 ? (
+                <option value="" disabled>No calls available. Please add calls first.</option>
+              ) : (
+                availableCalls.map(call => (
+                  <option key={call.id} value={call.id}>{call.name}</option>
+                ))
+              )}
+            </select>
+            {errors.associatedCall && <span className="error-message">{errors.associatedCall}</span>}
+          </div>
+        </div>
 
-              <div className="form-group">
-                <label htmlFor="status">Status</label>
-                <select
-                  id="status"
-                  value={formData.status}
-                  onChange={(e) => handleInputChange('status', e.target.value)}
-                >
-                  <option value="in progress">in progress</option>
-                  <option value="Pending">Pending</option>
-                  <option value="Granted">Granted</option>
-                  <option value="Dismissed">Dismissed</option>
-                </select>
-                {formData.status === 'Granted' && (
-                  <div className="status-note granted-note">
-                    When you save, a running project will be automatically created.
-                  </div>
-                )}
-              </div>
+        <div className="form-group">
+          <label htmlFor="status">Status <span className="required">*</span></label>
+          <select
+            id="status"
+            value={formData.status}
+            onChange={(e) => handleInputChange('status', e.target.value)}
+            className={errors.status ? 'error' : ''}
+          >
+            <option value="In Progress">In Progress</option>
+            <option value="Pending">Pending</option>
+            <option value="Granted">Granted</option>
+            <option value="Dismissed">Dismissed</option>
+          </select>
+          {errors.status && <span className="error-message">{errors.status}</span>}
+          {formData.status === 'Granted' && (
+            <div className="status-note granted-note">
+              When you save, a running project will be automatically created.
             </div>
+          )}
+        </div>
           </div>
 
           <div className="form-section">
@@ -969,7 +971,7 @@ const Proposals = () => {
                 setFormData({
                   proposalName: '',
                   associatedCall: '',
-                  status: 'in progress',
+            status: 'In Progress',
                   primaryClients: [],
                   secondaryClients: [],
                   internalNotes: ''
