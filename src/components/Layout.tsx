@@ -1,21 +1,21 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ReactNode, useState, useEffect } from 'react'
-import { 
-  LayoutDashboard, 
-  Users, 
-  FileText, 
-  FileEdit, 
-  Brain, 
+import {
+  LayoutDashboard,
+  Users,
+  Phone,
+  FileEdit,
+  Brain,
   Briefcase,
   CheckSquare,
-  CreditCard, 
-  BarChart3, 
+  CreditCard,
+  BarChart3,
   TrendingUp,
   LogIn,
   LogOut,
   User,
   Shield,
-  ChevronDown
+  ChevronDown,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import LoginModal from './LoginModal'
@@ -33,21 +33,18 @@ const Layout = ({ children }: LayoutProps) => {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
 
-  // Close user menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (isUserMenuOpen) {
-        const menuElement = document.querySelector('.user-menu')
+        const menuElement = document.querySelector('.topbar-user-wrapper')
         if (menuElement && !menuElement.contains(event.target as Node)) {
           setIsUserMenuOpen(false)
         }
       }
     }
-
     if (isUserMenuOpen) {
       document.addEventListener('mousedown', handleClickOutside)
     }
-
     return () => {
       document.removeEventListener('mousedown', handleClickOutside)
     }
@@ -55,20 +52,19 @@ const Layout = ({ children }: LayoutProps) => {
 
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/customers', label: 'Customers', icon: Users },
-    { path: '/calls', label: 'Calls', icon: FileText },
-    { path: '/proposals', label: 'Proposals', icon: FileEdit },
-    { path: '/other-services', label: 'Other Services', icon: Brain },
-    { path: '/projects', label: 'Projects', icon: Briefcase },
-    { path: '/tasks', label: 'Tasks', icon: CheckSquare },
-    { path: '/billing', label: 'Billing', icon: CreditCard },
-    { path: '/call-analytics', label: 'Call Analytics', icon: BarChart3 },
-    { path: '/other-analytics', label: 'Other Analytics', icon: TrendingUp },
+    { path: '/customers', label: 'Clientes', icon: Users },
+    { path: '/calls', label: 'Convocatorias', icon: Phone },
+    { path: '/proposals', label: 'Propuestas', icon: FileEdit },
+    { path: '/other-services', label: 'Otros servicios', icon: Brain },
+    { path: '/projects', label: 'Proyectos', icon: Briefcase },
+    { path: '/tasks', label: 'Tareas', icon: CheckSquare },
+    { path: '/billing', label: 'Facturación', icon: CreditCard },
+    { path: '/call-analytics', label: 'Analytics convocatorias', icon: BarChart3 },
+    { path: '/other-analytics', label: 'Analytics general', icon: TrendingUp },
   ]
 
-  const filteredNavItems = user?.role === 'Customer'
-    ? navItems.filter((item) => item.path === '/projects')
-    : navItems
+  const filteredNavItems =
+    user?.role === 'Customer' ? navItems.filter((item) => item.path === '/projects') : navItems
 
   const handleLogout = () => {
     logout()
@@ -84,6 +80,11 @@ const Layout = ({ children }: LayoutProps) => {
     setIsUserMenuOpen(false)
     navigate('/admin')
   }
+
+  const userInitials =
+    user?.name?.charAt(0).toUpperCase() ||
+    user?.email?.charAt(0).toUpperCase() ||
+    '·'
 
   return (
     <div className="layout">
@@ -101,76 +102,79 @@ const Layout = ({ children }: LayoutProps) => {
                 to={item.path}
                 className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
               >
-                <Icon className="nav-icon" size={20} />
+                <Icon className="nav-icon" size={18} />
                 <span className="nav-label">{item.label}</span>
               </Link>
             )
           })}
         </nav>
       </aside>
+
       <main className="main-content">
-        <header className="main-header">
-          <div className="header-spacer"></div>
-          <div className="user-menu" style={{ position: 'relative' }}>
+        <header className="topbar">
+          <div className="topbar-user-wrapper">
             {isAuthenticated ? (
               <>
                 <button
-                  className="user-button"
+                  className="topbar-user-btn"
                   onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                  aria-label="Menú de usuario"
                 >
                   {user?.picture ? (
-                    <img src={user.picture} alt={user.name} className="user-avatar" />
+                    <img
+                      src={user.picture}
+                      alt={user.name || ''}
+                      className="topbar-user-avatar"
+                    />
                   ) : (
-                    <div className="user-avatar" style={{ 
-                      background: '#8E44AD', 
-                      color: 'white', 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'center',
-                      fontSize: '0.875rem',
-                      fontWeight: '600'
-                    }}>
-                      {user?.name?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase()}
+                    <div className="topbar-user-avatar topbar-user-avatar--initials">
+                      {userInitials}
                     </div>
                   )}
-                  <div className="user-info">
-                    <span className="user-name">{user?.name || user?.email}</span>
-                    <span className="user-email">{user?.email}</span>
-                  </div>
-                  <ChevronDown size={16} style={{ color: '#64748b' }} />
+                  <ChevronDown size={14} className="topbar-user-chevron" />
                 </button>
+
                 {isUserMenuOpen && (
                   <div className="user-menu-dropdown">
-                  <button className="user-menu-item" onClick={handleProfile}>
+                    <div className="user-menu-header">
+                      <span className="user-menu-name">{user?.name || user?.email}</span>
+                      <span className="user-menu-email">{user?.email}</span>
+                      {user?.role && (
+                        <span className="user-menu-role">{user.role}</span>
+                      )}
+                    </div>
+                    <button className="user-menu-item" onClick={handleProfile}>
                       <User size={16} />
-                      <span>Profile</span>
-                  </button>
-                  {user?.role === 'Admin' && (
-                    <button className="user-menu-item" onClick={handleAdmin}>
-                      <Shield size={16} />
-                      <span>Admin</span>
+                      <span>Perfil</span>
                     </button>
-                  )}
+                    {user?.role === 'Admin' && (
+                      <button className="user-menu-item" onClick={handleAdmin}>
+                        <Shield size={16} />
+                        <span>Administración</span>
+                      </button>
+                    )}
                     <button className="user-menu-item logout" onClick={handleLogout}>
                       <LogOut size={16} />
-                      <span>Logout</span>
+                      <span>Cerrar sesión</span>
                     </button>
                   </div>
                 )}
               </>
             ) : (
               <button
-                className="user-button"
+                className="topbar-login-btn"
                 onClick={() => setIsLoginModalOpen(true)}
               >
-                <LogIn size={18} />
-                <span>Login</span>
+                <LogIn size={16} />
+                <span>Iniciar sesión</span>
               </button>
             )}
           </div>
         </header>
-        {children}
+
+        <div className="main-content-inner">{children}</div>
       </main>
+
       <LoginModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} />
     </div>
   )
