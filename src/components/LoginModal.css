@@ -1,43 +1,56 @@
+/* ============================================================
+   LOGIN MODAL — Pantalla y modal de autenticación
+   ============================================================ */
+
 .login-modal-content {
-  padding: 2rem;
-  max-width: 400px;
+  padding: var(--space-8);
+  max-width: 440px;
   margin: 0 auto;
 }
 
 .login-header {
   text-align: center;
-  margin-bottom: 2rem;
+  margin-bottom: var(--space-8);
 }
 
 .login-logo {
   display: flex;
   justify-content: center;
-  margin-bottom: 1.25rem;
+  margin-bottom: var(--space-6);
 }
 
 .login-logo-image {
-  width: 500px;
+  width: 200px;
   height: auto;
-  max-height: 220px;
+  max-height: 100px;
   object-fit: contain;
 }
 
 .login-header h2 {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: #2C3E50;
-  margin: 0 0 0.5rem 0;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0 0 var(--space-2) 0;
+  letter-spacing: var(--letter-spacing-tight);
 }
 
 .login-header p {
-  color: #64748b;
-  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
   margin: 0;
+  line-height: var(--line-height-relaxed);
 }
 
 .login-form {
-  margin-bottom: 1.5rem;
+  margin-bottom: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
+
+/* ----------------------------------------------------------
+   INPUTS con icono
+   ---------------------------------------------------------- */
 
 .input-with-icon {
   position: relative;
@@ -47,66 +60,96 @@
 
 .input-icon {
   position: absolute;
-  left: 0.5rem;
-  color: #64748b;
+  left: var(--space-3);
+  color: var(--color-text-muted);
   pointer-events: none;
+  display: flex;
+  align-items: center;
 }
 
 .input-with-icon input {
   width: 100%;
-  padding: 0.75rem 0.75rem 0.75rem 5.5rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.5rem;
-  font-size: 0.875rem;
-  transition: border-color 0.2s;
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-10);
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .input-with-icon.no-icon input {
-  padding-left: 0.75rem;
+  padding-left: var(--space-4);
+}
+
+.input-with-icon input::placeholder {
+  color: var(--color-text-subtle);
 }
 
 .input-with-icon input:focus {
   outline: none;
-  border-color: #8E44AD;
+  border-color: var(--color-brand-500);
+  box-shadow: var(--shadow-focus);
 }
 
 .input-with-icon input.error {
-  border-color: #ef4444;
+  border-color: var(--color-danger-500);
 }
+
+.input-with-icon input.error:focus {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+}
+
+/* ----------------------------------------------------------
+   BOTONES
+   ---------------------------------------------------------- */
 
 .btn-full {
   width: 100%;
-  padding: 0.75rem;
-  border-radius: 0.5rem;
-  font-size: 0.875rem;
-  font-weight: 500;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
   border: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  gap: var(--space-2);
+  letter-spacing: var(--letter-spacing-tight);
 }
 
 .btn-primary {
-  background-color: #8E44AD;
-  color: white;
+  background-color: var(--color-brand-500);
+  color: var(--color-text-inverse);
+  box-shadow: var(--shadow-xs);
 }
 
 .btn-primary:hover {
-  background-color: #7D3C98;
+  background-color: var(--color-brand-600);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-primary:active {
+  background-color: var(--color-brand-700);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background-color: var(--color-brand-400);
 }
 
 .btn-google {
-  background-color: white;
-  color: #2C3E50;
-  border: 1px solid #e2e8f0;
+  background-color: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-default);
 }
 
 .btn-google:hover:not(:disabled) {
-  background-color: #f8fafc;
-  border-color: #cbd5e1;
+  background-color: var(--color-bg-muted);
+  border-color: var(--color-border-strong);
 }
 
 .btn-google:disabled {
@@ -114,32 +157,47 @@
   cursor: not-allowed;
 }
 
+/* ----------------------------------------------------------
+   DIVIDER
+   ---------------------------------------------------------- */
+
 .login-divider {
   display: flex;
   align-items: center;
-  margin: 1.5rem 0;
+  margin: var(--space-6) 0;
   text-align: center;
-  color: #64748b;
-  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wider);
+  font-weight: var(--font-weight-medium);
 }
 
 .login-divider::before,
 .login-divider::after {
   content: '';
   flex: 1;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .login-divider span {
-  padding: 0 1rem;
+  padding: 0 var(--space-4);
 }
 
+/* ----------------------------------------------------------
+   FEEDBACK
+   ---------------------------------------------------------- */
+
 .error-message {
-  color: #ef4444;
-  font-size: 0.75rem;
-  margin-top: 0.25rem;
+  color: var(--color-danger-700);
+  font-size: var(--font-size-xs);
+  margin-top: var(--space-1);
   display: block;
 }
+
+/* ----------------------------------------------------------
+   USER MENU (header)
+   ---------------------------------------------------------- */
 
 .user-menu {
   position: relative;
@@ -148,24 +206,24 @@
 .user-button {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  background: white;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.5rem;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition-fast);
 }
 
 .user-button:hover {
-  background-color: #f8fafc;
-  border-color: #8E44AD;
+  background-color: var(--color-bg-muted);
+  border-color: var(--color-brand-500);
 }
 
 .user-avatar {
   width: 32px;
   height: 32px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   object-fit: cover;
 }
 
@@ -176,53 +234,53 @@
 }
 
 .user-name {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #2C3E50;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
 }
 
 .user-email {
-  font-size: 0.75rem;
-  color: #64748b;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
 }
 
 .user-menu-dropdown {
   position: absolute;
-  top: calc(100% + 0.5rem);
+  top: calc(100% + var(--space-2));
   right: 0;
-  background: white;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.5rem;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  min-width: 200px;
-  z-index: 1000;
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  min-width: 220px;
+  z-index: var(--z-dropdown);
   overflow: hidden;
 }
 
 .user-menu-item {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
   width: 100%;
   border: none;
   background: none;
   text-align: left;
   cursor: pointer;
-  font-size: 0.875rem;
-  color: #2C3E50;
-  transition: background-color 0.2s;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  transition: background-color var(--transition-fast);
 }
 
 .user-menu-item:hover {
-  background-color: #f8fafc;
+  background-color: var(--color-bg-muted);
 }
 
 .user-menu-item.logout {
-  color: #ef4444;
-  border-top: 1px solid #e2e8f0;
+  color: var(--color-danger-700);
+  border-top: 1px solid var(--color-border-subtle);
 }
 
 .user-menu-item.logout:hover {
-  background-color: #fef2f2;
+  background-color: var(--color-danger-50);
 }

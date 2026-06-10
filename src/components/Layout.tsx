@@ -89,8 +89,8 @@ const Layout = ({ children }: LayoutProps) => {
     <div className="layout">
       <aside className="sidebar">
         <div className="logo">
-          <img src="/logo.png?v=2" alt="Álamos Innovación" className="logo-image" />
-          <h1>Alamos IA</h1>
+          <img src="/brand/logo.png" alt="Álamos Innovación" className="logo-image" />
+          <span className="logo-subtitle">CRM</span>
         </div>
         <nav className="nav">
           {filteredNavItems.map((item) => {
