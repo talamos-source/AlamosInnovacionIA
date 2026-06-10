@@ -27,6 +27,14 @@ const ADMIN_SECRET = process.env.ADMIN_SECRET || ''
 const APP_BASE_URL = process.env.APP_BASE_URL || 'https://www.alamosinnovacion.com/private'
 const PASSWORD_RESET_EXP_MIN = Number(process.env.PASSWORD_RESET_EXP_MIN || '15')
 
+// Email whitelist for Google OAuth login. Comma-separated list of allowed emails.
+// If empty, falls back to existing User-table check (any registered user can log in).
+// Example value in production: ALLOWED_GOOGLE_EMAILS=talamos@gmail.com
+const ALLOWED_GOOGLE_EMAILS = (process.env.ALLOWED_GOOGLE_EMAILS || '')
+  .split(',')
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean)
+
 const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID || ''
 const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET || ''
 const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN || ''
@@ -131,7 +139,15 @@ app.post('/auth/google', async (req, res) => {
     return res.status(400).json({ error: 'Email is required.' })
   }
 
-  const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } })
+  const normalizedEmail = email.toLowerCase()
+
+  // Email whitelist enforcement (defense in depth).
+  // Only allow login if the email is explicitly whitelisted in ALLOWED_GOOGLE_EMAILS.
+  if (ALLOWED_GOOGLE_EMAILS.length > 0 && !ALLOWED_GOOGLE_EMAILS.includes(normalizedEmail)) {
+    return res.status(403).json({ error: 'Unauthorized email.' })
+  }
+
+  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } })
   if (!user) {
     return res.status(403).json({ error: 'Unauthorized email.' })
   }
