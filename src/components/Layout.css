@@ -25,19 +25,20 @@
   z-index: var(--z-sticky);
 }
 
-/* Watermark sutil al fondo del sidebar, opacidad baja para no distraer */
+/* Watermark vectorial vertical al fondo del sidebar.
+   SVG con fondo transparente nativo + opacidad controlada por CSS. */
 .sidebar::after {
   content: '';
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 280px;
-  background-image: url('/brand/branch-watermark-16x9.png');
+  height: 60vh;
+  background-image: url('/brand/branch-watermark-sidebar.svg');
   background-repeat: no-repeat;
   background-position: bottom center;
-  background-size: 280px auto;
-  opacity: 0.12;
+  background-size: contain;
+  opacity: 0.25;
   pointer-events: none;
   z-index: 0;
 }

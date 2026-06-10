@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 720" fill="none">
+  <!-- Watermark vertical de ramas para sidebar del CRM Álamos Innovación.
+       Color brand violet #5C358F. Fondo transparente.
+       Diseñado para ocupar el fondo inferior del sidebar con baja opacidad. -->
+
+  <g stroke="#5C358F" stroke-linecap="round" stroke-linejoin="round" fill="none">
+
+    <!-- Rama principal central -->
+    <path
+      d="M 120 720
+         C 122 660, 118 600, 124 540
+         C 126 500, 116 460, 122 420
+         C 128 380, 118 340, 124 300
+         C 128 270, 120 240, 124 210
+         C 126 180, 120 150, 124 120
+         L 122 80"
+      stroke-width="1.5"
+      opacity="0.95"
+    />
+
+    <!-- Rama secundaria izquierda baja -->
+    <path
+      d="M 122 650
+         C 95 620, 70 600, 50 580
+         C 38 565, 30 545, 25 525"
+      stroke-width="1.1"
+      opacity="0.85"
+    />
+
+    <!-- Rama secundaria derecha media-baja -->
+    <path
+      d="M 124 580
+         C 155 555, 180 540, 200 520
+         C 215 505, 222 485, 224 465"
+      stroke-width="1.1"
+      opacity="0.85"
+    />
+
+    <!-- Rama izquierda media -->
+    <path
+      d="M 121 480
+         C 100 460, 80 445, 65 425
+         C 55 410, 48 390, 45 370"
+      stroke-width="0.9"
+      opacity="0.75"
+    />
+
+    <!-- Rama derecha media -->
+    <path
+      d="M 124 410
+         C 145 390, 165 375, 180 355
+         C 192 340, 200 320, 205 300"
+      stroke-width="0.9"
+      opacity="0.75"
+    />
+
+    <!-- Rama izquierda alta -->
+    <path
+      d="M 122 320
+         C 105 305, 90 290, 80 270
+         C 74 255, 70 235, 70 220"
+      stroke-width="0.8"
+      opacity="0.7"
+    />
+
+    <!-- Rama derecha alta -->
+    <path
+      d="M 124 240
+         C 142 225, 158 210, 170 190
+         C 178 175, 182 160, 184 145"
+      stroke-width="0.8"
+      opacity="0.7"
+    />
+
+    <!-- Ramita derecha muy alta -->
+    <path
+      d="M 124 160
+         C 138 145, 150 132, 158 118"
+      stroke-width="0.7"
+      opacity="0.65"
+    />
+
+    <!-- Ramita izquierda muy alta -->
+    <path
+      d="M 122 100
+         C 110 88, 100 78, 92 68"
+      stroke-width="0.7"
+      opacity="0.6"
+    />
+
+    <!-- Hojas pequeñas — formas orgánicas estilizadas -->
+
+    <!-- Grupo de hojas en rama baja izquierda -->
+    <path
+      d="M 48 575
+         C 38 568, 32 570, 30 580
+         C 28 588, 35 590, 42 586
+         C 47 583, 49 580, 48 575 Z"
+      fill="#5C358F"
+      stroke="none"
+      opacity="0.5"
+    />
+
+    <!-- Grupo de hojas en rama baja derecha -->
+    <path
+      d="M 202 510
+         C 212 504, 218 506, 220 516
+         C 222 524, 215 526, 208 522
+         C 203 519, 201 515, 202 510 Z"
+      fill="#5C358F"
+      stroke="none"
+      opacity="0.5"
+    />
+
+    <!-- Hoja en rama media izquierda -->
+    <path
+      d="M 60 415
+         C 52 410, 48 412, 47 419
+         C 46 425, 52 427, 58 424
+         C 61 422, 61 418, 60 415 Z"
+      fill="#5C358F"
+      stroke="none"
+      opacity="0.45"
+    />
+
+    <!-- Hoja en rama media derecha -->
+    <path
+      d="M 185 345
+         C 192 340, 196 342, 197 348
+         C 198 354, 192 356, 187 353
+         C 184 351, 184 347, 185 345 Z"
+      fill="#5C358F"
+      stroke="none"
+      opacity="0.45"
+    />
+
+    <!-- Hoja en rama alta izquierda -->
+    <path
+      d="M 75 260
+         C 69 256, 66 258, 65 263
+         C 64 268, 69 270, 74 268
+         C 76 266, 76 262, 75 260 Z"
+      fill="#5C358F"
+      stroke="none"
+      opacity="0.4"
+    />
+
+    <!-- Hoja en rama alta derecha -->
+    <path
+      d="M 175 180
+         C 181 176, 184 178, 184 183
+         C 183 187, 178 188, 174 186
+         C 172 184, 173 181, 175 180 Z"
+      fill="#5C358F"
+      stroke="none"
+      opacity="0.4"
+    />
+
+    <!-- Puntos sutiles representando frutos pequeños o yemas -->
+    <circle cx="85" cy="220" r="1.6" fill="#5C358F" opacity="0.55" stroke="none"/>
+    <circle cx="165" cy="148" r="1.4" fill="#5C358F" opacity="0.5" stroke="none"/>
+    <circle cx="92" cy="68" r="1.2" fill="#5C358F" opacity="0.45" stroke="none"/>
+    <circle cx="156" cy="118" r="1.2" fill="#5C358F" opacity="0.45" stroke="none"/>
+
+  </g>
+</svg>
