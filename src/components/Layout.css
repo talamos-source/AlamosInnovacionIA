@@ -23,14 +23,29 @@
   display: flex;
   flex-direction: column;
   z-index: var(--z-sticky);
+}
 
-  /* Sutil aplicación de watermark de marca al fondo */
-  background-image:
-    linear-gradient(180deg, rgba(250, 248, 244, 0) 0%, rgba(250, 248, 244, 0.6) 100%),
-    url('/brand/branch-watermark-16x9.png');
+/* Watermark sutil al fondo del sidebar, opacidad baja para no distraer */
+.sidebar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 280px;
+  background-image: url('/brand/branch-watermark-16x9.png');
   background-repeat: no-repeat;
   background-position: bottom center;
-  background-size: 100% auto;
+  background-size: 280px auto;
+  opacity: 0.12;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Asegurar que el contenido del sidebar queda por encima del watermark */
+.sidebar > * {
+  position: relative;
+  z-index: 1;
 }
 
 /* Logo block */
