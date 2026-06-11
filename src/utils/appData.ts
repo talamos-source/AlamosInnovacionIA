@@ -8,7 +8,9 @@ export const APP_DATA_KEYS = [
   'otherServices',
   'invoices',
   'companySettings',
-  'users'
+  'users',
+  'discoveryCalls',
+  'discoverySources'
 ]
 
 export type AppDataSnapshot = Record<string, string>

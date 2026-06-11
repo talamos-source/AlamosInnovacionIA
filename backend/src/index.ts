@@ -588,6 +588,244 @@ app.post('/ai/analyze-client-context', requireAuth, async (req, res) => {
   }
 })
 
+/* ============================================================
+   DISCOVERY — Sync de calls desde EU Funding Portal y BDNS
+   ============================================================ */
+
+type DiscoverySource = 'EU_PORTAL' | 'BDNS'
+type ExternalStatus = 'open' | 'forthcoming' | 'closed' | 'unknown'
+
+interface NormalizedCall {
+  externalId: string
+  source: DiscoverySource
+  title: string
+  fundingBody: string
+  program: string
+  openDate?: string
+  closeDate?: string
+  budget?: string
+  externalStatus: ExternalStatus
+  url: string
+  description?: string
+  geographicScope?: 'European' | 'National' | 'Regional' | 'International'
+  aidType?: 'Grant' | 'Loan' | 'Mixed' | 'Tax Credit'
+  actionable: boolean
+}
+
+/* ----------------------------------------------------------
+   Heurística "actionable" para detectar I+D+i en BDNS
+   ---------------------------------------------------------- */
+
+const RDI_KEYWORDS_INCLUDE = [
+  'i+d', 'i+d+i', 'idi', 'innovaci', 'investigaci', 'desarrollo tecnológico',
+  'tecnologi', 'cientific', 'startup', 'spin-off', 'patent', 'horizon', 'doctorad',
+  'doctoral', 'transferencia', 'emprend', 'biomedic', 'biotec', 'aeroespac',
+  'aerospace', 'climate', 'energy', 'digital twin', 'inteligencia artificial',
+  'artificial intelligence', 'machine learning', 'sostenibilidad', 'cleantech',
+]
+
+const RDI_KEYWORDS_EXCLUDE = [
+  'ayuntamiento', 'concejal', 'grup municipal', 'becas escolar', 'libros de texto',
+  'transporte escolar', 'comedor', 'cultural', 'deportes', 'asociaci',
+  'reformas', 'rehabilitación de vivienda', 'social', 'inclusi', 'mayor', 'familia',
+  'protecci', 'igualdad', 'fiesta', 'turismo rural', 'agraria', 'pesca',
+  'distrito', 'urbanismo', 'medio rural', 'comerci', 'cooperativ', 'fiesta',
+  'religios',
+]
+
+function isActionable(title: string, body: string): boolean {
+  const text = `${title} ${body}`.toLowerCase()
+  const hasInclude = RDI_KEYWORDS_INCLUDE.some(k => text.includes(k))
+  const hasExclude = RDI_KEYWORDS_EXCLUDE.some(k => text.includes(k))
+  // Actionable si hay keyword positiva y NO hay negativa
+  return hasInclude && !hasExclude
+}
+
+/* ----------------------------------------------------------
+   EU Funding & Tenders Portal — SEDIA Search API
+   ---------------------------------------------------------- */
+
+async function fetchEUCalls(): Promise<NormalizedCall[]> {
+  // SEDIA Search API: POST con apiKey en query string.
+  // Documentación: https://api.tech.ec.europa.eu/search-api/prod/openapi.json
+  // type=1 → "Topic"; status filtramos open + forthcoming.
+
+  const url = 'https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=*&pageSize=200&pageNumber=1'
+  const body = {
+    languages: ['en'],
+    sort: { field: 'sortStatus', order: 'ASC' },
+    fixedConditions: [
+      {
+        type: 'FixedField',
+        field: 'type',
+        values: ['1'],
+      },
+      {
+        type: 'FixedField',
+        field: 'status',
+        values: ['31094501', '31094502'], // 1 = Forthcoming, 2 = Open en SEDIA
+      },
+    ],
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) throw new Error(`EU portal API: HTTP ${response.status}`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = (await response.json()) as any
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const results = (data.results || []) as any[]
+  return results.map(r => normalizeEUCall(r)).filter(Boolean) as NormalizedCall[]
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeEUCall(raw: any): NormalizedCall | null {
+  try {
+    const meta = raw.metadata || {}
+    const identifier = (meta.identifier?.[0] || meta.callIdentifier?.[0] || raw.reference || raw.url || '').toString()
+    if (!identifier) return null
+    const title = (meta.title?.[0] || raw.title || identifier).toString()
+    const framework = (meta.frameworkProgramme?.[0] || meta.programmeDivision?.[0] || 'Horizon Europe').toString()
+    const callStatusVal = (meta.status?.[0] || '').toString().toLowerCase()
+    const externalStatus: ExternalStatus =
+      callStatusVal.includes('forth') ? 'forthcoming' :
+      callStatusVal.includes('open') ? 'open' :
+      callStatusVal.includes('clos') ? 'closed' : 'unknown'
+
+    const deadlineRaw = (meta.deadlineDate?.[0] || meta.plannedOpeningDate?.[0] || '').toString()
+    const openRaw = (meta.startDate?.[0] || meta.plannedOpeningDate?.[0] || '').toString()
+    const budgetRaw = (meta.budgetOverview?.[0] || '').toString()
+
+    return {
+      externalId: identifier,
+      source: 'EU_PORTAL',
+      title,
+      fundingBody: 'European Commission',
+      program: framework,
+      openDate: openRaw || undefined,
+      closeDate: deadlineRaw || undefined,
+      budget: budgetRaw || undefined,
+      externalStatus,
+      url: raw.url || `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/${identifier.toLowerCase()}`,
+      description: (raw.summary || '').toString().slice(0, 800) || undefined,
+      geographicScope: 'European',
+      aidType: 'Grant',
+      actionable: true, // EU portal ya es I+D+i por naturaleza
+    }
+  } catch {
+    return null
+  }
+}
+
+/* ----------------------------------------------------------
+   BDNS — Spanish Subvenciones API
+   ---------------------------------------------------------- */
+
+async function fetchBDNSCalls(): Promise<NormalizedCall[]> {
+  // BDNS — endpoint público que devuelve convocatorias abiertas.
+  // Sin auth, JSON. Páginamos hasta los últimos 60 días.
+  const fechaDesde = new Date(Date.now() - 60 * 86400000).toISOString().split('T')[0]
+  const fechaHasta = new Date(Date.now() + 365 * 86400000).toISOString().split('T')[0]
+
+  const url = `https://www.pap.hacienda.gob.es/bdnstrans/api/convocatorias?vpd=GE&fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}&pageSize=200&page=0`
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { 'Accept': 'application/json' },
+  })
+  if (!response.ok) throw new Error(`BDNS API: HTTP ${response.status}`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = (await response.json()) as any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const items = (data.content || data || []) as any[]
+  return items.map(it => normalizeBDNSCall(it)).filter(Boolean) as NormalizedCall[]
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeBDNSCall(raw: any): NormalizedCall | null {
+  try {
+    const externalId = (raw.numeroConvocatoria || raw.codigo || raw.id || '').toString()
+    if (!externalId) return null
+    const title = (raw.titulo || raw.descripcion || raw.objeto || externalId).toString()
+    const organo = (raw.organo || raw.organoConcedente || raw.entidad || '').toString()
+    const program = (raw.instrumento || raw.programa || '').toString()
+    const fechaFin = (raw.fechaSolicitudFin || raw.fechaFinSolicitud || raw.fechaFin || '').toString()
+    const fechaInicio = (raw.fechaSolicitudInicio || raw.fechaInicioSolicitud || raw.fechaInicio || '').toString()
+    const budget = (raw.presupuestoTotal || raw.importe || '').toString()
+    const callUrl = (raw.urlBaseRegional || raw.urlConvocatoria || `https://www.pap.hacienda.gob.es/bdnstrans/GE/es/convocatoria/${externalId}`).toString()
+
+    const today = Date.now()
+    const closeMs = fechaFin ? new Date(fechaFin).getTime() : NaN
+    const externalStatus: ExternalStatus = !Number.isNaN(closeMs) && closeMs < today ? 'closed' : 'open'
+
+    return {
+      externalId,
+      source: 'BDNS',
+      title,
+      fundingBody: organo || 'Ministerio',
+      program,
+      openDate: fechaInicio || undefined,
+      closeDate: fechaFin || undefined,
+      budget: budget || undefined,
+      externalStatus,
+      url: callUrl,
+      description: undefined,
+      geographicScope: 'National',
+      aidType: 'Grant',
+      actionable: isActionable(title, organo + ' ' + program),
+    }
+  } catch {
+    return null
+  }
+}
+
+/* ----------------------------------------------------------
+   Endpoint /discovery/sync
+   ---------------------------------------------------------- */
+
+app.post('/discovery/sync', requireAuth, async (req, res) => {
+  const { source } = (req.body || {}) as { source?: DiscoverySource | 'all' }
+  const targets: DiscoverySource[] = source === 'all' || !source
+    ? ['EU_PORTAL', 'BDNS']
+    : [source]
+
+  const allCalls: NormalizedCall[] = []
+  const errors: Record<string, string> = {}
+
+  for (const s of targets) {
+    try {
+      if (s === 'EU_PORTAL') {
+        const calls = await fetchEUCalls()
+        allCalls.push(...calls)
+      } else if (s === 'BDNS') {
+        const calls = await fetchBDNSCalls()
+        allCalls.push(...calls)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      console.error(`Discovery sync error for ${s}:`, msg)
+      errors[s] = msg
+    }
+  }
+
+  res.json({
+    calls: allCalls,
+    syncedAt: new Date().toISOString(),
+    sources: targets,
+    errors,
+    counts: {
+      total: allCalls.length,
+      eu: allCalls.filter(c => c.source === 'EU_PORTAL').length,
+      bdns: allCalls.filter(c => c.source === 'BDNS').length,
+      actionable: allCalls.filter(c => c.actionable).length,
+    },
+  })
+})
+
 app.listen(PORT, () => {
   console.log(`Backend running on port ${PORT}`)
   if (!anthropic) {
@@ -595,4 +833,5 @@ app.listen(PORT, () => {
   } else {
     console.log(`✅ Anthropic configured with model: ${CLAUDE_MODEL}`)
   }
+  console.log('🔭 Discovery endpoint ready at POST /discovery/sync')
 })

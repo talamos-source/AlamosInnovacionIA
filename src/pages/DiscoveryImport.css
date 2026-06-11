@@ -1,0 +1,298 @@
+/* ============================================================
+   DISCOVERY IMPORT — Form para importar una call descubierta
+   ============================================================ */
+
+.page--discovery-import {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ----------------------------------------------------------
+   HEADER
+   ---------------------------------------------------------- */
+
+.di-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.di-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.di-back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-default);
+  background-color: var(--color-bg-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.di-back-btn:hover {
+  background-color: var(--color-bg-muted);
+  color: var(--color-text-primary);
+}
+
+.di-header h1 {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  margin: 0;
+  line-height: var(--line-height-tight);
+}
+
+.di-header p {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.di-header-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* ----------------------------------------------------------
+   LAYOUT 2 COLUMNAS
+   ---------------------------------------------------------- */
+
+.di-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.di-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.di-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* ----------------------------------------------------------
+   SECTIONS
+   ---------------------------------------------------------- */
+
+.di-section {
+  padding: var(--space-5);
+}
+
+.di-section-header {
+  margin-bottom: var(--space-4);
+}
+
+.di-section-header h2 {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.di-collapsible-trigger {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--color-text-primary);
+}
+
+.di-collapsible-trigger h2 {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  margin: 0;
+}
+
+/* ----------------------------------------------------------
+   FORM
+   ---------------------------------------------------------- */
+
+.di-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.di-form--padded {
+  padding-top: var(--space-4);
+}
+
+.di-row {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.di-row--2 { grid-template-columns: 1fr 1fr; }
+.di-row--3 { grid-template-columns: 1fr 1fr 1fr; }
+
+.di-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.di-field--full { width: 100%; }
+
+.di-field label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.di-field .required { color: var(--color-danger-500); margin-left: 2px; }
+
+.di-field input,
+.di-field select,
+.di-field textarea {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-base);
+  min-height: 38px;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.di-field textarea {
+  min-height: 120px;
+  resize: vertical;
+  line-height: var(--line-height-normal);
+}
+
+.di-field input:focus,
+.di-field select:focus,
+.di-field textarea:focus {
+  outline: none;
+  border-color: var(--color-brand-500);
+  box-shadow: var(--shadow-focus);
+}
+
+/* ----------------------------------------------------------
+   CHECKBOXES (Web Publishing)
+   ---------------------------------------------------------- */
+
+.di-checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.di-checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.di-checkbox-row input { accent-color: var(--color-brand-500); }
+
+/* ----------------------------------------------------------
+   SIDEBAR — Source Information
+   ---------------------------------------------------------- */
+
+.di-source-meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.di-meta-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.di-meta-label {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wider);
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-medium);
+}
+
+.di-meta-value {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.di-meta-source {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.di-meta-source-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-text-muted);
+}
+
+.di-meta-rel {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.di-view-original {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-bg-muted);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  transition: all var(--transition-fast);
+}
+
+.di-view-original:hover {
+  background-color: var(--color-brand-50);
+  border-color: var(--color-brand-300);
+  color: var(--color-brand-700);
+}
+
+/* ----------------------------------------------------------
+   RESPONSIVE
+   ---------------------------------------------------------- */
+
+@media (max-width: 1100px) {
+  .di-layout { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 768px) {
+  .di-row--2, .di-row--3 { grid-template-columns: 1fr; }
+}
