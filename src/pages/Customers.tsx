@@ -23,6 +23,10 @@ interface Customer {
   taxId?: string
   incorporationDate?: string
   companySize?: string
+  revenue?: string
+  shareCapital?: string
+  employees?: string
+  memberOf?: string[]
   address?: string
   description?: string
   notes?: string
@@ -56,6 +60,10 @@ const Customers = () => {
     website: '',
     incorporationDate: '',
     companySize: '',
+    revenue: '',
+    shareCapital: '',
+    employees: '',
+    memberOf: [] as string[],
     country: '',
     region: '',
     address: '',
@@ -64,6 +72,8 @@ const Customers = () => {
     description: '',
     notes: ''
   })
+  // Para el desplegable de "Member of"
+  const [memberOfPick, setMemberOfPick] = useState('')
 
   const [errors, setErrors] = useState<Record<string, string>>({})
 
@@ -89,6 +99,47 @@ const Customers = () => {
   const companySizes = ['Small', 'Medium', 'Large', 'Other (University, RC, etc)']
   const statuses = ['Active', 'Inactive', 'Archived']
   const categories = ['Contractor', 'Secondary']
+
+  // Lista de aceleradoras, incubadoras y partners. Editable libremente — añade/quita aquí.
+  const accelerators = [
+    'AABAN',
+    'Antai Venture Builder',
+    'BANC (Business Angels Network of Catalonia)',
+    'BBK Open Innovation',
+    'Big Ban Angels',
+    'Bind 4.0',
+    'Conector Startup Accelerator',
+    'Demium',
+    'EIT Health',
+    'EIT InnoEnergy',
+    'Endeavor',
+    'ESADE BAN',
+    'ICEX Next',
+    'IE Venture Network',
+    'ISDI Accelerator',
+    'Keiretsu Forum',
+    'Lanzadera',
+    'Plug and Play',
+    'SeedRocket',
+    'Startupbootcamp',
+    'Startupxplore',
+    'Techstars',
+    'Wayra (Telefónica)',
+    'Y Combinator',
+  ].sort()
+
+  // Añadir / quitar una aceleradora a la lista de memberOf
+  const addMemberOf = (name: string) => {
+    if (!name) return
+    setFormData(prev => {
+      if (prev.memberOf.includes(name)) return prev
+      return { ...prev, memberOf: [...prev.memberOf, name] }
+    })
+    setMemberOfPick('')
+  }
+  const removeMemberOf = (name: string) => {
+    setFormData(prev => ({ ...prev, memberOf: prev.memberOf.filter(m => m !== name) }))
+  }
 
   // Load customers from localStorage on component mount
   const loadCustomers = (): Customer[] => {
@@ -213,6 +264,10 @@ const Customers = () => {
         taxId: formData.taxId.trim() || undefined,
         incorporationDate: formData.incorporationDate || undefined,
         companySize: formData.companySize || undefined,
+        revenue: formData.revenue.trim() || undefined,
+        shareCapital: formData.shareCapital.trim() || undefined,
+        employees: formData.employees.trim() || undefined,
+        memberOf: formData.memberOf.length > 0 ? [...formData.memberOf] : undefined,
         address: formData.address.trim() || undefined,
         description: formData.description.trim() || undefined,
         notes: formData.notes.trim() || undefined,
@@ -236,6 +291,10 @@ const Customers = () => {
         website: '',
         incorporationDate: '',
         companySize: '',
+        revenue: '',
+        shareCapital: '',
+        employees: '',
+        memberOf: [],
         country: '',
         region: '',
         address: '',
@@ -244,6 +303,7 @@ const Customers = () => {
         description: '',
         notes: ''
       })
+      setMemberOfPick('')
       setEditingCustomerId(null)
       setIsModalOpen(false)
     }
@@ -280,6 +340,10 @@ const Customers = () => {
         website: customer.website,
         incorporationDate: customer.incorporationDate || '',
         companySize: customer.companySize || '',
+        revenue: customer.revenue || '',
+        shareCapital: customer.shareCapital || '',
+        employees: customer.employees || '',
+        memberOf: customer.memberOf || [],
         country: customer.country,
         region: customer.region || '',
         address: customer.address || '',
@@ -288,6 +352,7 @@ const Customers = () => {
         description: customer.description || '',
         notes: customer.notes || ''
       })
+      setMemberOfPick('')
       setEditingCustomerId(customerId)
       setIsModalOpen(true)
     }
@@ -306,6 +371,10 @@ const Customers = () => {
       website: '',
       incorporationDate: '',
       companySize: '',
+      revenue: '',
+      shareCapital: '',
+      employees: '',
+      memberOf: [],
       country: '',
       region: '',
       address: '',
@@ -314,6 +383,7 @@ const Customers = () => {
       description: '',
       notes: ''
     })
+    setMemberOfPick('')
     setIsModalOpen(true)
   }
 
@@ -628,6 +698,10 @@ const Customers = () => {
             website: '',
             incorporationDate: '',
             companySize: '',
+            revenue: '',
+            shareCapital: '',
+            employees: '',
+            memberOf: [],
             country: '',
             region: '',
             address: '',
@@ -636,8 +710,9 @@ const Customers = () => {
             description: '',
             notes: ''
           })
+          setMemberOfPick('')
           setErrors({})
-        }} 
+        }}
         title={editingCustomerId ? "Edit Client" : "New Client"}
       >
         <form onSubmit={handleSubmit} className="client-form">
@@ -724,6 +799,87 @@ const Customers = () => {
                 ))}
               </select>
               {errors.companySize && <span className="error-message">{errors.companySize}</span>}
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label htmlFor="revenue">Facturación (€)</label>
+              <input
+                id="revenue"
+                type="number"
+                min="0"
+                step="any"
+                value={formData.revenue}
+                onChange={(e) => handleInputChange('revenue', e.target.value)}
+                placeholder="Ej. 500000"
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="shareCapital">Capital social (€)</label>
+              <input
+                id="shareCapital"
+                type="number"
+                min="0"
+                step="any"
+                value={formData.shareCapital}
+                onChange={(e) => handleInputChange('shareCapital', e.target.value)}
+                placeholder="Ej. 3000"
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="employees">Empleados</label>
+              <input
+                id="employees"
+                type="number"
+                min="0"
+                step="1"
+                value={formData.employees}
+                onChange={(e) => handleInputChange('employees', e.target.value)}
+                placeholder="Ej. 25"
+              />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group form-group--full">
+              <label htmlFor="memberOf">Member of</label>
+              <select
+                id="memberOf"
+                value={memberOfPick}
+                onChange={(e) => addMemberOf(e.target.value)}
+              >
+                <option value="">Selecciona una aceleradora, incubadora o partner…</option>
+                {accelerators
+                  .filter(a => !formData.memberOf.includes(a))
+                  .map(a => (
+                    <option key={a} value={a}>{a}</option>
+                  ))}
+              </select>
+
+              {formData.memberOf.length > 0 && (
+                <div className="chip-list">
+                  {formData.memberOf.map(name => (
+                    <span key={name} className="chip">
+                      {name}
+                      <button
+                        type="button"
+                        className="chip-remove"
+                        onClick={() => removeMemberOf(name)}
+                        aria-label={`Quitar ${name}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <p className="field-hint">
+                Asocia este cliente con una aceleradora, incubadora u organización partner. Ninguna de estas preguntas es obligatoria.
+              </p>
             </div>
           </div>
 
