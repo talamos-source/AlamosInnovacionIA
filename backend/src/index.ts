@@ -662,18 +662,28 @@ function isActionable(title: string, body: string): boolean {
  *   grants = ['1','2','8'],  tenders = ['0']
  */
 interface EUFetchAttempt {
-  url: string
   description: string
   query: object
   sort: object
   languages: string[]
 }
 
-async function tryEUEndpoint(attempt: EUFetchAttempt): Promise<{ ok: boolean; results: unknown[]; total?: number; error?: string }> {
-  console.log(`   📡 Trying: ${attempt.description}`)
-  console.log(`      POST ${attempt.url}`)
-  console.log(`      query: ${JSON.stringify(attempt.query)}`)
-  console.log(`      sort:  ${JSON.stringify(attempt.sort)}`)
+const SEDIA_SEARCH_BASE = 'https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=***'
+
+async function tryEUEndpoint(
+  attempt: EUFetchAttempt,
+  pageNumber: number = 1,
+  pageSize: number = 100, // SEDIA caps at 100 anyway
+): Promise<{ ok: boolean; results: unknown[]; total?: number; error?: string }> {
+  const url = `${SEDIA_SEARCH_BASE}&pageSize=${pageSize}&pageNumber=${pageNumber}`
+  if (pageNumber === 1) {
+    console.log(`   📡 Trying: ${attempt.description}`)
+    console.log(`      POST ${url}`)
+    console.log(`      query: ${JSON.stringify(attempt.query)}`)
+    console.log(`      sort:  ${JSON.stringify(attempt.sort)}`)
+  } else {
+    console.log(`   📡   ↳ Page ${pageNumber}`)
+  }
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 25000)
@@ -686,7 +696,7 @@ async function tryEUEndpoint(attempt: EUFetchAttempt): Promise<{ ok: boolean; re
     fd.append('sort', new Blob([JSON.stringify(attempt.sort)], { type: 'application/json' }), 'blob')
     fd.append('languages', new Blob([JSON.stringify(attempt.languages)], { type: 'application/json' }), 'blob')
 
-    const response = await fetch(attempt.url, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         Accept: 'application/json',
@@ -750,12 +760,9 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
   //   metadata.frameworkProgramme  código (31045243=H2020, 43108390=Horizon Europe…)
   //   metadata.deadlineDate   array de ISO strings
 
-  const baseUrl = 'https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=***&pageSize=300&pageNumber=1'
-
   const attempts: EUFetchAttempt[] = [
     {
       description: 'SEDIA multipart — Open + Forthcoming grants, sorted by deadline ASC',
-      url: baseUrl,
       query: {
         bool: {
           must: [
@@ -769,7 +776,6 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
     },
     {
       description: 'SEDIA multipart — grants only (no status filter, fallback)',
-      url: baseUrl,
       query: {
         bool: {
           must: [
@@ -782,23 +788,55 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
     },
   ]
 
+  // SEDIA cappea pageSize a 100, por eso paginamos.
+  // MAX_PAGES de seguridad para no saturar memoria/timeout.
+  // 15 páginas × 100 = 1500 calls máx (más de las 739 que muestra el portal).
+  const PAGE_SIZE = 100
+  const MAX_PAGES = 15
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let results: any[] = []
   let lastError = ''
+
   for (const attempt of attempts) {
-    const res = await tryEUEndpoint(attempt)
-    if (res.ok && res.results.length > 0) {
-      results = res.results
-      console.log(`   ✅ Got ${results.length} results from "${attempt.description}"`)
-      break
-    } else if (res.ok && res.results.length === 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const acc: any[] = []
+
+    // Página 1 — descubrimos cuántas hay
+    const first = await tryEUEndpoint(attempt, 1, PAGE_SIZE)
+    if (!first.ok) {
+      lastError = first.error || 'unknown error'
+      console.log(`   ❌ ${attempt.description}: ${lastError}`)
+      continue
+    }
+    if (first.results.length === 0) {
       lastError = '0 results returned'
       console.log(`   ⚠️  ${attempt.description}: ${lastError}`)
-      // Si una respuesta fue OK pero vacía, probamos la siguiente
-    } else {
-      lastError = res.error || 'unknown error'
-      console.log(`   ❌ ${attempt.description}: ${lastError}`)
+      continue
     }
+    acc.push(...first.results)
+
+    const total = first.total ?? acc.length
+    const totalPages = Math.min(Math.ceil(total / PAGE_SIZE), MAX_PAGES)
+    console.log(`   📊 totalResults=${total} → planning to fetch ${totalPages} pages (capped at ${MAX_PAGES})`)
+
+    // Páginas 2..N
+    for (let page = 2; page <= totalPages; page++) {
+      const next = await tryEUEndpoint(attempt, page, PAGE_SIZE)
+      if (!next.ok) {
+        console.log(`   ⚠️  Page ${page} failed: ${next.error}. Continuing with ${acc.length} acumulados.`)
+        break
+      }
+      if (next.results.length === 0) {
+        console.log(`   ℹ️  Page ${page} returned 0, stopping`)
+        break
+      }
+      acc.push(...next.results)
+    }
+
+    results = acc
+    console.log(`   ✅ Accumulated ${results.length} results across ${totalPages} pages from "${attempt.description}"`)
+    break
   }
 
   if (results.length === 0) {
