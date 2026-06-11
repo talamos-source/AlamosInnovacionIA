@@ -67,6 +67,86 @@ const DEFAULT_SOURCES: DiscoverySourcesState = {
   BDNS: { lastSyncStatus: 'idle', recordCount: 0 },
 }
 
+/**
+ * Mapping defensivo de códigos SEDIA → nombres legibles.
+ * Si el backend (antes del último deploy) guardó "Programme 111111" en localStorage,
+ * lo limpiamos al cargar la página.
+ */
+const SEDIA_PROGRAMME_CODE_MAP: Record<string, string> = {
+  '111109': '1st Health Programme (1HP)',
+  '111110': '2nd Health Programme (2HP)',
+  '111111': 'Multi-Programme',
+  '31045243': 'Horizon 2020 (H2020)',
+  '31059083': 'Creative Europe (2014-2020)',
+  '31059093': 'Erasmus+ (2014-2020)',
+  '31059643': 'COSME (2014-2020)',
+  '31061225': 'Research Fund for Coal & Steel (2014-2020)',
+  '31061266': '3rd Health Programme (2014-2020)',
+  '31065524': 'CEF (2014-2020)',
+  '31070247': 'Justice Programme (2014-2020)',
+  '31072773': 'AGRIP (2014-2020)',
+  '31076817': 'Rights, Equality & Citizenship (2014-2020)',
+  '31077795': 'AMIF (2014-2020)',
+  '31077817': 'ISF — Police (2014-2020)',
+  '31077833': 'ISF — Borders & Visa (2014-2020)',
+  '31082527': 'UCPM (2014-2020)',
+  '31084392': 'Hercule III (2014-2020)',
+  '31098847': 'EMFF (2014-2020)',
+  '31107710': 'LIFE (2014-2020)',
+  '42198993': 'IMCAP (2014-2020)',
+  '42905358': 'Structural Reform Support Programme (2014-2020)',
+  '43089234': 'Innovation Fund (INNOVFUND)',
+  '43108390': 'Horizon Europe (HORIZON)',
+  '43152860': 'Digital Europe Programme',
+  '43251447': 'Asylum, Migration & Integration Fund (AMIF)',
+  '43251530': 'Border Management & Visa Instrument (BMVI)',
+  '43251534': 'Customs Control Equipment Instrument (CCEI)',
+  '43251567': 'Connecting Europe Facility (CEF)',
+  '43251589': 'CERV — Citizens, Equality, Rights & Values',
+  '43251814': 'Creative Europe (CREA)',
+  '43251842': 'EU Anti-Fraud Programme (EUAF)',
+  '43251882': 'Information Measures for CAP (IMCAP)',
+  '43252368': 'Internal Security Fund (ISF)',
+  '43252386': 'Justice Programme (JUST)',
+  '43252405': 'LIFE — Environment & Climate Action',
+  '43252433': 'Pericles IV — Euro Counterfeiting Protection',
+  '43252449': 'Research Fund for Coal & Steel (RFCS)',
+  '43252476': 'Single Market Programme (SMP)',
+  '43252517': 'Social Prerogatives & Specific Competencies Lines (SOCPL)',
+  '43253706': 'Technical Support Instrument (TSI)',
+  '43253967': 'Renewable Energy Financing Mechanism',
+  '43253979': 'Customs Programme (CUST)',
+  '43253995': 'Fiscalis Programme (FISC)',
+  '43254019': 'European Social Fund Plus (ESF+)',
+  '43254037': 'European Solidarity Corps (ESC)',
+  '43298203': 'Union Civil Protection Mechanism (UCPM)',
+  '43298664': 'Agricultural Products Promotion (AGRIP)',
+  '43298916': 'Euratom Research & Training Programme',
+  '43332642': 'EU4Health',
+  '43353764': 'Erasmus+',
+  '43392145': 'European Maritime, Fisheries & Aquaculture Fund (EMFAF)',
+  '44181033': 'European Defence Fund (EDF)',
+  '44416173': 'Interregional Innovation Investments (I3)',
+  '44773066': 'Just Transition Mechanism (JTM)',
+  '44773133': 'Information Measures for EU Cohesion Policy (IMREG)',
+  '45876777': 'Global Europe (NDICI)',
+  '46324255': 'Technical Assistance for ERDF, CF & JTF',
+}
+
+/**
+ * Limpia "Programme 12345" → nombre legible (si conocemos el código).
+ * Conserva resto de strings incluyendo extensiones como "- CL5", "· RIA".
+ */
+function normalizeProgramName(program: string): string {
+  if (!program) return program
+  // Caso típico: "Programme 111111" o "Programme 111111 — Health · RIA"
+  const m = program.match(/^Programme (\d+)(.*)$/)
+  if (m && SEDIA_PROGRAMME_CODE_MAP[m[1]]) {
+    return SEDIA_PROGRAMME_CODE_MAP[m[1]] + (m[2] || '')
+  }
+  return program
+}
+
 const SOURCE_LABELS: Record<DiscoverySource, string> = {
   EU_PORTAL: 'EU Funding & Tenders Portal',
   BDNS: 'BDNS – Spanish National Grants',
@@ -178,15 +258,24 @@ const Discovery = () => {
     const todayMs = Date.now()
     const GRACE_MS = 86400000 // 1 día
     const initialCount = calls.length
+    let renamedCount = 0
     const purged = calls.filter(c => {
       if (c.userStatus === 'dismissed' || c.userStatus === 'imported') return true
       if (!c.closeDate) return true // sin deadline → puede ser Forthcoming
       const t = new Date(c.closeDate).getTime()
       if (Number.isNaN(t)) return true
       return t >= todayMs - GRACE_MS
+    }).map(c => {
+      // Defensive: si el program quedó como "Programme XXXXX" (cache viejo), lo mapeamos
+      const normalized = normalizeProgramName(c.program)
+      if (normalized !== c.program) {
+        renamedCount += 1
+        return { ...c, program: normalized }
+      }
+      return c
     })
-    if (purged.length !== initialCount) {
-      console.log(`[Discovery] Purged ${initialCount - purged.length} stale past-deadline calls from cache`)
+    if (purged.length !== initialCount || renamedCount > 0) {
+      console.log(`[Discovery] Cleanup: purged ${initialCount - purged.length} past-deadline, renamed ${renamedCount} unknown programmes`)
       persistCalls(purged)
     }
 
