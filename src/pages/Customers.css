@@ -529,6 +529,139 @@
   letter-spacing: var(--letter-spacing-tight);
 }
 
+/* ============================================================
+   FORM DE CLIENTES — Modal Nuevo / Editar cliente
+   ============================================================ */
+
+.client-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.client-form .form-row {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+
+.client-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.client-form .form-group label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  letter-spacing: var(--letter-spacing-tight);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.client-form .required {
+  color: var(--color-danger-500);
+  font-weight: var(--font-weight-semibold);
+  margin-left: 2px;
+}
+
+.client-form .optional-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-subtle);
+  font-weight: var(--font-weight-regular);
+  font-style: italic;
+}
+
+.client-form input[type="text"],
+.client-form input[type="number"],
+.client-form input[type="date"],
+.client-form input[type="email"],
+.client-form input[type="url"],
+.client-form select,
+.client-form textarea {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family-base);
+  color: var(--color-text-primary);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  min-height: 38px;
+}
+
+.client-form input::placeholder,
+.client-form textarea::placeholder {
+  color: var(--color-text-subtle);
+}
+
+.client-form input:focus,
+.client-form select:focus,
+.client-form textarea:focus {
+  outline: none;
+  border-color: var(--color-brand-500);
+  box-shadow: var(--shadow-focus);
+}
+
+.client-form input.error,
+.client-form select.error,
+.client-form textarea.error {
+  border-color: var(--color-danger-500);
+}
+
+.client-form input:disabled,
+.client-form select:disabled {
+  background-color: var(--color-bg-muted);
+  color: var(--color-text-subtle);
+  cursor: not-allowed;
+}
+
+.client-form textarea {
+  resize: vertical;
+  min-height: 80px;
+  line-height: var(--line-height-normal);
+}
+
+/* Hide number input spinner arrows (las flechitas feas) */
+.client-form input[type="number"]::-webkit-outer-spin-button,
+.client-form input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.client-form input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.client-form .error-message {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-danger-700);
+  margin-top: 2px;
+}
+
+.client-form .form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+@media (max-width: 640px) {
+  .client-form .form-row {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+}
+
 /* ----------------------------------------------------------
    FORM — Extras para chips y hints (campos opcionales)
    ---------------------------------------------------------- */

@@ -713,12 +713,12 @@ const Customers = () => {
           setMemberOfPick('')
           setErrors({})
         }}
-        title={editingCustomerId ? "Edit Client" : "New Client"}
+        title={editingCustomerId ? "Editar cliente" : "Nuevo cliente"}
       >
         <form onSubmit={handleSubmit} className="client-form">
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="name">Name <span className="required">*</span></label>
+              <label htmlFor="name">Nombre <span className="required">*</span></label>
               <input
                 type="text"
                 id="name"
@@ -730,7 +730,7 @@ const Customers = () => {
             </div>
 
             <div className="form-group">
-              <label htmlFor="legalName">Legal Name <span className="required">*</span></label>
+              <label htmlFor="legalName">Razón social <span className="required">*</span></label>
               <input
                 type="text"
                 id="legalName"
@@ -744,7 +744,7 @@ const Customers = () => {
 
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="taxId">Tax ID (CIF/NIF) <span className="required">*</span></label>
+              <label htmlFor="taxId">CIF / NIF <span className="required">*</span></label>
               <input
                 type="text"
                 id="taxId"
@@ -757,7 +757,7 @@ const Customers = () => {
             </div>
 
             <div className="form-group">
-              <label htmlFor="website">Website <span className="required">*</span></label>
+              <label htmlFor="website">Web <span className="required">*</span></label>
               <input
                 type="text"
                 id="website"
@@ -772,28 +772,28 @@ const Customers = () => {
 
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="incorporationDate">Incorporation Date <span className="required">*</span></label>
+              <label htmlFor="incorporationDate">Fecha de constitución <span className="required">*</span></label>
               <input
                 type="text"
                 id="incorporationDate"
                 value={formData.incorporationDate}
                 onChange={handleDateInput}
                 className={errors.incorporationDate ? 'error' : ''}
-                placeholder="dd/mm/yyyy"
+                placeholder="dd/mm/aaaa"
                 maxLength={10}
               />
               {errors.incorporationDate && <span className="error-message">{errors.incorporationDate}</span>}
             </div>
 
             <div className="form-group">
-              <label htmlFor="companySize">Company Size <span className="required">*</span></label>
+              <label htmlFor="companySize">Tamaño de empresa <span className="required">*</span></label>
               <select
                 id="companySize"
                 value={formData.companySize}
                 onChange={(e) => handleInputChange('companySize', e.target.value)}
                 className={errors.companySize ? 'error' : ''}
               >
-                <option value="">Select size</option>
+                <option value="">Selecciona tamaño</option>
                 {companySizes.map(size => (
                   <option key={size} value={size}>{size}</option>
                 ))}
@@ -878,21 +878,21 @@ const Customers = () => {
               )}
 
               <p className="field-hint">
-                Asocia este cliente con una aceleradora, incubadora u organización partner. Ninguna de estas preguntas es obligatoria.
+                Asocia este cliente con una aceleradora, incubadora u organización partner. Ninguno de estos campos es obligatorio.
               </p>
             </div>
           </div>
 
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="country">Country <span className="required">*</span></label>
+              <label htmlFor="country">País <span className="required">*</span></label>
               <select
                 id="country"
                 value={formData.country}
                 onChange={(e) => handleInputChange('country', e.target.value)}
                 className={errors.country ? 'error' : ''}
               >
-                <option value="">Select country</option>
+                <option value="">Selecciona país</option>
                 {countries.map(country => (
                   <option key={country} value={country}>{country}</option>
                 ))}
@@ -901,7 +901,7 @@ const Customers = () => {
             </div>
 
             <div className="form-group">
-              <label htmlFor="region">Region/State</label>
+              <label htmlFor="region">Región / Comunidad</label>
               <select
                 id="region"
                 value={formData.region}
@@ -909,7 +909,7 @@ const Customers = () => {
                 disabled={formData.country !== 'España'}
                 className={errors.region ? 'error' : ''}
               >
-                <option value="">Select region</option>
+                <option value="">Selecciona región</option>
                 {formData.country === 'España' && spanishRegions.map(region => (
                   <option key={region} value={region}>{region}</option>
                 ))}
@@ -919,7 +919,7 @@ const Customers = () => {
           </div>
 
           <div className="form-group">
-            <label htmlFor="address">Address <span className="required">*</span></label>
+            <label htmlFor="address">Dirección <span className="required">*</span></label>
             <input
               type="text"
               id="address"
@@ -932,7 +932,7 @@ const Customers = () => {
 
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="status">Status</label>
+              <label htmlFor="status">Estado</label>
               <select
                 id="status"
                 value={formData.status}
@@ -945,14 +945,14 @@ const Customers = () => {
             </div>
 
             <div className="form-group">
-              <label htmlFor="category">Category <span className="required">*</span></label>
+              <label htmlFor="category">Categoría <span className="required">*</span></label>
               <select
                 id="category"
                 value={formData.category}
                 onChange={(e) => handleInputChange('category', e.target.value)}
                 className={errors.category ? 'error' : ''}
               >
-                <option value="">Select category</option>
+                <option value="">Selecciona categoría</option>
                 {categories.map(category => (
                   <option key={category} value={category}>{category}</option>
                 ))}
@@ -962,7 +962,7 @@ const Customers = () => {
           </div>
 
           <div className="form-group">
-            <label htmlFor="description">Description <span className="required">*</span></label>
+            <label htmlFor="description">Descripción <span className="required">*</span></label>
             <textarea
               id="description"
               value={formData.description}
@@ -974,7 +974,7 @@ const Customers = () => {
           </div>
 
           <div className="form-group">
-            <label htmlFor="notes">Notes (optional)</label>
+            <label htmlFor="notes">Notas <span className="optional-hint">(opcional)</span></label>
             <textarea
               id="notes"
               value={formData.notes}
@@ -985,10 +985,10 @@ const Customers = () => {
 
           <div className="form-actions">
             <button type="button" className="btn-secondary" onClick={() => setIsModalOpen(false)}>
-              Cancel
+              Cancelar
             </button>
             <button type="submit" className="btn-primary">
-              Save Client
+              {editingCustomerId ? 'Guardar cambios' : 'Crear cliente'}
             </button>
           </div>
         </form>
