@@ -244,30 +244,82 @@ const CustomerContext = () => {
     setIsAnalyzing(true)
 
     try {
-      // TODO: cuando el backend tenga el endpoint, reemplazar este bloque
-      // por una llamada real:
-      //   await fetch(`${API_BASE}/ai/analyze-client-context`, { method: 'POST', body: JSON.stringify({...}) })
-      await new Promise(resolve => setTimeout(resolve, 1800))
+      // Reúne proyectos relacionados con el cliente para pasárselos al agente
+      const customers = loadCustomers()
+      const fullCustomer = customers.find(c => c.id === customer.id) as Record<string, unknown> | undefined
 
-      const suggestedFromAI: Partial<CustomerContextData> = generateStubSuggestions(customer)
+      let relatedProjects: Array<Record<string, unknown>> = []
+      try {
+        const rawProjects = localStorage.getItem('projects')
+        if (rawProjects) {
+          const allProjects: Array<Record<string, unknown>> = JSON.parse(rawProjects)
+          relatedProjects = allProjects
+            .filter(p => {
+              const primary = (p.primaryClients as string[] | undefined) || []
+              const secondary = (p.secondaryClients as string[] | undefined) || []
+              return primary.includes(customer.id) || secondary.includes(customer.id)
+            })
+            .slice(0, 10) // limita por seguridad de tokens
+        }
+      } catch {
+        // ignore
+      }
+
+      const API_BASE =
+        (import.meta.env.VITE_API_URL as string | undefined) ||
+        'https://alamosinnovacionia.onrender.com'
+      const token = localStorage.getItem('authToken') || ''
+
+      const response = await fetch(`${API_BASE}/ai/analyze-client-context`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          customer: fullCustomer || customer,
+          projects: relatedProjects,
+        }),
+      })
+
+      if (!response.ok) {
+        const text = await response.text()
+        let message = `Server returned ${response.status}`
+        try {
+          const parsed = JSON.parse(text)
+          message = parsed.error || message
+        } catch {
+          // text is not JSON; ignore
+        }
+        throw new Error(message)
+      }
+
+      const data = (await response.json()) as {
+        suggestions: Record<string, ContextField>
+        analyzedAt?: string
+        tokensUsed?: { input: number; output: number }
+      }
 
       setContext(prev => {
         const merged: CustomerContextData = { ...prev }
-        CONTEXT_FIELDS.forEach(f => {
-          const aiSuggestion = suggestedFromAI[f.key]
+        for (const f of CONTEXT_FIELDS) {
+          const aiSuggestion = data.suggestions[f.key as string] as ContextField | undefined
           const current = prev[f.key]
-          // Sólo rellena si el usuario no había validado ya un valor
           if (aiSuggestion && (!current || !current.value || current.suggested)) {
             merged[f.key] = aiSuggestion
           }
-        })
-        merged.lastAnalyzedAt = new Date().toISOString()
+        }
+        merged.lastAnalyzedAt = data.analyzedAt || new Date().toISOString()
         persistContext(merged)
         return merged
       })
     } catch (err) {
       console.error('Analyze error', err)
-      setAnalyzeError('Could not analyze sources. Please try again.')
+      setAnalyzeError(
+        err instanceof Error
+          ? err.message
+          : 'Could not analyze sources. Please try again.'
+      )
     } finally {
       setIsAnalyzing(false)
     }
@@ -484,43 +536,6 @@ const CustomerContext = () => {
       </section>
     </div>
   )
-}
-
-/* ============================================================
-   Stub temporal del agente — devuelve sugerencias plausibles
-   basadas en la info pública del cliente.
-   Reemplazar por llamada real a backend Claude cuando esté listo.
-   ============================================================ */
-
-function generateStubSuggestions(customer: Customer): Partial<CustomerContextData> {
-  const name = customer.name || 'The company'
-  const baseDescription = customer.description?.trim()
-  const out: Partial<CustomerContextData> = {}
-
-  const mark = (text: string): ContextField => ({ value: text, suggested: true })
-
-  // Sólo rellenamos campos si tenemos pista mínima del cliente.
-  if (baseDescription) {
-    out.companyOverview = mark(baseDescription)
-  }
-
-  out.businessModel = mark(
-    `${name} generates revenue through its core offering. Validate with the latest financials.`
-  )
-  out.competitiveAdvantage = mark(
-    `${name}'s competitive advantage lies in its ability to deliver tailored solutions and integrate them with existing client systems.`
-  )
-  out.targetMarkets = mark(
-    `${name} serves a range of industries. Validate specific geographies and verticals.`
-  )
-  out.solutionDescription = mark(
-    `${name} provides solutions designed to streamline operations and improve overall efficiency for its clients.`
-  )
-
-  // Campos que el stub no rellena (devuelve placeholder vacío con flag)
-  // Los dejamos como "suggested: true" + value vacío para que se vean
-  // marcados como pendientes de revisión.
-  return out
 }
 
 export default CustomerContext
