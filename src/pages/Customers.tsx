@@ -5,6 +5,7 @@ import Modal from '../components/Modal'
 import ActionsMenu from '../components/ActionsMenu'
 import { useAuth } from '../contexts/AuthContext'
 import './Page.css'
+import './Customers.css'
 
 interface Customer {
   id: string
@@ -506,7 +507,10 @@ const Customers = () => {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1>Customers</h1>
+          <h1>Clientes</h1>
+          <p className="page-subtitle">
+            Tu base de clientes — empresas, startups y organizaciones con las que trabajas
+          </p>
         </div>
       </div>
 
@@ -515,7 +519,7 @@ const Customers = () => {
           <Search size={18} className="search-icon" />
           <input
             type="text"
-            placeholder="Search by name, company, country, region, partner, website, category, status..."
+            placeholder="Buscar por nombre, empresa, país, región, categoría, estado…"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="search-input-inline"
@@ -531,7 +535,7 @@ const Customers = () => {
                 className={`filter-btn ${filters.status !== 'All' ? 'active' : ''}`}
                 style={{ appearance: 'none', paddingRight: '2rem', cursor: 'pointer' }}
               >
-                <option value="All">All Status</option>
+                <option value="All">Todos los estados</option>
                 {uniqueStatuses.map(status => (
                   <option key={status} value={status}>{status}</option>
                 ))}
@@ -545,7 +549,7 @@ const Customers = () => {
                 className={`filter-btn ${filters.country !== 'All' ? 'active' : ''}`}
                 style={{ appearance: 'none', paddingRight: '2rem', cursor: 'pointer' }}
               >
-                <option value="All">All Countries</option>
+                <option value="All">Todos los países</option>
                 {uniqueCountries.map(country => (
                   <option key={country} value={country}>{country}</option>
                 ))}
@@ -559,7 +563,7 @@ const Customers = () => {
                 className={`filter-btn ${filters.region !== 'All' ? 'active' : ''}`}
                 style={{ appearance: 'none', paddingRight: '2rem', cursor: 'pointer' }}
               >
-                <option value="All">All Regions</option>
+                <option value="All">Todas las regiones</option>
                 {uniqueRegions.map(region => (
                   <option key={region} value={region}>{region}</option>
                 ))}
@@ -573,7 +577,7 @@ const Customers = () => {
                 className={`filter-btn ${filters.category !== 'All' ? 'active' : ''}`}
                 style={{ appearance: 'none', paddingRight: '2rem', cursor: 'pointer' }}
               >
-                <option value="All">All Categories</option>
+                <option value="All">Todas las categorías</option>
                 {uniqueCategories.map(category => (
                   <option key={category} value={category}>{category}</option>
                 ))}
@@ -601,9 +605,9 @@ const Customers = () => {
           className="btn-secondary"
           onClick={() => csvInputRef.current?.click()}
         >
-          Import CSV
+          Importar CSV
         </button>
-        <button className="btn-primary" onClick={handleNewClient}>+ New Client</button>
+        <button className="btn-primary" onClick={handleNewClient}>+ Nuevo cliente</button>
       </div>
 
       {importFeedback && (
@@ -839,14 +843,14 @@ const Customers = () => {
           <table className="data-table customers-table">
             <thead>
               <tr>
-                <th>NAME</th>
-                <th>COUNTRY</th>
-                <th>REGION</th>
-                <th>PARTNER</th>
-                <th>WEBSITE</th>
-                <th>CATEGORY</th>
-                <th>STATUS</th>
-                <th>ACTIONS</th>
+                <th>Nombre</th>
+                <th>País</th>
+                <th>Región</th>
+                <th>Partner</th>
+                <th>Web</th>
+                <th>Categoría</th>
+                <th>Estado</th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -922,7 +926,7 @@ const Customers = () => {
         {filteredCustomers.length > 0 && (
           <div className="pagination">
             <div className="pagination-info">
-              Showing {startIndex + 1} to {Math.min(endIndex, filteredCustomers.length)} of {filteredCustomers.length} customers
+              Mostrando {startIndex + 1}–{Math.min(endIndex, filteredCustomers.length)} de {filteredCustomers.length} clientes
             </div>
             <div className="pagination-controls">
               <button 

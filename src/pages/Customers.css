@@ -1,0 +1,491 @@
+/* ============================================================
+   CUSTOMERS — Página de clientes rediseñada
+   Importado DESPUÉS de Page.css para precedencia de cascada
+   ============================================================ */
+
+/* ----------------------------------------------------------
+   TOOLBAR — Layout limpio con search amplio + filtros + acciones
+   ---------------------------------------------------------- */
+
+.customers-toolbar {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  margin-bottom: var(--space-5);
+  flex-wrap: wrap;
+}
+
+/* ----------------------------------------------------------
+   SEARCH BAR — Caja de búsqueda moderna
+   ---------------------------------------------------------- */
+
+.search-bar-inline {
+  position: relative;
+  flex: 1;
+  min-width: 280px;
+}
+
+.search-bar-inline .search-icon {
+  position: absolute;
+  left: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.search-input-inline {
+  width: 100%;
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-10);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-surface);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.search-input-inline::placeholder {
+  color: var(--color-text-subtle);
+}
+
+.search-input-inline:focus {
+  outline: none;
+  border-color: var(--color-brand-500);
+  box-shadow: var(--shadow-focus);
+}
+
+/* ----------------------------------------------------------
+   FILTER BUTTONS — Selects estilizados como pills
+   ---------------------------------------------------------- */
+
+.filter-buttons {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.filter-button-group {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  min-height: 38px;
+}
+
+.filter-btn:hover {
+  border-color: var(--color-border-strong);
+  background-color: var(--color-bg-muted);
+  color: var(--color-text-primary);
+}
+
+.filter-btn.active {
+  border-color: var(--color-brand-300);
+  background-color: var(--color-brand-50);
+  color: var(--color-brand-700);
+  font-weight: var(--font-weight-semibold);
+}
+
+.filter-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-color: var(--color-brand-500);
+}
+
+.select-wrapper {
+  position: relative;
+}
+
+.select-chevron {
+  color: var(--color-text-muted);
+  transition: color var(--transition-fast);
+}
+
+.filter-btn.active + .select-chevron,
+.filter-btn:hover + .select-chevron {
+  color: var(--color-brand-600);
+}
+
+/* ----------------------------------------------------------
+   BUTTONS — primary / secondary
+   ---------------------------------------------------------- */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--color-brand-500);
+  color: var(--color-text-inverse);
+  border: 1px solid var(--color-brand-500);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+  min-height: 38px;
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.btn-primary:hover {
+  background-color: var(--color-brand-600);
+  border-color: var(--color-brand-600);
+}
+
+.btn-primary:active {
+  background-color: var(--color-brand-700);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  min-height: 38px;
+}
+
+.btn-secondary:hover {
+  background-color: var(--color-bg-muted);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
+/* ----------------------------------------------------------
+   IMPORT FEEDBACK — Toast inline
+   ---------------------------------------------------------- */
+
+.import-feedback {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.import-feedback-success {
+  color: var(--color-success-700);
+  background-color: var(--color-success-50);
+  border-color: var(--color-success-500);
+}
+
+.import-feedback-error {
+  color: var(--color-danger-700);
+  background-color: var(--color-danger-50);
+  border-color: var(--color-danger-500);
+}
+
+/* ----------------------------------------------------------
+   TABLE — Tabla de clientes moderna
+   ---------------------------------------------------------- */
+
+.customers-table-container,
+.table-container {
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.customers-table,
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.customers-table thead,
+.data-table thead {
+  background-color: var(--color-bg-subtle);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.customers-table thead th,
+.data-table thead th {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wider);
+}
+
+.customers-table tbody td,
+.data-table tbody td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text-primary);
+  vertical-align: middle;
+}
+
+.customers-table tbody tr:last-child td,
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.customers-table tbody tr:hover,
+.data-table tbody tr:hover {
+  background-color: var(--color-bg-subtle);
+}
+
+/* ----------------------------------------------------------
+   STATUS BADGES — Pills coloreados por estado
+   ---------------------------------------------------------- */
+
+.status-badge,
+.category-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  letter-spacing: var(--letter-spacing-wide);
+  white-space: nowrap;
+  background-color: var(--color-bg-muted);
+  color: var(--color-text-muted);
+}
+
+.status-active {
+  background-color: var(--color-success-50);
+  color: var(--color-success-700);
+}
+
+.status-inactive,
+.status-archived {
+  background-color: var(--color-bg-muted);
+  color: var(--color-text-muted);
+}
+
+.status-pending,
+.status-lead {
+  background-color: var(--color-warning-50);
+  color: var(--color-warning-700);
+}
+
+.status-lost,
+.status-closed,
+.status-cancelled,
+.status-rejected {
+  background-color: var(--color-danger-50);
+  color: var(--color-danger-700);
+}
+
+.status-in.progress,
+.status-in-progress,
+.status-active {
+  background-color: var(--color-info-50);
+  color: var(--color-info-700);
+}
+
+.status-won,
+.status-completed {
+  background-color: var(--color-brand-50);
+  color: var(--color-brand-700);
+}
+
+.category-badge {
+  background-color: var(--color-brand-50);
+  color: var(--color-brand-700);
+  text-transform: uppercase;
+}
+
+/* ----------------------------------------------------------
+   PARTNER AVATAR (initials)
+   ---------------------------------------------------------- */
+
+.partner-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.partner-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--color-brand-400), var(--color-brand-600));
+  color: var(--color-text-inverse);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-xs);
+}
+
+/* ----------------------------------------------------------
+   ACTION BUTTON / ACTIONS MENU
+   ---------------------------------------------------------- */
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.action-btn:hover {
+  background-color: var(--color-bg-muted);
+  border-color: var(--color-border-default);
+  color: var(--color-text-primary);
+}
+
+/* ----------------------------------------------------------
+   PAGINATION
+   ---------------------------------------------------------- */
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  background-color: var(--color-bg-subtle);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.pagination-info {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.pagination-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 var(--space-2);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background-color: var(--color-bg-surface);
+  border-color: var(--color-border-default);
+  color: var(--color-text-primary);
+}
+
+.pagination-btn.active {
+  background-color: var(--color-brand-500);
+  border-color: var(--color-brand-500);
+  color: var(--color-text-inverse);
+}
+
+.pagination-btn.active:hover {
+  background-color: var(--color-brand-600);
+  border-color: var(--color-brand-600);
+  color: var(--color-text-inverse);
+}
+
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pagination-ellipsis {
+  color: var(--color-text-muted);
+  padding: 0 var(--space-1);
+}
+
+/* ----------------------------------------------------------
+   EMPTY ROW — Cuando no hay clientes
+   ---------------------------------------------------------- */
+
+.empty-row td {
+  padding: var(--space-12) var(--space-5) !important;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* ----------------------------------------------------------
+   PAGE HEADER override para Customers
+   ---------------------------------------------------------- */
+
+.page > .page-header {
+  margin-bottom: var(--space-5);
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.page > .page-header h1 {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+/* ----------------------------------------------------------
+   RESPONSIVE
+   ---------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .customers-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-bar-inline {
+    min-width: 0;
+  }
+
+  .filter-buttons {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: var(--space-2);
+  }
+
+  .customers-table-container {
+    overflow-x: auto;
+  }
+}
