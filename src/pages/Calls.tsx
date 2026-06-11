@@ -392,9 +392,9 @@ const Calls = () => {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1>Convocatorias</h1>
+          <h1>Calls</h1>
           <p className="page-subtitle">
-            Seguimiento de calls públicas y privadas a las que aplicar — fechas, presupuestos y estado
+            Track public and private calls to apply to — deadlines, budgets and status
           </p>
         </div>
       </div>
@@ -458,7 +458,7 @@ const Calls = () => {
           </div>
         </div>
 
-        <button className="btn-primary" onClick={handleNewCall}>+ Nueva convocatoria</button>
+        <button className="btn-primary" onClick={handleNewCall}>+ New Call</button>
       </div>
 
       <Modal 

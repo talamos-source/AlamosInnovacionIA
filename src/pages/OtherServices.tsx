@@ -236,9 +236,9 @@ const OtherServices = () => {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1>Otros servicios</h1>
+          <h1>Other Services</h1>
           <p className="page-subtitle">
-            Servicios adicionales fuera de propuestas — mentoring, formación, consultoría puntual
+            Additional services outside of proposals — mentoring, training, ad-hoc consulting
           </p>
           <p className="page-subtitle">Additional services</p>
         </div>
@@ -317,7 +317,7 @@ const OtherServices = () => {
           </div>
         </div>
 
-        <button className="btn-primary" onClick={handleNewService}>+ Nuevo servicio</button>
+        <button className="btn-primary" onClick={handleNewService}>+ New Service</button>
       </div>
 
       <div className="content-section">

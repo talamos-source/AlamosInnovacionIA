@@ -1062,9 +1062,9 @@ const Projects = () => {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1>Proyectos</h1>
+          <h1>Projects</h1>
           <p className="page-subtitle">
-            Proyectos en ejecución y cerrados — con clientes, hitos, facturación y tareas
+            Ongoing and closed projects — with clients, milestones, billing and tasks
           </p>
           <p className="page-subtitle">Running projects from granted proposals and services</p>
         </div>

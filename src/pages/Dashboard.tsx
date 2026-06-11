@@ -172,9 +172,9 @@ const Dashboard = () => {
       .filter((p) => !['Lost', 'Closed', 'Cancelled', 'Rejected'].includes(p.status || ''))
       .map((p) => ({
         id: p.id,
-        type: 'Propuesta' as const,
-        title: p.proposal || p.call || 'Sin nombre',
-        status: p.status || 'En curso',
+        type: 'Proposal' as const,
+        title: p.proposal || p.call || 'Untitled',
+        status: p.status || 'In progress',
         amount: parseAmount(p.fee),
         link: `/proposals?focus=${p.id}`,
       }))
@@ -183,9 +183,9 @@ const Dashboard = () => {
       .filter((p) => !['Completed', 'Cancelled', 'Closed'].includes(p.status || ''))
       .map((p) => ({
         id: p.id,
-        type: 'Proyecto' as const,
-        title: p.title || 'Sin nombre',
-        status: p.status || 'Activo',
+        type: 'Project' as const,
+        title: p.title || 'Untitled',
+        status: p.status || 'Active',
         amount: parseAmount(p.fee),
         link: `/projects?focus=${p.id}`,
       }))
@@ -204,7 +204,7 @@ const Dashboard = () => {
       .filter((c) => c.deadline)
       .map((c) => ({
         id: `call-${c.id}`,
-        kind: 'Convocatoria' as const,
+        kind: 'Call' as const,
         label: c.name,
         date: c.deadline as string,
         days: daysFromNow(c.deadline) ?? 999,
@@ -216,8 +216,8 @@ const Dashboard = () => {
         .filter((item) => item.invoiceStatus !== 'Paid' && item.dueDate)
         .map((item, idx) => ({
           id: `bill-${p.id}-${idx}`,
-          kind: 'Facturación' as const,
-          label: `${p.title || 'Proyecto'} — ${item.amount || ''}€`,
+          kind: 'Billing' as const,
+          label: `${p.title || 'Project'} — ${item.amount || ''}€`,
           date: item.dueDate as string,
           days: daysFromNow(item.dueDate) ?? 999,
           link: `/billing`,
@@ -240,7 +240,7 @@ const Dashboard = () => {
         <div className="page-header-content">
           <h1 className="page-title">Dashboard</h1>
           <p className="page-subtitle">
-            Vista general del estado de tu actividad — clientes, propuestas, proyectos y próximos hitos
+            Overview of your activity — clients, proposals, projects and upcoming milestones
           </p>
         </div>
       </div>
@@ -249,30 +249,30 @@ const Dashboard = () => {
       <div className="kpi-grid">
         <KpiCard
           icon={<Users size={20} />}
-          label="Clientes"
+          label="Clients"
           value={kpis.customersCount.toString()}
-          hint={`${kpis.customersCount === 1 ? 'cliente registrado' : 'clientes registrados'}`}
+          hint={`${kpis.customersCount === 1 ? 'registered client' : 'registered clients'}`}
           onClick={() => navigate('/customers')}
         />
         <KpiCard
           icon={<FileText size={20} />}
-          label="Propuestas en curso"
+          label="Active proposals"
           value={kpis.activeProposalsCount.toString()}
-          hint="propuestas activas"
+          hint="proposals in progress"
           onClick={() => navigate('/proposals')}
         />
         <KpiCard
           icon={<Briefcase size={20} />}
-          label="Proyectos activos"
+          label="Active projects"
           value={kpis.activeProjectsCount.toString()}
-          hint="en ejecución"
+          hint="in execution"
           onClick={() => navigate('/projects')}
         />
         <KpiCard
           icon={<TrendingUp size={20} />}
-          label="Honorarios potenciales"
+          label="Potential fees"
           value={formatEuros(kpis.potentialFees)}
-          hint="propuestas + proyectos activos"
+          hint="from active proposals + projects"
           highlight
         />
       </div>
@@ -283,17 +283,17 @@ const Dashboard = () => {
           <header className="surface-card-header">
             <h2>
               <Target size={18} />
-              Pipeline activo
+              Active pipeline
             </h2>
             <Link to="/proposals" className="link-cta">
-              Ver todo <ArrowUpRight size={14} />
+              View all <ArrowUpRight size={14} />
             </Link>
           </header>
 
           {pipeline.length === 0 ? (
             <EmptyState
-              text="Aún no tienes propuestas ni proyectos activos."
-              cta={{ label: 'Crear primera propuesta', onClick: () => navigate('/proposals') }}
+              text="No active proposals or projects yet."
+              cta={{ label: 'Create first proposal', onClick: () => navigate('/proposals') }}
             />
           ) : (
             <ul className="pipeline-list">
@@ -323,15 +323,15 @@ const Dashboard = () => {
           <header className="surface-card-header">
             <h2>
               <Calendar size={18} />
-              Próximos hitos
+              Upcoming milestones
             </h2>
             <Link to="/calls" className="link-cta">
-              Ver convocatorias <ArrowUpRight size={14} />
+              View calls <ArrowUpRight size={14} />
             </Link>
           </header>
 
           {upcomingDeadlines.length === 0 ? (
-            <EmptyState text="No hay deadlines en los próximos 60 días." />
+            <EmptyState text="No deadlines in the next 60 days." />
           ) : (
             <ul className="deadline-list">
               {upcomingDeadlines.map((d) => (
@@ -347,9 +347,9 @@ const Dashboard = () => {
                   </div>
                   <span className={`deadline-days deadline-days--${getDeadlineUrgency(d.days)}`}>
                     {d.days < 0
-                      ? `${Math.abs(d.days)}d atrás`
+                      ? `${Math.abs(d.days)}d ago`
                       : d.days === 0
-                      ? 'Hoy'
+                      ? 'Today'
                       : `${d.days}d`}
                   </span>
                 </li>
@@ -364,27 +364,27 @@ const Dashboard = () => {
         <header className="surface-card-header">
           <h2>
             <ActivityIcon size={18} />
-            Acciones rápidas
+            Quick actions
           </h2>
         </header>
         <div className="quick-actions-row">
           <QuickAction
-            label="Nuevo cliente"
+            label="New client"
             icon={<Users size={18} />}
             onClick={() => navigate('/customers')}
           />
           <QuickAction
-            label="Nueva propuesta"
+            label="New proposal"
             icon={<FileText size={18} />}
             onClick={() => navigate('/proposals')}
           />
           <QuickAction
-            label="Nuevo proyecto"
+            label="New project"
             icon={<Briefcase size={18} />}
             onClick={() => navigate('/projects')}
           />
           <QuickAction
-            label="Nueva convocatoria"
+            label="New call"
             icon={<Calendar size={18} />}
             onClick={() => navigate('/calls')}
           />

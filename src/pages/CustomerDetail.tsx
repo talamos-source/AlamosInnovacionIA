@@ -97,14 +97,7 @@ const formatDateEs = (dateString?: string): string => {
   }
 }
 
-const formatStatusLabel = (status: string): string => {
-  const map: Record<string, string> = {
-    Active: 'Activo',
-    Inactive: 'Inactivo',
-    Archived: 'Archivado',
-  }
-  return map[status] || status
-}
+const formatStatusLabel = (status: string): string => status
 
 /* ============================================================
    Componente
@@ -150,9 +143,9 @@ const CustomerDetail = () => {
     return (
       <div className="page">
         <div className="page-header">
-          <h1>Cliente no encontrado</h1>
+          <h1>Customer not found</h1>
           <button className="btn-secondary" onClick={() => navigate('/customers')}>
-            Volver a clientes
+            Back to Customers
           </button>
         </div>
       </div>
@@ -180,7 +173,7 @@ const CustomerDetail = () => {
       {/* Volver */}
       <button className="customer-back-link" onClick={() => navigate('/customers')}>
         <ArrowLeft size={16} />
-        <span>Volver a clientes</span>
+        <span>Back to Clients</span>
       </button>
 
       {/* ============================================================
@@ -210,7 +203,7 @@ const CustomerDetail = () => {
 
         <button className="btn-secondary" onClick={handleEdit}>
           <Edit size={16} />
-          <span>Editar cliente</span>
+          <span>Edit Client</span>
         </button>
       </section>
 
@@ -223,7 +216,7 @@ const CustomerDetail = () => {
             <FileText size={20} />
           </div>
           <div className="customer-kpi-body">
-            <span className="customer-kpi-label">Propuestas</span>
+            <span className="customer-kpi-label">Proposals</span>
             <span className="customer-kpi-value tabular-nums">{proposals.length}</span>
           </div>
         </div>
@@ -233,7 +226,7 @@ const CustomerDetail = () => {
             <Briefcase size={20} />
           </div>
           <div className="customer-kpi-body">
-            <span className="customer-kpi-label">Proyectos</span>
+            <span className="customer-kpi-label">Projects</span>
             <span className="customer-kpi-value tabular-nums">{projects.length}</span>
           </div>
         </div>
@@ -243,7 +236,7 @@ const CustomerDetail = () => {
             <Euro size={20} />
           </div>
           <div className="customer-kpi-body">
-            <span className="customer-kpi-label">Presupuesto total</span>
+            <span className="customer-kpi-label">Total Budget</span>
             <span className="customer-kpi-value tabular-nums">
               {formatCurrency(totalBudget)}
             </span>
@@ -255,7 +248,7 @@ const CustomerDetail = () => {
             <Euro size={20} />
           </div>
           <div className="customer-kpi-body">
-            <span className="customer-kpi-label">Honorarios conseguidos</span>
+            <span className="customer-kpi-label">Achieved Fees</span>
             <span className="customer-kpi-value tabular-nums">
               {formatCurrency(achievedFees)}
             </span>
@@ -269,24 +262,24 @@ const CustomerDetail = () => {
       <div className="customer-detail-twocol">
         <section className="customer-info-panel">
           <header className="customer-info-panel-header">
-            <h2>Información de empresa</h2>
+            <h2>Company Information</h2>
             <button
               type="button"
               className="customer-info-edit-link"
               onClick={handleEdit}
             >
-              Editar facturación / capital / empleados
+              Edit revenue / capital / employees
             </button>
           </header>
 
           <div className="customer-info-grid">
-            <CustomerField label="CIF / NIF" value={customer.taxId} />
-            <CustomerField label="Fecha de constitución" value={formatDateEs(customer.incorporationDate)} />
-            <CustomerField label="Facturación (€)" value={formatEuroAmount(customer.revenue)} />
-            <CustomerField label="Capital social (€)" value={formatEuroAmount(customer.shareCapital)} />
-            <CustomerField label="Empleados" value={customer.employees || '—'} />
+            <CustomerField label="Tax ID" value={customer.taxId} />
+            <CustomerField label="Incorporation Date" value={formatDateEs(customer.incorporationDate)} />
+            <CustomerField label="Revenue (€)" value={formatEuroAmount(customer.revenue)} />
+            <CustomerField label="Share Capital (€)" value={formatEuroAmount(customer.shareCapital)} />
+            <CustomerField label="Employees" value={customer.employees || '—'} />
             <CustomerField
-              label="País"
+              label="Country"
               value={
                 <span className="customer-info-with-icon">
                   <Globe size={14} />
@@ -295,7 +288,7 @@ const CustomerDetail = () => {
               }
             />
             <CustomerField
-              label="Región"
+              label="Region"
               value={
                 customer.region ? (
                   <span className="customer-info-with-icon">
@@ -305,9 +298,9 @@ const CustomerDetail = () => {
                 ) : '—'
               }
             />
-            <CustomerField label="Dirección" value={customer.address || '—'} fullRow />
+            <CustomerField label="Address" value={customer.address || '—'} fullRow />
             <CustomerField
-              label="Web"
+              label="Website"
               value={
                 customer.website ? (
                   <a
@@ -329,18 +322,18 @@ const CustomerDetail = () => {
           {/* Categoría (sustituye al antiguo Assigned Partner) */}
           <div className="customer-sidebar-card">
             <header className="customer-sidebar-header">
-              <h3>Categoría</h3>
+              <h3>Category</h3>
             </header>
             <div className="customer-sidebar-body">
               <span className={`badge ${customer.category === 'Contractor' ? 'badge--brand' : 'badge--neutral'}`}>
-                {customer.category === 'Contractor' ? 'Cliente principal' : customer.category === 'Secondary' ? 'Cliente secundario' : (customer.category || '—')}
+                {customer.category || '—'}
               </span>
               <p className="customer-sidebar-hint">
                 {customer.category === 'Contractor'
-                  ? 'Cliente principal con el que mantienes una relación comercial directa y facturación.'
+                  ? 'Primary client with direct commercial relationship and billing.'
                   : customer.category === 'Secondary'
-                    ? 'Cliente secundario asociado a una propuesta o proyecto pero sin facturación directa.'
-                    : 'Sin categoría asignada.'}
+                    ? 'Secondary client associated with a proposal or project but without direct billing.'
+                    : 'No category assigned.'}
               </p>
             </div>
           </div>
@@ -359,7 +352,7 @@ const CustomerDetail = () => {
                 </div>
               ) : (
                 <p className="customer-sidebar-empty">
-                  Sin asociaciones con aceleradoras o partners.
+                  Not associated with any accelerators or partners.
                 </p>
               )}
             </div>
@@ -368,15 +361,15 @@ const CustomerDetail = () => {
           {/* Fechas */}
           <div className="customer-sidebar-card">
             <header className="customer-sidebar-header">
-              <h3>Fechas</h3>
+              <h3>Dates</h3>
             </header>
             <div className="customer-sidebar-body customer-sidebar-dates">
               <div className="customer-date-row">
-                <span className="customer-date-label">Creado</span>
+                <span className="customer-date-label">Created</span>
                 <span className="customer-date-value">{formatDateEs(customer.createdAt)}</span>
               </div>
               <div className="customer-date-row">
-                <span className="customer-date-label">Última actualización</span>
+                <span className="customer-date-label">Last Updated</span>
                 <span className="customer-date-value">{formatDateEs(customer.updatedAt)}</span>
               </div>
             </div>
@@ -389,7 +382,7 @@ const CustomerDetail = () => {
           ============================================================ */}
       {customer.description && (
         <div className="customer-info-section">
-          <h2>Descripción</h2>
+          <h2>Description</h2>
           <p>{customer.description}</p>
         </div>
       )}
@@ -399,7 +392,7 @@ const CustomerDetail = () => {
           ============================================================ */}
       <div className="customer-info-section">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h2>Propuestas</h2>
+          <h2>Proposals</h2>
           {proposals.length > 0 && (
             <a
               href={`/proposals?primaryClient=${customer.id}`}
@@ -409,7 +402,7 @@ const CustomerDetail = () => {
               }}
               className="view-all-link"
             >
-              Ver todas
+              View all
             </a>
           )}
         </div>
@@ -434,7 +427,7 @@ const CustomerDetail = () => {
             ))}
           </div>
         ) : (
-          <div className="empty-section">No hay propuestas asociadas.</div>
+          <div className="empty-section">No proposals found</div>
         )}
       </div>
 
@@ -443,7 +436,7 @@ const CustomerDetail = () => {
           ============================================================ */}
       <div className="customer-info-section">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h2>Proyectos</h2>
+          <h2>Projects</h2>
           {projects.length > 0 && (
             <a
               href={`/projects?primaryClient=${customer.id}`}
@@ -453,7 +446,7 @@ const CustomerDetail = () => {
               }}
               className="view-all-link"
             >
-              Ver todos
+              View all
             </a>
           )}
         </div>
@@ -464,7 +457,7 @@ const CustomerDetail = () => {
                 <div className="proposal-main">
                   <div className="proposal-name">{project.title}</div>
                   <div className="proposal-call">
-                    {project.source === 'proposal' ? 'Desde propuesta' : 'Desde servicio'}
+                    {project.source === 'proposal' ? 'From Proposal' : 'From Service'}
                   </div>
                 </div>
                 <div className="proposal-status">
@@ -476,7 +469,7 @@ const CustomerDetail = () => {
             ))}
           </div>
         ) : (
-          <div className="empty-section">No hay proyectos asociados.</div>
+          <div className="empty-section">No projects found</div>
         )}
       </div>
     </div>

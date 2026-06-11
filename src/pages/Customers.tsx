@@ -592,9 +592,9 @@ const Customers = () => {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1>Clientes</h1>
+          <h1>Customers</h1>
           <p className="page-subtitle">
-            Tu base de clientes — empresas, startups y organizaciones con las que trabajas
+            Your client base — companies, startups and organizations you work with
           </p>
         </div>
       </div>
@@ -604,7 +604,7 @@ const Customers = () => {
           <Search size={18} className="search-icon" />
           <input
             type="text"
-            placeholder="Buscar por nombre, empresa, país, región, categoría, estado…"
+            placeholder="Search by name, company, country, region, category, status…"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="search-input-inline"
@@ -620,7 +620,7 @@ const Customers = () => {
                 className={`filter-btn ${filters.status !== 'All' ? 'active' : ''}`}
                 style={{ appearance: 'none', paddingRight: '2rem', cursor: 'pointer' }}
               >
-                <option value="All">Todos los estados</option>
+                <option value="All">All Status</option>
                 {uniqueStatuses.map(status => (
                   <option key={status} value={status}>{status}</option>
                 ))}
@@ -634,7 +634,7 @@ const Customers = () => {
                 className={`filter-btn ${filters.country !== 'All' ? 'active' : ''}`}
                 style={{ appearance: 'none', paddingRight: '2rem', cursor: 'pointer' }}
               >
-                <option value="All">Todos los países</option>
+                <option value="All">All Countries</option>
                 {uniqueCountries.map(country => (
                   <option key={country} value={country}>{country}</option>
                 ))}
@@ -648,7 +648,7 @@ const Customers = () => {
                 className={`filter-btn ${filters.region !== 'All' ? 'active' : ''}`}
                 style={{ appearance: 'none', paddingRight: '2rem', cursor: 'pointer' }}
               >
-                <option value="All">Todas las regiones</option>
+                <option value="All">All Regions</option>
                 {uniqueRegions.map(region => (
                   <option key={region} value={region}>{region}</option>
                 ))}
@@ -662,7 +662,7 @@ const Customers = () => {
                 className={`filter-btn ${filters.category !== 'All' ? 'active' : ''}`}
                 style={{ appearance: 'none', paddingRight: '2rem', cursor: 'pointer' }}
               >
-                <option value="All">Todas las categorías</option>
+                <option value="All">All Categories</option>
                 {uniqueCategories.map(category => (
                   <option key={category} value={category}>{category}</option>
                 ))}
@@ -690,9 +690,9 @@ const Customers = () => {
           className="btn-secondary"
           onClick={() => csvInputRef.current?.click()}
         >
-          Importar CSV
+          Import CSV
         </button>
-        <button className="btn-primary" onClick={handleNewClient}>+ Nuevo cliente</button>
+        <button className="btn-primary" onClick={handleNewClient}>+ New Client</button>
       </div>
 
       {importFeedback && (
@@ -728,12 +728,12 @@ const Customers = () => {
           setMemberOfPick('')
           setErrors({})
         }}
-        title={editingCustomerId ? "Editar cliente" : "Nuevo cliente"}
+        title={editingCustomerId ? "Edit Client" : "New Client"}
       >
         <form onSubmit={handleSubmit} className="client-form">
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="name">Nombre <span className="required">*</span></label>
+              <label htmlFor="name">Name <span className="required">*</span></label>
               <input
                 type="text"
                 id="name"
@@ -745,7 +745,7 @@ const Customers = () => {
             </div>
 
             <div className="form-group">
-              <label htmlFor="legalName">Razón social <span className="required">*</span></label>
+              <label htmlFor="legalName">Legal Name <span className="required">*</span></label>
               <input
                 type="text"
                 id="legalName"
@@ -759,7 +759,7 @@ const Customers = () => {
 
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="taxId">CIF / NIF <span className="required">*</span></label>
+              <label htmlFor="taxId">Tax ID (CIF/NIF) <span className="required">*</span></label>
               <input
                 type="text"
                 id="taxId"
@@ -772,7 +772,7 @@ const Customers = () => {
             </div>
 
             <div className="form-group">
-              <label htmlFor="website">Web <span className="required">*</span></label>
+              <label htmlFor="website">Website <span className="required">*</span></label>
               <input
                 type="text"
                 id="website"
@@ -787,28 +787,28 @@ const Customers = () => {
 
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="incorporationDate">Fecha de constitución <span className="required">*</span></label>
+              <label htmlFor="incorporationDate">Incorporation Date <span className="required">*</span></label>
               <input
                 type="text"
                 id="incorporationDate"
                 value={formData.incorporationDate}
                 onChange={handleDateInput}
                 className={errors.incorporationDate ? 'error' : ''}
-                placeholder="dd/mm/aaaa"
+                placeholder="dd/mm/yyyy"
                 maxLength={10}
               />
               {errors.incorporationDate && <span className="error-message">{errors.incorporationDate}</span>}
             </div>
 
             <div className="form-group">
-              <label htmlFor="companySize">Tamaño de empresa <span className="required">*</span></label>
+              <label htmlFor="companySize">Company Size <span className="required">*</span></label>
               <select
                 id="companySize"
                 value={formData.companySize}
                 onChange={(e) => handleInputChange('companySize', e.target.value)}
                 className={errors.companySize ? 'error' : ''}
               >
-                <option value="">Selecciona tamaño</option>
+                <option value="">Select size</option>
                 {companySizes.map(size => (
                   <option key={size} value={size}>{size}</option>
                 ))}
@@ -819,7 +819,7 @@ const Customers = () => {
 
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="revenue">Facturación (€)</label>
+              <label htmlFor="revenue">Revenue (€)</label>
               <input
                 id="revenue"
                 type="number"
@@ -827,12 +827,12 @@ const Customers = () => {
                 step="any"
                 value={formData.revenue}
                 onChange={(e) => handleInputChange('revenue', e.target.value)}
-                placeholder="Ej. 500000"
+                placeholder="e.g. 500000"
               />
             </div>
 
             <div className="form-group">
-              <label htmlFor="shareCapital">Capital social (€)</label>
+              <label htmlFor="shareCapital">Share Capital (€)</label>
               <input
                 id="shareCapital"
                 type="number"
@@ -840,12 +840,12 @@ const Customers = () => {
                 step="any"
                 value={formData.shareCapital}
                 onChange={(e) => handleInputChange('shareCapital', e.target.value)}
-                placeholder="Ej. 3000"
+                placeholder="e.g. 3000"
               />
             </div>
 
             <div className="form-group">
-              <label htmlFor="employees">Empleados</label>
+              <label htmlFor="employees">Employees</label>
               <input
                 id="employees"
                 type="number"
@@ -853,7 +853,7 @@ const Customers = () => {
                 step="1"
                 value={formData.employees}
                 onChange={(e) => handleInputChange('employees', e.target.value)}
-                placeholder="Ej. 25"
+                placeholder="e.g. 25"
               />
             </div>
           </div>
@@ -866,7 +866,7 @@ const Customers = () => {
                 value={memberOfPick}
                 onChange={(e) => addMemberOf(e.target.value)}
               >
-                <option value="">Selecciona una aceleradora, incubadora o partner…</option>
+                <option value="">Select an accelerator, incubator or partner…</option>
                 {accelerators
                   .filter(a => !formData.memberOf.includes(a))
                   .map(a => (
@@ -883,7 +883,7 @@ const Customers = () => {
                         type="button"
                         className="chip-remove"
                         onClick={() => removeMemberOf(name)}
-                        aria-label={`Quitar ${name}`}
+                        aria-label={`Remove ${name}`}
                       >
                         ×
                       </button>
@@ -893,21 +893,21 @@ const Customers = () => {
               )}
 
               <p className="field-hint">
-                Asocia este cliente con una aceleradora, incubadora u organización partner. Ninguno de estos campos es obligatorio.
+                Associate this client with an accelerator, incubator or partner organization. None of these fields are required.
               </p>
             </div>
           </div>
 
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="country">País <span className="required">*</span></label>
+              <label htmlFor="country">Country <span className="required">*</span></label>
               <select
                 id="country"
                 value={formData.country}
                 onChange={(e) => handleInputChange('country', e.target.value)}
                 className={errors.country ? 'error' : ''}
               >
-                <option value="">Selecciona país</option>
+                <option value="">Select country</option>
                 {countries.map(country => (
                   <option key={country} value={country}>{country}</option>
                 ))}
@@ -916,7 +916,7 @@ const Customers = () => {
             </div>
 
             <div className="form-group">
-              <label htmlFor="region">Región / Comunidad</label>
+              <label htmlFor="region">Region/State</label>
               <select
                 id="region"
                 value={formData.region}
@@ -924,7 +924,7 @@ const Customers = () => {
                 disabled={formData.country !== 'España'}
                 className={errors.region ? 'error' : ''}
               >
-                <option value="">Selecciona región</option>
+                <option value="">Select region</option>
                 {formData.country === 'España' && spanishRegions.map(region => (
                   <option key={region} value={region}>{region}</option>
                 ))}
@@ -934,7 +934,7 @@ const Customers = () => {
           </div>
 
           <div className="form-group">
-            <label htmlFor="address">Dirección <span className="required">*</span></label>
+            <label htmlFor="address">Address <span className="required">*</span></label>
             <input
               type="text"
               id="address"
@@ -947,7 +947,7 @@ const Customers = () => {
 
           <div className="form-row">
             <div className="form-group">
-              <label htmlFor="status">Estado</label>
+              <label htmlFor="status">Status</label>
               <select
                 id="status"
                 value={formData.status}
@@ -960,14 +960,14 @@ const Customers = () => {
             </div>
 
             <div className="form-group">
-              <label htmlFor="category">Categoría <span className="required">*</span></label>
+              <label htmlFor="category">Category <span className="required">*</span></label>
               <select
                 id="category"
                 value={formData.category}
                 onChange={(e) => handleInputChange('category', e.target.value)}
                 className={errors.category ? 'error' : ''}
               >
-                <option value="">Selecciona categoría</option>
+                <option value="">Select category</option>
                 {categories.map(category => (
                   <option key={category} value={category}>{category}</option>
                 ))}
@@ -977,7 +977,7 @@ const Customers = () => {
           </div>
 
           <div className="form-group">
-            <label htmlFor="description">Descripción <span className="required">*</span></label>
+            <label htmlFor="description">Description <span className="required">*</span></label>
             <textarea
               id="description"
               value={formData.description}
@@ -989,7 +989,7 @@ const Customers = () => {
           </div>
 
           <div className="form-group">
-            <label htmlFor="notes">Notas <span className="optional-hint">(opcional)</span></label>
+            <label htmlFor="notes">Notes <span className="optional-hint">(optional)</span></label>
             <textarea
               id="notes"
               value={formData.notes}
@@ -1000,10 +1000,10 @@ const Customers = () => {
 
           <div className="form-actions">
             <button type="button" className="btn-secondary" onClick={() => setIsModalOpen(false)}>
-              Cancelar
+              Cancel
             </button>
             <button type="submit" className="btn-primary">
-              {editingCustomerId ? 'Guardar cambios' : 'Crear cliente'}
+              {editingCustomerId ? 'Save changes' : 'Create client'}
             </button>
           </div>
         </form>
@@ -1014,14 +1014,14 @@ const Customers = () => {
           <table className="data-table customers-table">
             <thead>
               <tr>
-                <th>Nombre</th>
-                <th>País</th>
-                <th>Región</th>
+                <th>Name</th>
+                <th>Country</th>
+                <th>Region</th>
                 <th>Partner</th>
-                <th>Web</th>
-                <th>Categoría</th>
-                <th>Estado</th>
-                <th>Acciones</th>
+                <th>Website</th>
+                <th>Category</th>
+                <th>Status</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1097,7 +1097,7 @@ const Customers = () => {
         {filteredCustomers.length > 0 && (
           <div className="pagination">
             <div className="pagination-info">
-              Mostrando {startIndex + 1}–{Math.min(endIndex, filteredCustomers.length)} de {filteredCustomers.length} clientes
+              Showing {startIndex + 1}–{Math.min(endIndex, filteredCustomers.length)} of {filteredCustomers.length} customers
             </div>
             <div className="pagination-controls">
               <button 

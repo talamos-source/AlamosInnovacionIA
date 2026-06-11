@@ -100,7 +100,7 @@ const ActionsMenu = ({ onView, onEdit, onDelete }: ActionsMenuProps) => {
         ref={triggerRef}
         className="actions-menu-trigger"
         onClick={() => setIsOpen(!isOpen)}
-        aria-label="Acciones"
+        aria-label="Actions"
         aria-haspopup="menu"
         aria-expanded={isOpen}
       >
@@ -125,7 +125,7 @@ const ActionsMenu = ({ onView, onEdit, onDelete }: ActionsMenuProps) => {
               onClick={() => { onView(); setIsOpen(false) }}
             >
               <Eye size={16} />
-              <span>Ver</span>
+              <span>View</span>
             </button>
           )}
           <button
@@ -134,7 +134,7 @@ const ActionsMenu = ({ onView, onEdit, onDelete }: ActionsMenuProps) => {
             onClick={() => { onEdit(); setIsOpen(false) }}
           >
             <Edit size={16} />
-            <span>Editar</span>
+            <span>Edit</span>
           </button>
           {onDelete && (
             <button
@@ -143,7 +143,7 @@ const ActionsMenu = ({ onView, onEdit, onDelete }: ActionsMenuProps) => {
               onClick={() => { onDelete(); setIsOpen(false) }}
             >
               <Trash2 size={16} />
-              <span>Eliminar</span>
+              <span>Delete</span>
             </button>
           )}
         </div>,

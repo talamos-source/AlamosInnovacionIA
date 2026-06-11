@@ -52,15 +52,15 @@ const Layout = ({ children }: LayoutProps) => {
 
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/customers', label: 'Clientes', icon: Users },
-    { path: '/calls', label: 'Convocatorias', icon: Phone },
-    { path: '/proposals', label: 'Propuestas', icon: FileEdit },
-    { path: '/other-services', label: 'Otros servicios', icon: Brain },
-    { path: '/projects', label: 'Proyectos', icon: Briefcase },
-    { path: '/tasks', label: 'Tareas', icon: CheckSquare },
-    { path: '/billing', label: 'Facturación', icon: CreditCard },
-    { path: '/call-analytics', label: 'Analytics convocatorias', icon: BarChart3 },
-    { path: '/other-analytics', label: 'Analytics general', icon: TrendingUp },
+    { path: '/customers', label: 'Customers', icon: Users },
+    { path: '/calls', label: 'Calls', icon: Phone },
+    { path: '/proposals', label: 'Proposals', icon: FileEdit },
+    { path: '/other-services', label: 'Other Services', icon: Brain },
+    { path: '/projects', label: 'Projects', icon: Briefcase },
+    { path: '/tasks', label: 'Tasks', icon: CheckSquare },
+    { path: '/billing', label: 'Billing', icon: CreditCard },
+    { path: '/call-analytics', label: 'Call Analytics', icon: BarChart3 },
+    { path: '/other-analytics', label: 'Other Analytics', icon: TrendingUp },
   ]
 
   const filteredNavItems =
@@ -118,7 +118,7 @@ const Layout = ({ children }: LayoutProps) => {
                 <button
                   className="topbar-user-btn"
                   onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                  aria-label="Menú de usuario"
+                  aria-label="User menu"
                 >
                   {user?.picture ? (
                     <img
@@ -145,17 +145,17 @@ const Layout = ({ children }: LayoutProps) => {
                     </div>
                     <button className="user-menu-item" onClick={handleProfile}>
                       <User size={16} />
-                      <span>Perfil</span>
+                      <span>Profile</span>
                     </button>
                     {user?.role === 'Admin' && (
                       <button className="user-menu-item" onClick={handleAdmin}>
                         <Shield size={16} />
-                        <span>Administración</span>
+                        <span>Admin</span>
                       </button>
                     )}
                     <button className="user-menu-item logout" onClick={handleLogout}>
                       <LogOut size={16} />
-                      <span>Cerrar sesión</span>
+                      <span>Logout</span>
                     </button>
                   </div>
                 )}
@@ -166,7 +166,7 @@ const Layout = ({ children }: LayoutProps) => {
                 onClick={() => setIsLoginModalOpen(true)}
               >
                 <LogIn size={16} />
-                <span>Iniciar sesión</span>
+                <span>Sign in</span>
               </button>
             )}
           </div>

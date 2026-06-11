@@ -467,9 +467,9 @@ const Tasks = () => {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1>Tareas</h1>
+          <h1>Tasks</h1>
           <p className="page-subtitle">
-            Tareas de seguimiento — con prioridades, fechas y asignaciones
+            Follow-up tasks — with priorities, due dates and assignments
           </p>
           <p className="page-subtitle">Manage all tasks across projects</p>
         </div>
