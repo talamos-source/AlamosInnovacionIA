@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Search, Globe, MapPin, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import Modal from '../components/Modal'
 import ActionsMenu from '../components/ActionsMenu'
@@ -36,6 +36,7 @@ interface Customer {
 
 const Customers = () => {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useAuth()
   const isWorker = user?.role === 'Worker'
   const [searchTerm, setSearchTerm] = useState('')
@@ -154,6 +155,20 @@ const Customers = () => {
 
   // Customers state - load from localStorage
   const [customers, setCustomers] = useState<Customer[]>(loadCustomers)
+
+  // Si llega ?edit=<id> en la URL (p. ej. desde la ficha del cliente),
+  // abre el modal de edición automáticamente y limpia el query param.
+  useEffect(() => {
+    const editId = searchParams.get('edit')
+    if (!editId) return
+    const target = customers.find(c => c.id === editId)
+    if (target) {
+      handleEdit(editId)
+    }
+    searchParams.delete('edit')
+    setSearchParams(searchParams, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, customers])
 
   // Save customers to localStorage whenever they change
   useEffect(() => {

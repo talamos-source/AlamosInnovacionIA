@@ -1,8 +1,22 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Globe, Building2, FileText, Briefcase } from 'lucide-react'
+import {
+  ArrowLeft,
+  Edit,
+  Globe,
+  MapPin,
+  FileText,
+  Briefcase,
+  Euro,
+  Building2,
+} from 'lucide-react'
 import { formatCurrency, parseEuropeanNumber } from '../utils/formatCurrency'
 import './Page.css'
+import './CustomerDetail.css'
+
+/* ============================================================
+   Tipos
+   ============================================================ */
 
 interface Customer {
   id: string
@@ -20,6 +34,10 @@ interface Customer {
   taxId?: string
   incorporationDate?: string
   companySize?: string
+  revenue?: string
+  shareCapital?: string
+  employees?: string
+  memberOf?: string[]
   address?: string
   description?: string
   notes?: string
@@ -45,6 +63,53 @@ interface Project {
   status: string
 }
 
+/* ============================================================
+   Helpers
+   ============================================================ */
+
+const formatEuroAmount = (value?: string): string => {
+  if (!value) return '—'
+  const n = parseEuropeanNumber(value)
+  if (!n) return '—'
+  return new Intl.NumberFormat('es-ES', {
+    style: 'currency',
+    currency: 'EUR',
+    maximumFractionDigits: 0,
+  }).format(n)
+}
+
+const formatDateEs = (dateString?: string): string => {
+  if (!dateString) return '—'
+  try {
+    const date = new Date(dateString)
+    if (Number.isNaN(date.getTime())) {
+      // Si viene en formato dd/mm/yyyy, devolver tal cual
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateString)) return dateString
+      return dateString
+    }
+    return date.toLocaleDateString('es-ES', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    })
+  } catch {
+    return dateString
+  }
+}
+
+const formatStatusLabel = (status: string): string => {
+  const map: Record<string, string> = {
+    Active: 'Activo',
+    Inactive: 'Inactivo',
+    Archived: 'Archivado',
+  }
+  return map[status] || status
+}
+
+/* ============================================================
+   Componente
+   ============================================================ */
+
 const CustomerDetail = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -53,39 +118,29 @@ const CustomerDetail = () => {
   const [projects, setProjects] = useState<Project[]>([])
 
   useEffect(() => {
-    // Load customer from localStorage
     try {
       const saved = localStorage.getItem('customers')
       const customers: Customer[] = saved ? JSON.parse(saved) : []
-      const foundCustomer = customers.find(c => c.id === id)
-      setCustomer(foundCustomer || null)
+      setCustomer(customers.find(c => c.id === id) || null)
     } catch (error) {
       console.error('Error loading customer:', error)
     }
 
-    // Load proposals from localStorage
     try {
       const saved = localStorage.getItem('proposals')
-      const allProposals: Proposal[] = saved ? JSON.parse(saved) : []
-      // Filter proposals where this customer is a primary or secondary client
-      const relatedProposals = allProposals.filter(p => 
+      const all: Proposal[] = saved ? JSON.parse(saved) : []
+      setProposals(all.filter(p =>
         p.primaryClients.includes(id || '') || p.secondaryClients.includes(id || '')
-      )
-      setProposals(relatedProposals)
+      ))
     } catch (error) {
       console.error('Error loading proposals:', error)
     }
 
-    // Load projects from localStorage
     try {
       const saved = localStorage.getItem('projects')
-      const allProjects: Project[] = saved ? JSON.parse(saved) : []
-      // Filter projects related to this customer
-      const relatedProjects = allProjects.filter(() => {
-        // This will need to be adjusted based on how projects store customer info
-        return false // Placeholder
-      })
-      setProjects(relatedProjects)
+      const all: Project[] = saved ? JSON.parse(saved) : []
+      // Misma heurística que tenía: por ahora sin filter funcional
+      setProjects(all.filter(() => false))
     } catch (error) {
       console.error('Error loading projects:', error)
     }
@@ -95,175 +150,258 @@ const CustomerDetail = () => {
     return (
       <div className="page">
         <div className="page-header">
-          <h1>Customer not found</h1>
+          <h1>Cliente no encontrado</h1>
           <button className="btn-secondary" onClick={() => navigate('/customers')}>
-            Back to Customers
+            Volver a clientes
           </button>
         </div>
       </div>
     )
   }
 
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return '-'
-    try {
-      const date = new Date(dateString)
-      const day = date.getDate().toString().padStart(2, '0')
-      const month = date.toLocaleString('en-US', { month: 'short' })
-      const year = date.getFullYear()
-      return `${day} ${month} ${year}`
-    } catch {
-      return dateString
-    }
+  // KPIs
+  const primaryProposals = proposals.filter(p => p.primaryClients.includes(customer.id))
+  const totalBudget = primaryProposals.reduce(
+    (sum, p) => sum + (parseEuropeanNumber(p.budgetFunding) || 0),
+    0,
+  )
+  const achievedFees = primaryProposals.reduce(
+    (sum, p) => sum + (parseEuropeanNumber(p.fee) || 0),
+    0,
+  )
+
+  const handleEdit = () => {
+    // Vuelve a Customers con un query param que abre el modal de edición.
+    navigate(`/customers?edit=${customer.id}`)
   }
 
-
-  // Calculate key metrics
-  const primaryProposals = proposals.filter(p => p.primaryClients.includes(customer.id))
-  const totalBudget = primaryProposals.reduce((sum, p) => sum + (parseEuropeanNumber(p.budgetFunding) || 0), 0)
-  const totalFees = primaryProposals.reduce((sum, p) => sum + (parseEuropeanNumber(p.fee) || 0), 0)
-
   return (
-    <div className="page">
-      <div className="page-header">
-        <button className="btn-secondary" onClick={() => navigate('/customers')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <ArrowLeft size={18} />
-          Back to Customers
+    <div className="page page--customer-detail">
+      {/* Volver */}
+      <button className="customer-back-link" onClick={() => navigate('/customers')}>
+        <ArrowLeft size={16} />
+        <span>Volver a clientes</span>
+      </button>
+
+      {/* ============================================================
+          HEADER del cliente — nombre, legal, badges, edit
+          ============================================================ */}
+      <section className="customer-detail-header">
+        <div className="customer-detail-header-left">
+          <div className="customer-logo-placeholder" aria-hidden>
+            <Building2 size={28} strokeWidth={1.5} />
+          </div>
+          <div className="customer-detail-identity">
+            <h1 className="customer-detail-name">{customer.name}</h1>
+            <p className="customer-detail-legal">{customer.company}</p>
+            <div className="customer-detail-badges">
+              <span className={`status-badge status-${customer.status.toLowerCase()}`}>
+                {formatStatusLabel(customer.status)}
+              </span>
+              {customer.companySize && (
+                <>
+                  <span className="badge-separator">·</span>
+                  <span className="customer-meta-line">{customer.companySize}</span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <button className="btn-secondary" onClick={handleEdit}>
+          <Edit size={16} />
+          <span>Editar cliente</span>
         </button>
-      </div>
+      </section>
 
-      {/* Customer Header */}
-      <div className="customer-header-card">
-        <div className="customer-header-main">
-          <div>
-            <h1>{customer.name}</h1>
-            <p className="customer-company">{customer.company}</p>
+      {/* ============================================================
+          KPIs del cliente
+          ============================================================ */}
+      <div className="customer-kpi-grid">
+        <div className="customer-kpi-card">
+          <div className="customer-kpi-icon customer-kpi-icon--brand">
+            <FileText size={20} />
           </div>
-          <div className="customer-header-badges">
-            <span className={`status-badge status-${customer.status.toLowerCase()}`}>
-              {customer.status}
+          <div className="customer-kpi-body">
+            <span className="customer-kpi-label">Propuestas</span>
+            <span className="customer-kpi-value tabular-nums">{proposals.length}</span>
+          </div>
+        </div>
+
+        <div className="customer-kpi-card">
+          <div className="customer-kpi-icon customer-kpi-icon--success">
+            <Briefcase size={20} />
+          </div>
+          <div className="customer-kpi-body">
+            <span className="customer-kpi-label">Proyectos</span>
+            <span className="customer-kpi-value tabular-nums">{projects.length}</span>
+          </div>
+        </div>
+
+        <div className="customer-kpi-card">
+          <div className="customer-kpi-icon customer-kpi-icon--warning">
+            <Euro size={20} />
+          </div>
+          <div className="customer-kpi-body">
+            <span className="customer-kpi-label">Presupuesto total</span>
+            <span className="customer-kpi-value tabular-nums">
+              {formatCurrency(totalBudget)}
             </span>
-            {customer.companySize && (
-              <span className="category-badge">{customer.companySize}</span>
-            )}
+          </div>
+        </div>
+
+        <div className="customer-kpi-card">
+          <div className="customer-kpi-icon customer-kpi-icon--success">
+            <Euro size={20} />
+          </div>
+          <div className="customer-kpi-body">
+            <span className="customer-kpi-label">Honorarios conseguidos</span>
+            <span className="customer-kpi-value tabular-nums">
+              {formatCurrency(achievedFees)}
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Key Metrics */}
-      <div className="key-metrics-grid">
-        <div className="metric-card">
-          <div className="metric-icon">
-            <FileText size={24} />
+      {/* ============================================================
+          Sección de dos columnas: Company Info (izq) + Cards (der)
+          ============================================================ */}
+      <div className="customer-detail-twocol">
+        <section className="customer-info-panel">
+          <header className="customer-info-panel-header">
+            <h2>Información de empresa</h2>
+            <button
+              type="button"
+              className="customer-info-edit-link"
+              onClick={handleEdit}
+            >
+              Editar facturación / capital / empleados
+            </button>
+          </header>
+
+          <div className="customer-info-grid">
+            <CustomerField label="CIF / NIF" value={customer.taxId} />
+            <CustomerField label="Fecha de constitución" value={formatDateEs(customer.incorporationDate)} />
+            <CustomerField label="Facturación (€)" value={formatEuroAmount(customer.revenue)} />
+            <CustomerField label="Capital social (€)" value={formatEuroAmount(customer.shareCapital)} />
+            <CustomerField label="Empleados" value={customer.employees || '—'} />
+            <CustomerField
+              label="País"
+              value={
+                <span className="customer-info-with-icon">
+                  <Globe size={14} />
+                  {customer.country || '—'}
+                </span>
+              }
+            />
+            <CustomerField
+              label="Región"
+              value={
+                customer.region ? (
+                  <span className="customer-info-with-icon">
+                    <MapPin size={14} />
+                    {customer.region}
+                  </span>
+                ) : '—'
+              }
+            />
+            <CustomerField label="Dirección" value={customer.address || '—'} fullRow />
+            <CustomerField
+              label="Web"
+              value={
+                customer.website ? (
+                  <a
+                    href={customer.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="customer-info-link"
+                  >
+                    {customer.website}
+                  </a>
+                ) : '—'
+              }
+              fullRow
+            />
           </div>
-          <div className="metric-content">
-            <div className="metric-label">Proposals</div>
-            <div className="metric-value">{proposals.length}</div>
+        </section>
+
+        <aside className="customer-detail-sidebar">
+          {/* Categoría (sustituye al antiguo Assigned Partner) */}
+          <div className="customer-sidebar-card">
+            <header className="customer-sidebar-header">
+              <h3>Categoría</h3>
+            </header>
+            <div className="customer-sidebar-body">
+              <span className={`badge ${customer.category === 'Contractor' ? 'badge--brand' : 'badge--neutral'}`}>
+                {customer.category === 'Contractor' ? 'Cliente principal' : customer.category === 'Secondary' ? 'Cliente secundario' : (customer.category || '—')}
+              </span>
+              <p className="customer-sidebar-hint">
+                {customer.category === 'Contractor'
+                  ? 'Cliente principal con el que mantienes una relación comercial directa y facturación.'
+                  : customer.category === 'Secondary'
+                    ? 'Cliente secundario asociado a una propuesta o proyecto pero sin facturación directa.'
+                    : 'Sin categoría asignada.'}
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-icon">
-            <Briefcase size={24} />
+
+          {/* Member of — aceleradoras / partners */}
+          <div className="customer-sidebar-card">
+            <header className="customer-sidebar-header">
+              <h3>Member of</h3>
+            </header>
+            <div className="customer-sidebar-body">
+              {customer.memberOf && customer.memberOf.length > 0 ? (
+                <div className="chip-list chip-list--readonly">
+                  {customer.memberOf.map(name => (
+                    <span key={name} className="chip chip--readonly">{name}</span>
+                  ))}
+                </div>
+              ) : (
+                <p className="customer-sidebar-empty">
+                  Sin asociaciones con aceleradoras o partners.
+                </p>
+              )}
+            </div>
           </div>
-          <div className="metric-content">
-            <div className="metric-label">Projects</div>
-            <div className="metric-value">{projects.length}</div>
+
+          {/* Fechas */}
+          <div className="customer-sidebar-card">
+            <header className="customer-sidebar-header">
+              <h3>Fechas</h3>
+            </header>
+            <div className="customer-sidebar-body customer-sidebar-dates">
+              <div className="customer-date-row">
+                <span className="customer-date-label">Creado</span>
+                <span className="customer-date-value">{formatDateEs(customer.createdAt)}</span>
+              </div>
+              <div className="customer-date-row">
+                <span className="customer-date-label">Última actualización</span>
+                <span className="customer-date-value">{formatDateEs(customer.updatedAt)}</span>
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-icon">
-            <Building2 size={24} />
-          </div>
-          <div className="metric-content">
-            <div className="metric-label">Total Budget</div>
-            <div className="metric-value">{formatCurrency(totalBudget)}</div>
-          </div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-icon">
-            <Globe size={24} />
-          </div>
-          <div className="metric-content">
-            <div className="metric-label">Achieved Fees</div>
-            <div className="metric-value">{formatCurrency(totalFees)}</div>
-          </div>
-        </div>
+        </aside>
       </div>
 
-      {/* Company Information */}
-      <div className="customer-info-section">
-        <h2>Company Information</h2>
-        <div className="info-grid">
-          {customer.taxId && (
-            <div className="info-item">
-              <label>Tax ID (CIF/NIF)</label>
-              <span>{customer.taxId}</span>
-            </div>
-          )}
-          <div className="info-item">
-            <label>Country</label>
-            <span>{customer.country}</span>
-          </div>
-          {customer.address && (
-            <div className="info-item">
-              <label>Address</label>
-              <span>{customer.address}</span>
-            </div>
-          )}
-          <div className="info-item">
-            <label>Website</label>
-            <a href={customer.website} target="_blank" rel="noopener noreferrer" className="website-link">
-              {customer.website}
-            </a>
-          </div>
-          {customer.incorporationDate && (
-            <div className="info-item">
-              <label>Incorporation Date</label>
-              <span>{formatDate(customer.incorporationDate)}</span>
-            </div>
-          )}
-          {customer.region && (
-            <div className="info-item">
-              <label>Region</label>
-              <span>{customer.region}</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Description */}
+      {/* ============================================================
+          DESCRIPTION — Mantenida intacta
+          ============================================================ */}
       {customer.description && (
         <div className="customer-info-section">
-          <h2>Description</h2>
+          <h2>Descripción</h2>
           <p>{customer.description}</p>
         </div>
       )}
 
-      {/* Dates */}
-      <div className="customer-info-section">
-        <h2>Dates</h2>
-        <div className="info-grid">
-          {customer.createdAt && (
-            <div className="info-item">
-              <label>Created</label>
-              <span>{formatDate(customer.createdAt)}</span>
-            </div>
-          )}
-          {customer.updatedAt && (
-            <div className="info-item">
-              <label>Last Updated</label>
-              <span>{formatDate(customer.updatedAt)}</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Proposals Section */}
+      {/* ============================================================
+          PROPOSALS — Mantenida intacta (lógica + visual existente)
+          ============================================================ */}
       <div className="customer-info-section">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h2>Proposals</h2>
+          <h2>Propuestas</h2>
           {proposals.length > 0 && (
-            <a 
+            <a
               href={`/proposals?primaryClient=${customer.id}`}
               onClick={(e) => {
                 e.preventDefault()
@@ -271,7 +409,7 @@ const CustomerDetail = () => {
               }}
               className="view-all-link"
             >
-              View all
+              Ver todas
             </a>
           )}
         </div>
@@ -296,16 +434,18 @@ const CustomerDetail = () => {
             ))}
           </div>
         ) : (
-          <div className="empty-section">No proposals found</div>
+          <div className="empty-section">No hay propuestas asociadas.</div>
         )}
       </div>
 
-      {/* Projects Section */}
+      {/* ============================================================
+          PROJECTS — Mantenida intacta
+          ============================================================ */}
       <div className="customer-info-section">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h2>Projects</h2>
+          <h2>Proyectos</h2>
           {projects.length > 0 && (
-            <a 
+            <a
               href={`/projects?primaryClient=${customer.id}`}
               onClick={(e) => {
                 e.preventDefault()
@@ -313,7 +453,7 @@ const CustomerDetail = () => {
               }}
               className="view-all-link"
             >
-              View all
+              Ver todos
             </a>
           )}
         </div>
@@ -323,7 +463,9 @@ const CustomerDetail = () => {
               <div key={project.id} className="proposal-item">
                 <div className="proposal-main">
                   <div className="proposal-name">{project.title}</div>
-                  <div className="proposal-call">{project.source === 'proposal' ? 'From Proposal' : 'From Service'}</div>
+                  <div className="proposal-call">
+                    {project.source === 'proposal' ? 'Desde propuesta' : 'Desde servicio'}
+                  </div>
                 </div>
                 <div className="proposal-status">
                   <span className={`status-badge status-${project.status.toLowerCase().replace(' ', '-')}`}>
@@ -334,11 +476,30 @@ const CustomerDetail = () => {
             ))}
           </div>
         ) : (
-          <div className="empty-section">No projects found</div>
+          <div className="empty-section">No hay proyectos asociados.</div>
         )}
       </div>
     </div>
   )
 }
+
+/* ============================================================
+   Subcomponente — Field bilingüe
+   ============================================================ */
+
+const CustomerField = ({
+  label,
+  value,
+  fullRow,
+}: {
+  label: string
+  value: React.ReactNode
+  fullRow?: boolean
+}) => (
+  <div className={`customer-info-field ${fullRow ? 'customer-info-field--full' : ''}`}>
+    <span className="customer-info-label">{label}</span>
+    <div className="customer-info-value">{value}</div>
+  </div>
+)
 
 export default CustomerDetail
