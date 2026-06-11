@@ -919,10 +919,20 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
     // Descarte por status explícito
     if (statusCode === '31094503' || sortStatus === '3') return false
 
-    // Defensa adicional: aunque SEDIA diga Open/Forthcoming, si TODAS las deadlines
-    // del topic están pasadas, lo consideramos cerrado (SEDIA tarda en actualizar).
-    // Margen de 1 día de gracia por desfases de zona horaria.
-    if (allDatesInPast(meta.deadlineDate, 1)) return false
+    // Defensa CRÍTICA: SEDIA SEARCH a veces tiene metadata.status desincronizada.
+    // Si latestInfos dice "has closed on the…" o "evaluation finalised", es que está
+    // cerrada aunque el status diga otra cosa.
+    if (isStaleClosedByLatestInfos(meta.latestInfos)) return false
+
+    // Verificación con deadlines REALES desde budgetOverview (no metadata.deadlineDate
+    // que está sucio). Si TODAS las deadlines reales pasaron → cerrada.
+    const identifier = pickFirst(meta.identifier) || pickFirst(meta.callIdentifier) || ''
+    const realDeadlines = extractRealDeadlinesFromBudget(pickFirst(meta.budgetOverview), identifier)
+    if (realDeadlines.length > 0 && allDatesInPast(realDeadlines, 1)) return false
+
+    // Fallback al campo metadata.deadlineDate (puede tener 2028 incorrecto pero al menos
+    // sirve si budgetOverview no tiene datos)
+    if (realDeadlines.length === 0 && allDatesInPast(meta.deadlineDate, 1)) return false
 
     if (statusCode === '31094501' || statusCode === '31094502') return true
     if (sortStatus === '1' || sortStatus === '2') return true
@@ -1097,6 +1107,71 @@ function pickFirst(field: any): string {
   return String(field)
 }
 
+// Extrae deadlines REALES desde budgetOverview, matching por topic identifier.
+// SEDIA SEARCH tiene metadata.deadlineDate desincronizado del portal real (a veces
+// trae fechas del programme period que no son deadlines reales). budgetOverview en
+// cambio coincide con el detail API y con lo que muestra el portal.
+function extractRealDeadlinesFromBudget(budgetRaw: string, topicIdentifier: string): string[] {
+  if (!budgetRaw) return []
+  let parsed: unknown
+  try { parsed = JSON.parse(budgetRaw) } catch { return [] }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const actionMap = (parsed as any)?.budgetTopicActionMap
+  if (!actionMap || typeof actionMap !== 'object') return []
+
+  const deadlines: string[] = []
+  const topicId = (topicIdentifier || '').trim()
+
+  for (const actions of Object.values(actionMap)) {
+    if (!Array.isArray(actions)) continue
+    for (const action of actions) {
+      if (!action || typeof action !== 'object') continue
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const a = action as any
+      const actionName = String(a.action || '')
+      // Solo deadlines del topic en cuestión
+      if (topicId && !actionName.startsWith(topicId)) continue
+      if (Array.isArray(a.deadlineDates)) {
+        for (const d of a.deadlineDates) {
+          if (typeof d === 'string') deadlines.push(d)
+          else if (typeof d === 'number') deadlines.push(String(d))
+        }
+      }
+    }
+  }
+  return deadlines
+}
+
+// Detecta si latestInfos contiene texto que indica que la call está cerrada.
+// Aunque metadata.status diga "Open", el portal real lo marca como Closed.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isStaleClosedByLatestInfos(latestInfos: any): boolean {
+  if (!latestInfos) return false
+  const arr = Array.isArray(latestInfos) ? latestInfos : [latestInfos]
+  for (const item of arr) {
+    let entries: unknown[] = []
+    if (typeof item === 'string') {
+      try {
+        const parsed = JSON.parse(item)
+        entries = Array.isArray(parsed) ? parsed : [parsed]
+      } catch { continue }
+    } else if (typeof item === 'object' && item !== null) {
+      entries = [item]
+    }
+    for (const entry of entries) {
+      if (typeof entry !== 'object' || entry === null) continue
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const content = String((entry as any).content || '').toLowerCase()
+      // Señales fuertes de que la call está cerrada
+      if (content.includes('has closed on the')) return true
+      if (content.includes('has been closed')) return true
+      if (content.includes('the evaluation for this call is finalised')) return true
+      if (content.includes('the call has closed')) return true
+    }
+  }
+  return false
+}
+
 // Helper para la deadline más tardía (topics multi-etapa traen múltiples deadlines:
 // stage 1 puede estar pasada y stage 2 abierta, queremos la más reciente).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1264,10 +1339,13 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
       statusCode === '31094502' || sortStatus === '2' ? 'open' :
       statusCode === '31094503' || sortStatus === '3' ? 'closed' : 'unknown'
 
-    // Fechas (campos verificados).
-    // deadlineDate: en topics multi-etapa viene un array. Cogemos la MÁS TARDÍA
-    // (stage 2 / cut-off final), no la primera (stage 1 ya pasada).
-    const deadlineRaw = pickLatestDate(meta.deadlineDate)
+    // Fechas — fuente primaria: budgetOverview (coincide con detail API y portal real).
+    // metadata.deadlineDate de SEDIA SEARCH a veces trae fechas inventadas (2028 cuando
+    // la deadline real fue 2024). Solo se usa como fallback si budgetOverview no tiene.
+    const realDeadlines = extractRealDeadlinesFromBudget(pickFirst(meta.budgetOverview), identifier)
+    const deadlineRaw = realDeadlines.length > 0
+      ? pickLatestDate(realDeadlines)
+      : pickLatestDate(meta.deadlineDate)
     const openRaw = pickFirst(meta.startDate) || pickFirst(meta.plannedOpeningDate)
 
     // Budget — extracción precisa desde budgetOverview (JSON string complejo).
