@@ -842,11 +842,20 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
     const meta = (r as any).metadata || {}
     const statusCode = pickFirst(meta.status)
     const sortStatus = pickFirst(meta.sortStatus)
+
+    // Descarte por status explícito
     if (statusCode === '31094503' || sortStatus === '3') return false
+
+    // Defensa adicional: aunque SEDIA diga Open/Forthcoming, si TODAS las deadlines
+    // del topic están pasadas, lo consideramos cerrado (SEDIA tarda en actualizar).
+    // Margen de 1 día de gracia por desfases de zona horaria.
+    if (allDatesInPast(meta.deadlineDate, 1)) return false
+
     if (statusCode === '31094501' || statusCode === '31094502') return true
     if (sortStatus === '1' || sortStatus === '2') return true
-    // Sin status reconocible → fallback por deadline futura
-    const deadline = pickFirst(meta.deadlineDate)
+
+    // Sin status reconocible → fallback por la última deadline en futuro
+    const deadline = pickLatestDate(meta.deadlineDate)
     if (deadline) {
       const t = new Date(deadline).getTime()
       if (!Number.isNaN(t) && t > Date.now()) return true
@@ -862,21 +871,88 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
    Mapping de framework programme codes a nombres legibles.
    Verificado con la API real.
    ---------------------------------------------------------- */
+// Verified codes from ajruben/sedia-api-fetchers PROGRAMME_IDS dict (June 2026).
+// Some codes like 111111 = "Multi" (multi-programme calls) come from SEDIA itself.
 const FRAMEWORK_CODE_MAP: Record<string, string> = {
+  // Multi-programme + Health
+  '111109': '1st Health Programme (1HP)',
+  '111110': '2nd Health Programme (2HP)',
+  '111111': 'Multi-Programme',
+  '31061266': '3rd Health Programme (2014-2020)',
+  '43332642': 'EU4Health',
+
+  // Horizon (research & innovation)
   '31045243': 'Horizon 2020 (H2020)',
   '43108390': 'Horizon Europe (HORIZON)',
-  '43298916': 'Digital Europe Programme',
-  '43298900': 'LIFE Programme',
-  '43298898': 'EU4Health',
-  '43152860': 'Erasmus+',
-  '43251841': 'Connecting Europe Facility (CEF)',
-  '43298929': 'Single Market Programme',
-  '43298920': 'Internal Security Fund',
-  '43298922': 'European Defence Fund',
-  '43298932': 'AMIF',
-  '43298938': 'BMVI',
-  '43152972': 'Justice Programme',
-  '43152973': 'CERV Programme',
+  '43298916': 'Euratom Research & Training Programme',
+  '43089234': 'Innovation Fund (INNOVFUND)',
+  '43252449': 'Research Fund for Coal & Steel (RFCS)',
+  '31061225': 'Research Fund for Coal & Steel (2014-2020)',
+
+  // Digital, education, culture
+  '43152860': 'Digital Europe Programme',
+  '43353764': 'Erasmus+',
+  '31059093': 'Erasmus+ (2014-2020)',
+  '43251814': 'Creative Europe (CREA)',
+  '31059083': 'Creative Europe (2014-2020)',
+  '43254037': 'European Solidarity Corps (ESC)',
+
+  // Connectivity & infrastructure
+  '43251567': 'Connecting Europe Facility (CEF)',
+  '31065524': 'CEF (2014-2020)',
+  '43253967': 'Renewable Energy Financing Mechanism',
+
+  // Single market & competitiveness
+  '43252476': 'Single Market Programme (SMP)',
+  '31059643': 'COSME (2014-2020)',
+  '44416173': 'Interregional Innovation Investments (I3)',
+
+  // Citizens, rights, justice
+  '43251589': 'CERV — Citizens, Equality, Rights & Values',
+  '31076817': 'Rights, Equality & Citizenship (2014-2020)',
+  '43252386': 'Justice Programme (JUST)',
+  '31070247': 'Justice Programme (2014-2020)',
+  '43251842': 'EU Anti-Fraud Programme (EUAF)',
+  '43252433': 'Pericles IV — Euro Counterfeiting Protection',
+  '31084392': 'Hercule III (2014-2020)',
+
+  // Migration, security, borders
+  '43251447': 'Asylum, Migration & Integration Fund (AMIF)',
+  '31077795': 'AMIF (2014-2020)',
+  '43252368': 'Internal Security Fund (ISF)',
+  '31077833': 'ISF — Borders & Visa (2014-2020)',
+  '31077817': 'ISF — Police (2014-2020)',
+  '43251530': 'Border Management & Visa Instrument (BMVI)',
+  '43251534': 'Customs Control Equipment Instrument (CCEI)',
+  '43253979': 'Customs Programme (CUST)',
+  '43253995': 'Fiscalis Programme (FISC)',
+
+  // Defence & civil protection
+  '44181033': 'European Defence Fund (EDF)',
+  '43298203': 'Union Civil Protection Mechanism (UCPM)',
+  '31082527': 'UCPM (2014-2020)',
+
+  // Environment, agriculture, fisheries
+  '43252405': 'LIFE — Environment & Climate Action',
+  '31107710': 'LIFE (2014-2020)',
+  '43298664': 'Agricultural Products Promotion (AGRIP)',
+  '31072773': 'AGRIP (2014-2020)',
+  '43392145': 'European Maritime, Fisheries & Aquaculture Fund (EMFAF)',
+  '31098847': 'EMFF (2014-2020)',
+  '43251882': 'Information Measures for CAP (IMCAP)',
+  '42198993': 'IMCAP (2014-2020)',
+
+  // Social & cohesion
+  '43254019': 'European Social Fund Plus (ESF+)',
+  '43252517': 'Social Prerogatives & Specific Competencies Lines (SOCPL)',
+  '44773066': 'Just Transition Mechanism (JTM)',
+  '44773133': 'Information Measures for EU Cohesion Policy (IMREG)',
+  '46324255': 'Technical Assistance for ERDF, CF & JTF',
+
+  // Reform & global
+  '43253706': 'Technical Support Instrument (TSI)',
+  '42905358': 'Structural Reform Support Programme (2014-2020)',
+  '45876777': 'Global Europe (NDICI)',
 }
 
 /* ----------------------------------------------------------
@@ -948,6 +1024,45 @@ function pickFirst(field: any): string {
   return String(field)
 }
 
+// Helper para la deadline más tardía (topics multi-etapa traen múltiples deadlines:
+// stage 1 puede estar pasada y stage 2 abierta, queremos la más reciente).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function pickLatestDate(field: any): string {
+  if (!field) return ''
+  const arr = Array.isArray(field) ? field : [field]
+  let bestIso = ''
+  let bestMs = -Infinity
+  for (const v of arr) {
+    if (!v) continue
+    const s = String(v)
+    const t = new Date(s).getTime()
+    if (!Number.isNaN(t) && t > bestMs) {
+      bestMs = t
+      bestIso = s
+    }
+  }
+  return bestIso
+}
+
+// Helper para detectar si TODAS las fechas del array están en el pasado.
+// Útil para descartar calls con deadline expirado aunque SEDIA aún las marque Open.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function allDatesInPast(field: any, graceDays: number = 0): boolean {
+  if (!field) return false // sin deadline → no descartamos
+  const arr = Array.isArray(field) ? field : [field]
+  const cutoff = Date.now() - graceDays * 86400000
+  let anyValid = false
+  for (const v of arr) {
+    if (!v) continue
+    const t = new Date(String(v)).getTime()
+    if (!Number.isNaN(t)) {
+      anyValid = true
+      if (t >= cutoff) return false // hay al menos una futura
+    }
+  }
+  return anyValid // true solo si tenía fechas válidas y todas pasadas
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeEUCall(raw: any): NormalizedCall | null {
   try {
@@ -1006,8 +1121,10 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
       statusCode === '31094502' || sortStatus === '2' ? 'open' :
       statusCode === '31094503' || sortStatus === '3' ? 'closed' : 'unknown'
 
-    // Fechas (campos verificados)
-    const deadlineRaw = pickFirst(meta.deadlineDate)
+    // Fechas (campos verificados).
+    // deadlineDate: en topics multi-etapa viene un array. Cogemos la MÁS TARDÍA
+    // (stage 2 / cut-off final), no la primera (stage 1 ya pasada).
+    const deadlineRaw = pickLatestDate(meta.deadlineDate)
     const openRaw = pickFirst(meta.startDate) || pickFirst(meta.plannedOpeningDate)
 
     // Budget — el campo budgetOverview viene como JSON STRING complejo
