@@ -772,7 +772,7 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
         },
       },
       sort: { field: 'deadlineDate', order: 'ASC' },
-      languages: ['en'],
+      languages: [], // No filtro de idioma: traemos todas las versiones, deduplicamos por topic ID después
     },
     {
       description: 'SEDIA multipart — grants only (no status filter, fallback)',
@@ -784,15 +784,15 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
         },
       },
       sort: { field: 'deadlineDate', order: 'ASC' },
-      languages: ['en'],
+      languages: [], // No filtro de idioma: traemos todas las versiones, deduplicamos por topic ID después
     },
   ]
 
   // SEDIA cappea pageSize a 100, por eso paginamos.
-  // MAX_PAGES de seguridad para no saturar memoria/timeout.
-  // 15 páginas × 100 = 1500 calls máx (más de las 739 que muestra el portal).
+  // Sin filtro de idioma, la misma call puede venir en varios idiomas → deduplicamos.
+  // 25 páginas × 100 = 2500 records antes de dedup; tras dedup quedan ~600-800 calls únicas.
   const PAGE_SIZE = 100
-  const MAX_PAGES = 15
+  const MAX_PAGES = 25
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let results: any[] = []
@@ -844,6 +844,32 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
   }
 
   console.log(`   📦 EU portal raw count: ${results.length}`)
+
+  // Deduplicación por topic identifier — sin filtro de idioma, SEDIA devuelve
+  // la misma call repetida en varios idiomas (en, fr, de, etc.). Preferimos en si está.
+  {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const byId = new Map<string, any>()
+    for (const r of results) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const meta = (r as any).metadata || {}
+      const id = pickFirst(meta.identifier) || pickFirst(meta.callIdentifier) || pickFirst(meta.callccm2Id) || (r as { reference?: string }).reference || ''
+      if (!id) continue
+      const lang = pickFirst(meta.language).toLowerCase()
+      const existing = byId.get(id)
+      if (!existing) {
+        byId.set(id, r)
+      } else {
+        // Si la actual es 'en' y la guardada no, sustituimos (preferimos inglés)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const existingLang = pickFirst((existing as any).metadata?.language).toLowerCase()
+        if (lang === 'en' && existingLang !== 'en') byId.set(id, r)
+      }
+    }
+    const dedupCount = results.length - byId.size
+    results = Array.from(byId.values())
+    console.log(`   🧹 Deduplicated by topic ID: ${results.length} unique (removed ${dedupCount} duplicates)`)
+  }
 
   // 🔍 Debug: imprime el PRIMER resultado entero para diagnóstico
   if (results.length > 0) {
