@@ -649,21 +649,22 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
   // SEDIA Search API: POST con apiKey en query string.
   // Documentación: https://api.tech.ec.europa.eu/search-api/prod/openapi.json
   // type=1 → "Topic"; status filtramos open + forthcoming.
+  // 31094501 = Forthcoming, 31094502 = Open, 31094503 = Closed (en SEDIA)
 
-  const url = 'https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=*&pageSize=200&pageNumber=1'
+  const url = 'https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=*&pageSize=300&pageNumber=1'
   const body = {
     languages: ['en'],
-    sort: { field: 'sortStatus', order: 'ASC' },
+    sort: { field: 'deadlineDate', order: 'ASC' },
     fixedConditions: [
       {
         type: 'FixedField',
         field: 'type',
-        values: ['1'],
+        values: ['1'], // Topics
       },
       {
         type: 'FixedField',
-        field: 'status',
-        values: ['31094501', '31094502'], // 1 = Forthcoming, 2 = Open en SEDIA
+        field: 'callStatus',
+        values: ['31094501', '31094502'], // Forthcoming + Open
       },
     ],
   }
@@ -673,13 +674,77 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!response.ok) throw new Error(`EU portal API: HTTP ${response.status}`)
+  if (!response.ok) {
+    const errText = await response.text()
+    throw new Error(`EU portal API: HTTP ${response.status} - ${errText.slice(0, 200)}`)
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = (await response.json()) as any
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const results = (data.results || []) as any[]
-  return results.map(r => normalizeEUCall(r)).filter(Boolean) as NormalizedCall[]
+  console.log(`   📦 EU portal raw count: ${results.length}`)
+
+  // 🔍 Debug: imprime el PRIMER resultado entero para diagnóstico
+  if (results.length > 0) {
+    console.log('   🔍 First raw EU result (for field diagnosis):')
+    console.log(JSON.stringify(results[0], null, 2).slice(0, 3000))
+  }
+
+  // Filtramos del lado servidor (por si el fixedConditions no funciona como esperado):
+  // mantenemos solo Open + Forthcoming
+  const filtered = results.filter(r => {
+    const meta = r.metadata || {}
+    const status = pickFirst(meta.callStatus) || pickFirst(meta.status)
+    return status === '31094501' || status === '31094502' ||
+           status.toLowerCase().includes('open') || status.toLowerCase().includes('forth')
+  })
+
+  console.log(`   📦 EU portal after status filter: ${filtered.length}`)
+  return filtered.map(r => normalizeEUCall(r)).filter(Boolean) as NormalizedCall[]
+}
+
+/* ----------------------------------------------------------
+   Deriva el nombre legible del programa desde el topic ID
+   (HORIZON-CL5-... → "Horizon Europe (HORIZON)")
+   ---------------------------------------------------------- */
+function deriveProgrammeFromIdentifier(id: string): string {
+  const upper = (id || '').toUpperCase()
+  if (upper.startsWith('HORIZON-')) return 'Horizon Europe (HORIZON)'
+  if (upper.startsWith('HORIZON-EIC-')) return 'Horizon Europe — EIC'
+  if (upper.startsWith('EIC-')) return 'Horizon Europe — EIC'
+  if (upper.startsWith('ERC-')) return 'Horizon Europe — ERC'
+  if (upper.startsWith('MSCA-')) return 'Horizon Europe — Marie Skłodowska-Curie Actions'
+  if (upper.startsWith('DIGITAL-')) return 'Digital Europe Programme'
+  if (upper.startsWith('CEF-')) return 'Connecting Europe Facility'
+  if (upper.startsWith('EU4H-')) return 'EU4Health'
+  if (upper.startsWith('LIFE-')) return 'LIFE Programme'
+  if (upper.startsWith('ERASMUS-')) return 'Erasmus+'
+  if (upper.startsWith('CERV-')) return 'CERV Programme'
+  if (upper.startsWith('JUST-')) return 'Justice Programme'
+  if (upper.startsWith('SOCPL-')) return 'Social Prerogative and Specific Competencies Lines (SOCPL)'
+  if (upper.startsWith('AMIF-')) return 'AMIF — Asylum, Migration and Integration Fund'
+  if (upper.startsWith('ISF-')) return 'Internal Security Fund'
+  if (upper.startsWith('BMVI-')) return 'Border Management and Visa Instrument'
+  if (upper.startsWith('SMP-')) return 'Single Market Programme'
+  return ''
+}
+
+/* ----------------------------------------------------------
+   Cluster cuando viene en el identifier (CL1, CL2, CL3 …)
+   ---------------------------------------------------------- */
+function deriveClusterFromIdentifier(id: string): string {
+  const m = (id || '').match(/-CL(\d)-/)
+  if (!m) return ''
+  const clusterNames: Record<string, string> = {
+    '1': 'Health',
+    '2': 'Culture, Creativity and Inclusive Society',
+    '3': 'Civil Security for Society',
+    '4': 'Digital, Industry and Space',
+    '5': 'Climate, Energy and Mobility',
+    '6': 'Food, Bioeconomy, Natural Resources, Agriculture and Environment',
+  }
+  return clusterNames[m[1]] || ''
 }
 
 // Helper para sacar el primer string de un campo SEDIA (suelen venir como array)
@@ -714,18 +779,64 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
       raw.title ||
       identifier
 
-    // Programa / framework
-    const framework =
-      pickFirst(meta.frameworkProgramme) ||
-      pickFirst(meta.programmeDivision) ||
-      pickFirst(meta.programmePeriod) ||
-      'Horizon Europe'
+    // ─────────────────────────────────────────────
+    // Programa / framework — TRES estrategias:
+    // 1) Buscar campos "Description" o "Acronym" que son legibles
+    // 2) Derivar del prefijo del topic ID (HORIZON- → Horizon Europe)
+    // 3) Si vienen códigos numéricos puros, los ignoramos
+    // ─────────────────────────────────────────────
+    const looksLikeCode = (s: string) => /^\d+$/.test(s.trim())
 
-    const destination = pickFirst(meta.destinationDetails) || pickFirst(meta.destination) || ''
-    const program = destination ? `${framework} — ${destination}` : framework
+    const tryFields = (...fields: unknown[]): string => {
+      for (const f of fields) {
+        const v = pickFirst(f).trim()
+        if (v && !looksLikeCode(v)) return v
+      }
+      return ''
+    }
+
+    let framework = tryFields(
+      meta.frameworkProgrammeDescription,
+      meta.frameworkProgrammeAcronym,
+      meta.programmeAcronym,
+      meta.programmeDescription,
+      meta.frameworkProgramme,
+      meta.programmePeriod,
+    )
+
+    // Si no encontró nada legible, derivamos del topic ID
+    if (!framework) {
+      framework = deriveProgrammeFromIdentifier(identifier)
+    }
+    if (!framework) framework = 'Horizon Europe'
+
+    // Cluster / Destination
+    const destination = tryFields(
+      meta.destinationDetails,
+      meta.destinationDescription,
+      meta.destination,
+      meta.clusterDescription,
+    )
+    let cluster = ''
+    if (!destination) {
+      cluster = deriveClusterFromIdentifier(identifier)
+    }
+
+    let program = framework
+    if (destination) program += ` — ${destination}`
+    else if (cluster) program += ` — ${cluster}`
+
+    // Type of action (RIA / IA / CSA / etc.)
+    const typeOfMGA = tryFields(
+      meta.typeOfMGADescription,
+      meta.typeOfActionDescription,
+      meta.typeOfMGA,
+      meta.typeOfAction,
+    )
+    if (typeOfMGA) program += ` · ${typeOfMGA}`
 
     // Status: SEDIA usa códigos numéricos (31094501=Forthcoming, 31094502=Open, 31094503=Closed)
-    const statusRaw = pickFirst(meta.status) || pickFirst(meta.callStatus)
+    const statusRaw = pickFirst(meta.callStatus) || pickFirst(meta.status)
     const externalStatus: ExternalStatus =
       statusRaw === '31094501' || statusRaw.toLowerCase().includes('forth') ? 'forthcoming' :
       statusRaw === '31094502' || statusRaw.toLowerCase().includes('open') ? 'open' :
@@ -742,14 +853,24 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
       pickFirst(meta.openingDate) ||
       pickFirst(meta.startDate)
 
-    const budgetRaw =
-      pickFirst(meta.budgetOverview) ||
-      pickFirst(meta.totalBudget) ||
-      pickFirst(meta.indicativeBudget)
+    // ─────────────────────────────────────────────
+    // Budget — probamos varios campos. Lo formateamos como €X,XXX,XXX si llega como número.
+    // ─────────────────────────────────────────────
+    const budgetRaw = tryFields(
+      meta.budgetOverview,
+      meta.indicativeBudget,
+      meta.totalBudget,
+      meta.budgetMaximumGrantAmount,
+      meta.callBudget,
+      meta.programmeAllocation,
+    )
 
-    // Aid type — RIA/IA/CSA vs SME instrument
-    const typeOfMGA = pickFirst(meta.typeOfMGA) || pickFirst(meta.typeOfAction)
-    const aidType: 'Grant' | 'Loan' | 'Mixed' | 'Tax Credit' = 'Grant' // EU casi todo grants
+    let budget = budgetRaw
+    // Si llega como número puro lo formateamos como euros
+    if (budget && /^\d+(\.\d+)?$/.test(budget)) {
+      const n = parseFloat(budget)
+      budget = '€' + n.toLocaleString('en-US', { maximumFractionDigits: 0 })
+    }
 
     // URL al detalle
     const url = raw.url || `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/${identifier.toLowerCase()}`
@@ -762,15 +883,15 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
       source: 'EU_PORTAL',
       title,
       fundingBody: 'European Commission',
-      program: typeOfMGA ? `${program} (${typeOfMGA})` : program,
+      program,
       openDate: openRaw || undefined,
       closeDate: deadlineRaw || undefined,
-      budget: budgetRaw || undefined,
+      budget: budget || undefined,
       externalStatus,
       url,
       description: description || undefined,
       geographicScope: 'European',
-      aidType,
+      aidType: 'Grant',
       actionable: true, // EU portal ya es I+D+i por naturaleza
     }
   } catch (err) {
