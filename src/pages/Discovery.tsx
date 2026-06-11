@@ -173,6 +173,23 @@ const Discovery = () => {
      Solo si han pasado más de 30 min desde el último sync.
      ---------------------------------------------------------- */
   useEffect(() => {
+    // Limpieza inmediata de zombies con deadline pasada (no esperamos al sync).
+    // Conservamos dismissed/imported por historial.
+    const todayMs = Date.now()
+    const GRACE_MS = 86400000 // 1 día
+    const initialCount = calls.length
+    const purged = calls.filter(c => {
+      if (c.userStatus === 'dismissed' || c.userStatus === 'imported') return true
+      if (!c.closeDate) return true // sin deadline → puede ser Forthcoming
+      const t = new Date(c.closeDate).getTime()
+      if (Number.isNaN(t)) return true
+      return t >= todayMs - GRACE_MS
+    })
+    if (purged.length !== initialCount) {
+      console.log(`[Discovery] Purged ${initialCount - purged.length} stale past-deadline calls from cache`)
+      persistCalls(purged)
+    }
+
     const RECENT_MS = 30 * 60 * 1000 // 30 min
     const now = Date.now()
     const lastEU = sources.EU_PORTAL.lastSync ? new Date(sources.EU_PORTAL.lastSync).getTime() : 0
