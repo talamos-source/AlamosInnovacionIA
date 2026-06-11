@@ -645,44 +645,126 @@ function isActionable(title: string, body: string): boolean {
    EU Funding & Tenders Portal — SEDIA Search API
    ---------------------------------------------------------- */
 
-async function fetchEUCalls(): Promise<NormalizedCall[]> {
-  // SEDIA Search API: POST con apiKey en query string.
-  // Documentación: https://api.tech.ec.europa.eu/search-api/prod/openapi.json
-  // type=1 → "Topic"; status filtramos open + forthcoming.
-  // 31094501 = Forthcoming, 31094502 = Open, 31094503 = Closed (en SEDIA)
+interface EUFetchAttempt {
+  url: string
+  method: 'GET' | 'POST'
+  body?: object
+  description: string
+}
 
-  // Estrategia: NO filtramos por status en la API porque el field name varía
-  // (status / callStatus / sortStatus...). Pedimos todos los topics y filtramos
-  // localmente con la red de seguridad de abajo.
-  const url = 'https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=*&pageSize=300&pageNumber=1'
-  const body = {
-    languages: ['en'],
-    sort: { field: 'deadlineDate', order: 'ASC' },
-    fixedConditions: [
-      {
-        type: 'FixedField',
-        field: 'type',
-        values: ['1'], // Topics
+async function tryEUEndpoint(attempt: EUFetchAttempt): Promise<{ ok: boolean; results: unknown[]; error?: string }> {
+  console.log(`   📡 Trying: ${attempt.description}`)
+  console.log(`      ${attempt.method} ${attempt.url}`)
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 25000)
+
+  try {
+    const response = await fetch(attempt.url, {
+      method: attempt.method,
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'User-Agent': 'AlamosInnovacionCRM/1.0 (research@alamosinnovacion.com)',
       },
-    ],
+      body: attempt.body ? JSON.stringify(attempt.body) : undefined,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+
+    console.log(`      → HTTP ${response.status} ${response.statusText}`)
+
+    if (!response.ok) {
+      const errText = await response.text()
+      return { ok: false, results: [], error: `HTTP ${response.status}: ${errText.slice(0, 200)}` }
+    }
+
+    const text = await response.text()
+    console.log(`      → Response size: ${text.length} chars`)
+    if (text.length < 100) {
+      console.log(`      → Body: ${text}`)
+    }
+
+    let data: unknown
+    try {
+      data = JSON.parse(text)
+    } catch (e) {
+      return { ok: false, results: [], error: `Non-JSON: ${text.slice(0, 200)}` }
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const d = data as any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const results = (d.results || d.content || d.data || []) as any[]
+    return { ok: true, results }
+  } catch (err) {
+    clearTimeout(timeoutId)
+    const msg = err instanceof Error ? err.message : 'unknown error'
+    return { ok: false, results: [], error: msg }
+  }
+}
+
+async function fetchEUCalls(): Promise<NormalizedCall[]> {
+  // 31094501 = Forthcoming, 31094502 = Open, 31094503 = Closed (en SEDIA)
+  // Probamos 3 variantes de endpoint hasta que una funcione
+
+  const attempts: EUFetchAttempt[] = [
+    {
+      description: 'SEDIA Search API (POST con apiKey)',
+      method: 'POST',
+      url: 'https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=*&pageSize=300',
+      body: {
+        languages: ['en'],
+        sort: { field: 'deadlineDate', order: 'ASC' },
+      },
+    },
+    {
+      description: 'SEDIA Search API (POST minimal body)',
+      method: 'POST',
+      url: 'https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=%2A&pageSize=300&pageNumber=1',
+      body: {},
+    },
+    {
+      description: 'SEDIA Search API (POST con fixedConditions type=Topic)',
+      method: 'POST',
+      url: 'https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=*&pageSize=300',
+      body: {
+        languages: ['en'],
+        sort: { field: 'deadlineDate', order: 'ASC' },
+        fixedConditions: [
+          {
+            type: 'FixedField',
+            field: 'type',
+            values: ['1'],
+          },
+        ],
+      },
+    },
+  ]
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let results: any[] = []
+  let lastError = ''
+  for (const attempt of attempts) {
+    const res = await tryEUEndpoint(attempt)
+    if (res.ok && res.results.length > 0) {
+      results = res.results
+      console.log(`   ✅ Got ${results.length} results from "${attempt.description}"`)
+      break
+    } else if (res.ok && res.results.length === 0) {
+      lastError = '0 results returned'
+      console.log(`   ⚠️  ${attempt.description}: ${lastError}`)
+      // Si una respuesta fue OK pero vacía, probamos la siguiente
+    } else {
+      lastError = res.error || 'unknown error'
+      console.log(`   ❌ ${attempt.description}: ${lastError}`)
+    }
   }
 
-  console.log(`   📡 EU portal request: ${url}`)
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  console.log(`   📡 EU portal response: HTTP ${response.status}`)
-  if (!response.ok) {
-    const errText = await response.text()
-    throw new Error(`EU portal API: HTTP ${response.status} - ${errText.slice(0, 200)}`)
+  if (results.length === 0) {
+    throw new Error(`EU portal — all attempts failed. Last error: ${lastError}`)
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data = (await response.json()) as any
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const results = (data.results || []) as any[]
   console.log(`   📦 EU portal raw count: ${results.length}`)
 
   // 🔍 Debug: imprime el PRIMER resultado entero para diagnóstico
