@@ -53,6 +53,17 @@
   animation: actions-menu-fade var(--transition-fast);
 }
 
+/* Variante "portal" — el dropdown se inyecta en document.body con position fixed
+   y coordenadas calculadas en JS. Escapa de overflow:hidden y stacking contexts
+   de cualquier ancestro (tabla, modal, contenedor, etc.) */
+.actions-menu-dropdown--portal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: auto;
+  z-index: var(--z-tooltip);
+}
+
 @keyframes actions-menu-fade {
   from {
     opacity: 0;
