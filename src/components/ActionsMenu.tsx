@@ -42,17 +42,17 @@ const ActionsMenu = ({ onView, onEdit, onDelete }: ActionsMenuProps) => {
           {onView && (
             <button className="actions-menu-item" onClick={() => { onView(); setIsOpen(false) }}>
               <Eye size={16} />
-              <span>View</span>
+              <span>Ver</span>
             </button>
           )}
           <button className="actions-menu-item" onClick={() => { onEdit(); setIsOpen(false) }}>
             <Edit size={16} />
-            <span>Edit</span>
+            <span>Editar</span>
           </button>
           {onDelete && (
             <button className="actions-menu-item delete" onClick={() => { onDelete(); setIsOpen(false) }}>
               <Trash2 size={16} />
-              <span>Delete</span>
+              <span>Eliminar</span>
             </button>
           )}
         </div>
