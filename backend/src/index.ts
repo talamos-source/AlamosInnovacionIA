@@ -772,7 +772,11 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
         },
       },
       sort: { field: 'deadlineDate', order: 'ASC' },
-      languages: [], // No filtro de idioma: traemos todas las versiones, deduplicamos por topic ID después
+      // languages: ['en'] → SEDIA devuelve UNA versión por call (la inglesa).
+      // Sin este filtro la misma call vendría en ~25 idiomas → 17.500 records inflados
+      // y paginación se quedaba corta (cubría solo los deadlines más cercanos).
+      // EU exige que toda call abierta tenga versión EN por norma, no perdemos cobertura.
+      languages: ['en'],
     },
     {
       description: 'SEDIA multipart — grants only (no status filter, fallback)',
@@ -784,15 +788,19 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
         },
       },
       sort: { field: 'deadlineDate', order: 'ASC' },
-      languages: [], // No filtro de idioma: traemos todas las versiones, deduplicamos por topic ID después
+      // languages: ['en'] → SEDIA devuelve UNA versión por call (la inglesa).
+      // Sin este filtro la misma call vendría en ~25 idiomas → 17.500 records inflados
+      // y paginación se quedaba corta (cubría solo los deadlines más cercanos).
+      // EU exige que toda call abierta tenga versión EN por norma, no perdemos cobertura.
+      languages: ['en'],
     },
   ]
 
   // SEDIA cappea pageSize a 100, por eso paginamos.
-  // Sin filtro de idioma, la misma call puede venir en varios idiomas → deduplicamos.
-  // 25 páginas × 100 = 2500 records antes de dedup; tras dedup quedan ~600-800 calls únicas.
+  // Con languages: ['en'] el portal devuelve ~700 calls únicas; 15 páginas dan margen.
+  // Dedup por topic ID se mantiene como defensa por si llega alguna duplicada.
   const PAGE_SIZE = 100
-  const MAX_PAGES = 25
+  const MAX_PAGES = 15
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let results: any[] = []
