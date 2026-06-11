@@ -6,6 +6,7 @@ import AppDataSync from './components/AppDataSync'
 import Dashboard from './pages/Dashboard'
 import Customers from './pages/Customers'
 import CustomerDetail from './pages/CustomerDetail'
+import CustomerContext from './pages/CustomerContext'
 import Calls from './pages/Calls'
 import Proposals from './pages/Proposals'
 import OtherServices from './pages/OtherServices'
@@ -48,6 +49,7 @@ const AppRoutes = () => {
         <Route path="/" element={isCustomer ? <Navigate to="/projects" replace /> : <Dashboard />} />
         <Route path="/customers" element={isCustomer ? <Navigate to="/projects" replace /> : <Customers />} />
         <Route path="/customers/:id" element={isCustomer ? <Navigate to="/projects" replace /> : <CustomerDetail />} />
+        <Route path="/customers/:id/context" element={isCustomer ? <Navigate to="/projects" replace /> : <CustomerContext />} />
         <Route path="/calls" element={isCustomer ? <Navigate to="/projects" replace /> : <Calls />} />
         <Route path="/proposals" element={isCustomer ? <Navigate to="/projects" replace /> : <Proposals />} />
         <Route path="/other-services" element={isCustomer ? <Navigate to="/projects" replace /> : <OtherServices />} />

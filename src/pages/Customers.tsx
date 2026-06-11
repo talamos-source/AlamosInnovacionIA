@@ -1084,6 +1084,7 @@ const Customers = () => {
                       <ActionsMenu
                         onView={() => handleView(customer.id)}
                         onEdit={() => handleEdit(customer.id)}
+                        onEditContext={() => navigate(`/customers/${customer.id}/context`)}
                         onDelete={isWorker ? undefined : () => handleDelete(customer.id)}
                       />
                     </td>

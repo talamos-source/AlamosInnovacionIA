@@ -46,6 +46,30 @@
   padding: var(--space-5);
 }
 
+.customer-detail-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.btn-secondary.btn-secondary--ai {
+  color: var(--color-brand-700);
+  border-color: var(--color-brand-200);
+  background-color: var(--color-brand-50);
+}
+
+.btn-secondary.btn-secondary--ai svg {
+  color: var(--color-brand-500);
+}
+
+.btn-secondary.btn-secondary--ai:hover {
+  background-color: var(--color-brand-100);
+  border-color: var(--color-brand-300);
+  color: var(--color-brand-800);
+}
+
 .customer-detail-header-left {
   display: flex;
   gap: var(--space-4);

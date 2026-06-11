@@ -107,6 +107,23 @@
   color: var(--color-text-primary);
 }
 
+/* AI / Edit context action — destaca con tinte brand */
+.actions-menu-item.actions-menu-item--ai {
+  color: var(--color-brand-700);
+}
+
+.actions-menu-item.actions-menu-item--ai svg {
+  color: var(--color-brand-500);
+}
+
+.actions-menu-item.actions-menu-item--ai:hover {
+  background-color: var(--color-brand-50);
+}
+
+.actions-menu-item.actions-menu-item--ai:hover svg {
+  color: var(--color-brand-700);
+}
+
 .actions-menu-item.delete {
   color: var(--color-danger-700);
 }

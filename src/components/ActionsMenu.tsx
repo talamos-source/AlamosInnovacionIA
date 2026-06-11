@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { MoreVertical, Edit, Trash2, Eye } from 'lucide-react'
+import { MoreVertical, Edit, Trash2, Eye, Wand2 } from 'lucide-react'
 import './ActionsMenu.css'
 
 interface ActionsMenuProps {
   onView?: () => void
   onEdit: () => void
+  onEditContext?: () => void
   onDelete?: () => void
 }
 
@@ -15,11 +16,11 @@ interface MenuPosition {
   openUp: boolean
 }
 
-const MENU_WIDTH = 180
-const MENU_HEIGHT_ESTIMATE = 144 // ~ 3 items * 40px + padding
+const MENU_WIDTH = 200
+const MENU_HEIGHT_ESTIMATE = 184 // ~ 4 items * 40px + padding
 const VIEWPORT_PADDING = 8
 
-const ActionsMenu = ({ onView, onEdit, onDelete }: ActionsMenuProps) => {
+const ActionsMenu = ({ onView, onEdit, onEditContext, onDelete }: ActionsMenuProps) => {
   const [isOpen, setIsOpen] = useState(false)
   const [position, setPosition] = useState<MenuPosition>({ top: 0, left: 0, openUp: false })
 
@@ -136,6 +137,16 @@ const ActionsMenu = ({ onView, onEdit, onDelete }: ActionsMenuProps) => {
             <Edit size={16} />
             <span>Edit</span>
           </button>
+          {onEditContext && (
+            <button
+              type="button"
+              className="actions-menu-item actions-menu-item--ai"
+              onClick={() => { onEditContext(); setIsOpen(false) }}
+            >
+              <Wand2 size={16} />
+              <span>Edit context</span>
+            </button>
+          )}
           {onDelete && (
             <button
               type="button"
