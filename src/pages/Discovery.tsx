@@ -168,6 +168,25 @@ const Discovery = () => {
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
   /* ----------------------------------------------------------
+     Auto-sync al entrar (en background, no bloquea UI)
+     Solo si han pasado más de 30 min desde el último sync.
+     ---------------------------------------------------------- */
+  useEffect(() => {
+    const RECENT_MS = 30 * 60 * 1000 // 30 min
+    const now = Date.now()
+    const lastEU = sources.EU_PORTAL.lastSync ? new Date(sources.EU_PORTAL.lastSync).getTime() : 0
+    const lastBDNS = sources.BDNS.lastSync ? new Date(sources.BDNS.lastSync).getTime() : 0
+    const shouldSyncEU = now - lastEU > RECENT_MS
+    const shouldSyncBDNS = now - lastBDNS > RECENT_MS
+
+    if (shouldSyncEU || shouldSyncBDNS) {
+      // Disparamos en background (no await)
+      void triggerSync('all')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /* ----------------------------------------------------------
      Persistencia
      ---------------------------------------------------------- */
 

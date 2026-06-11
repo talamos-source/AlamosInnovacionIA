@@ -682,41 +682,100 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
   return results.map(r => normalizeEUCall(r)).filter(Boolean) as NormalizedCall[]
 }
 
+// Helper para sacar el primer string de un campo SEDIA (suelen venir como array)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function pickFirst(field: any): string {
+  if (!field) return ''
+  if (Array.isArray(field)) return field[0] ? String(field[0]) : ''
+  if (typeof field === 'string') return field
+  return String(field)
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeEUCall(raw: any): NormalizedCall | null {
   try {
     const meta = raw.metadata || {}
-    const identifier = (meta.identifier?.[0] || meta.callIdentifier?.[0] || raw.reference || raw.url || '').toString()
-    if (!identifier) return null
-    const title = (meta.title?.[0] || raw.title || identifier).toString()
-    const framework = (meta.frameworkProgramme?.[0] || meta.programmeDivision?.[0] || 'Horizon Europe').toString()
-    const callStatusVal = (meta.status?.[0] || '').toString().toLowerCase()
-    const externalStatus: ExternalStatus =
-      callStatusVal.includes('forth') ? 'forthcoming' :
-      callStatusVal.includes('open') ? 'open' :
-      callStatusVal.includes('clos') ? 'closed' : 'unknown'
 
-    const deadlineRaw = (meta.deadlineDate?.[0] || meta.plannedOpeningDate?.[0] || '').toString()
-    const openRaw = (meta.startDate?.[0] || meta.plannedOpeningDate?.[0] || '').toString()
-    const budgetRaw = (meta.budgetOverview?.[0] || '').toString()
+    // ID — probamos múltiples nombres porque SEDIA cambió esquemas varias veces
+    const identifier =
+      pickFirst(meta.identifier) ||
+      pickFirst(meta.topicIdentifier) ||
+      pickFirst(meta.callIdentifier) ||
+      pickFirst(meta.reference) ||
+      raw.reference ||
+      ''
+    if (!identifier) return null
+
+    // Título — preferimos topic title sobre call title
+    const title =
+      pickFirst(meta.topicTitle) ||
+      pickFirst(meta.title) ||
+      pickFirst(meta.callTitle) ||
+      raw.title ||
+      identifier
+
+    // Programa / framework
+    const framework =
+      pickFirst(meta.frameworkProgramme) ||
+      pickFirst(meta.programmeDivision) ||
+      pickFirst(meta.programmePeriod) ||
+      'Horizon Europe'
+
+    const destination = pickFirst(meta.destinationDetails) || pickFirst(meta.destination) || ''
+    const program = destination ? `${framework} — ${destination}` : framework
+
+    // Status: SEDIA usa códigos numéricos (31094501=Forthcoming, 31094502=Open, 31094503=Closed)
+    const statusRaw = pickFirst(meta.status) || pickFirst(meta.callStatus)
+    const externalStatus: ExternalStatus =
+      statusRaw === '31094501' || statusRaw.toLowerCase().includes('forth') ? 'forthcoming' :
+      statusRaw === '31094502' || statusRaw.toLowerCase().includes('open') ? 'open' :
+      statusRaw === '31094503' || statusRaw.toLowerCase().includes('clos') ? 'closed' : 'unknown'
+
+    // Fechas
+    const deadlineRaw =
+      pickFirst(meta.deadlineDate) ||
+      pickFirst(meta.deadlineSeries) ||
+      pickFirst(meta.closingDate) ||
+      pickFirst(meta.plannedDeadlineDate)
+    const openRaw =
+      pickFirst(meta.plannedOpeningDate) ||
+      pickFirst(meta.openingDate) ||
+      pickFirst(meta.startDate)
+
+    const budgetRaw =
+      pickFirst(meta.budgetOverview) ||
+      pickFirst(meta.totalBudget) ||
+      pickFirst(meta.indicativeBudget)
+
+    // Aid type — RIA/IA/CSA vs SME instrument
+    const typeOfMGA = pickFirst(meta.typeOfMGA) || pickFirst(meta.typeOfAction)
+    const aidType: 'Grant' | 'Loan' | 'Mixed' | 'Tax Credit' = 'Grant' // EU casi todo grants
+
+    // URL al detalle
+    const url = raw.url || `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/${identifier.toLowerCase()}`
+
+    // Description — corta porque viene en HTML largo
+    const description = (raw.summary || raw.content || '').toString().replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 600)
 
     return {
       externalId: identifier,
       source: 'EU_PORTAL',
       title,
       fundingBody: 'European Commission',
-      program: framework,
+      program: typeOfMGA ? `${program} (${typeOfMGA})` : program,
       openDate: openRaw || undefined,
       closeDate: deadlineRaw || undefined,
       budget: budgetRaw || undefined,
       externalStatus,
-      url: raw.url || `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/${identifier.toLowerCase()}`,
-      description: (raw.summary || '').toString().slice(0, 800) || undefined,
+      url,
+      description: description || undefined,
       geographicScope: 'European',
-      aidType: 'Grant',
+      aidType,
       actionable: true, // EU portal ya es I+D+i por naturaleza
     }
-  } catch {
+  } catch (err) {
+    console.error('normalizeEUCall failed for raw:', JSON.stringify(raw).slice(0, 300))
+    console.error(err)
     return null
   }
 }
@@ -726,40 +785,137 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
    ---------------------------------------------------------- */
 
 async function fetchBDNSCalls(): Promise<NormalizedCall[]> {
-  // BDNS — endpoint público que devuelve convocatorias abiertas.
+  // BDNS tiene varios endpoints públicos. Probamos en orden hasta que uno funcione.
   // Sin auth, JSON. Páginamos hasta los últimos 60 días.
-  const fechaDesde = new Date(Date.now() - 60 * 86400000).toISOString().split('T')[0]
-  const fechaHasta = new Date(Date.now() + 365 * 86400000).toISOString().split('T')[0]
+  const fechaDesde = formatBDNSDate(new Date(Date.now() - 60 * 86400000))
+  const fechaHasta = formatBDNSDate(new Date(Date.now() + 365 * 86400000))
 
-  const url = `https://www.pap.hacienda.gob.es/bdnstrans/api/convocatorias?vpd=GE&fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}&pageSize=200&page=0`
+  // Endpoints en orden de preferencia. Si uno falla por 404 o cambio de schema, prueba el siguiente.
+  const candidateUrls = [
+    `https://www.infosubvenciones.es/bdnstrans/api/convocatorias?vpd=GE&fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}&pageSize=200&page=0`,
+    `https://www.pap.hacienda.gob.es/bdnstrans/api/convocatorias?vpd=GE&fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}&pageSize=200&page=0`,
+    `https://www.pap.hacienda.gob.es/bdnstrans/api/convocatorias/busqueda?vpd=GE&fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}&pageSize=200&page=0`,
+  ]
 
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: { 'Accept': 'application/json' },
-  })
-  if (!response.ok) throw new Error(`BDNS API: HTTP ${response.status}`)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data = (await response.json()) as any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const items = (data.content || data || []) as any[]
-  return items.map(it => normalizeBDNSCall(it)).filter(Boolean) as NormalizedCall[]
+  let lastError = ''
+  for (const url of candidateUrls) {
+    try {
+      console.log(`Trying BDNS endpoint: ${url}`)
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'AlamosInnovacionCRM/1.0',
+        },
+      })
+      if (!response.ok) {
+        lastError = `${response.status} from ${new URL(url).host}`
+        console.warn(`  → ${lastError}`)
+        continue
+      }
+      const text = await response.text()
+      let data: unknown
+      try {
+        data = JSON.parse(text)
+      } catch {
+        lastError = `Non-JSON response from ${new URL(url).host}`
+        console.warn(`  → ${lastError}: ${text.slice(0, 200)}`)
+        continue
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d = data as any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const items: any[] = d.content || d.contenido || d.data || d.results || (Array.isArray(d) ? d : [])
+      console.log(`  ✓ BDNS returned ${items.length} items from ${new URL(url).host}`)
+      if (items.length === 0) continue
+      return items.map(it => normalizeBDNSCall(it)).filter(Boolean) as NormalizedCall[]
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : 'fetch error'
+      console.warn(`  → exception: ${lastError}`)
+    }
+  }
+  throw new Error(`BDNS — all endpoints failed. Last error: ${lastError}`)
+}
+
+function formatBDNSDate(d: Date): string {
+  // BDNS espera fechas como DD/MM/YYYY o YYYY-MM-DD según endpoint. Probamos DD/MM/YYYY que es lo que devuelve también.
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yyyy = d.getFullYear()
+  return `${dd}/${mm}/${yyyy}`
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeBDNSCall(raw: any): NormalizedCall | null {
   try {
-    const externalId = (raw.numeroConvocatoria || raw.codigo || raw.id || '').toString()
+    const externalId = (
+      raw.numeroConvocatoria ||
+      raw.codigoConvocatoria ||
+      raw['codigo-convocatoria'] ||
+      raw.codigo ||
+      raw.id ||
+      ''
+    ).toString()
     if (!externalId) return null
-    const title = (raw.titulo || raw.descripcion || raw.objeto || externalId).toString()
-    const organo = (raw.organo || raw.organoConcedente || raw.entidad || '').toString()
-    const program = (raw.instrumento || raw.programa || '').toString()
-    const fechaFin = (raw.fechaSolicitudFin || raw.fechaFinSolicitud || raw.fechaFin || '').toString()
-    const fechaInicio = (raw.fechaSolicitudInicio || raw.fechaInicioSolicitud || raw.fechaInicio || '').toString()
-    const budget = (raw.presupuestoTotal || raw.importe || '').toString()
-    const callUrl = (raw.urlBaseRegional || raw.urlConvocatoria || `https://www.pap.hacienda.gob.es/bdnstrans/GE/es/convocatoria/${externalId}`).toString()
+
+    const title = (
+      raw.titulo ||
+      raw.tituloConvocatoria ||
+      raw.descripcion ||
+      raw.objeto ||
+      externalId
+    ).toString()
+
+    const organo = (
+      raw.organo ||
+      raw.organoConcedente ||
+      raw.entidadConcedente ||
+      raw.descripcionOrgano ||
+      raw.administracion ||
+      ''
+    ).toString()
+
+    const program = (
+      raw.instrumento ||
+      raw.programa ||
+      raw.tipoConvocatoria ||
+      raw.finalidadConvocatoria ||
+      ''
+    ).toString()
+
+    const fechaFin = (
+      raw.fechaSolicitudFin ||
+      raw.fechaFinSolicitud ||
+      raw.fechaFin ||
+      raw['fecha-fin-solicitud'] ||
+      ''
+    ).toString()
+
+    const fechaInicio = (
+      raw.fechaSolicitudInicio ||
+      raw.fechaInicioSolicitud ||
+      raw.fechaInicio ||
+      raw['fecha-inicio-solicitud'] ||
+      ''
+    ).toString()
+
+    const budget = (
+      raw.presupuestoTotal ||
+      raw.importe ||
+      raw.cuantia ||
+      raw.financiacion ||
+      ''
+    ).toString()
+
+    const callUrl = (
+      raw.urlBaseRegional ||
+      raw.urlConvocatoria ||
+      raw.url ||
+      `https://www.pap.hacienda.gob.es/bdnstrans/GE/es/convocatoria/${externalId}`
+    ).toString()
 
     const today = Date.now()
-    const closeMs = fechaFin ? new Date(fechaFin).getTime() : NaN
+    const closeMs = fechaFin ? parseSpanishDate(fechaFin).getTime() : NaN
     const externalStatus: ExternalStatus = !Number.isNaN(closeMs) && closeMs < today ? 'closed' : 'open'
 
     return {
@@ -778,9 +934,19 @@ function normalizeBDNSCall(raw: any): NormalizedCall | null {
       aidType: 'Grant',
       actionable: isActionable(title, organo + ' ' + program),
     }
-  } catch {
+  } catch (err) {
+    console.error('normalizeBDNSCall failed:', err)
     return null
   }
+}
+
+function parseSpanishDate(s: string): Date {
+  // BDNS devuelve a veces "DD/MM/YYYY", a veces "YYYY-MM-DD"
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+  if (m) {
+    return new Date(`${m[3]}-${m[2]}-${m[1]}`)
+  }
+  return new Date(s)
 }
 
 /* ----------------------------------------------------------
@@ -798,16 +964,19 @@ app.post('/discovery/sync', requireAuth, async (req, res) => {
 
   for (const s of targets) {
     try {
+      console.log(`🔭 Discovery: syncing ${s}…`)
       if (s === 'EU_PORTAL') {
         const calls = await fetchEUCalls()
+        console.log(`   → EU portal returned ${calls.length} calls`)
         allCalls.push(...calls)
       } else if (s === 'BDNS') {
         const calls = await fetchBDNSCalls()
+        console.log(`   → BDNS returned ${calls.length} calls (${calls.filter(c => c.actionable).length} actionable)`)
         allCalls.push(...calls)
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error'
-      console.error(`Discovery sync error for ${s}:`, msg)
+      console.error(`❌ Discovery sync error for ${s}:`, msg)
       errors[s] = msg
     }
   }
