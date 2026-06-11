@@ -705,27 +705,42 @@ async function tryEUEndpoint(attempt: EUFetchAttempt): Promise<{ ok: boolean; re
 }
 
 async function fetchEUCalls(): Promise<NormalizedCall[]> {
-  // 31094501 = Forthcoming, 31094502 = Open, 31094503 = Closed (en SEDIA)
-  // Probamos 3 variantes de endpoint hasta que una funcione
+  // SEDIA status codes (verified from real API response):
+  // 31094501 = Forthcoming
+  // 31094502 = Open
+  // 31094503 = Closed
+  //
+  // Field names verified:
+  //   - metadata.status: array de códigos numéricos
+  //   - metadata.sortStatus: "1"/"2"/"3"
+  //   - metadata.callIdentifier: prefijo "H2020-..." o "HORIZON-..."
+  //   - metadata.identifier: topic ID limpio
+  //   - metadata.frameworkProgramme: código (31045243=H2020, 43108390=Horizon Europe…)
 
   const attempts: EUFetchAttempt[] = [
     {
-      description: 'SEDIA Search API (POST con apiKey)',
+      description: 'SEDIA Search (fixedConditions status=Open+Forthcoming)',
       method: 'POST',
       url: 'https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=*&pageSize=300',
       body: {
         languages: ['en'],
-        sort: { field: 'deadlineDate', order: 'ASC' },
+        sort: { field: 'sortStatus', order: 'ASC' },
+        fixedConditions: [
+          {
+            type: 'FixedField',
+            field: 'type',
+            values: ['1'], // Topics
+          },
+          {
+            type: 'FixedField',
+            field: 'status',
+            values: ['31094501', '31094502'], // Forthcoming + Open
+          },
+        ],
       },
     },
     {
-      description: 'SEDIA Search API (POST minimal body)',
-      method: 'POST',
-      url: 'https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=%2A&pageSize=300&pageNumber=1',
-      body: {},
-    },
-    {
-      description: 'SEDIA Search API (POST con fixedConditions type=Topic)',
+      description: 'SEDIA Search (sin filtro status, filtramos local)',
       method: 'POST',
       url: 'https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=*&pageSize=300',
       body: {
@@ -790,21 +805,53 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
     }
   }
 
-  // Filtro JS-side de status: solo Open + Forthcoming.
-  // Si NO encontramos NINGÚN campo de status reconocible, dejamos pasar
-  // (mejor mostrar que filtrar a 0).
+  // Filtro JS-side de status — solo Open + Forthcoming
+  // Reglas verificadas con la API real:
+  //   status[0] === "31094501" → Forthcoming
+  //   status[0] === "31094502" → Open
+  //   status[0] === "31094503" → Closed
+  //   sortStatus[0] === "1"/"2" → Forthcoming/Open
+  //   sortStatus[0] === "3" → Closed
   const filtered = results.filter(r => {
-    const meta = r.metadata || {}
-    const status = (pickFirst(meta.callStatus) || pickFirst(meta.status) || pickFirst(meta.sortStatus) || pickFirst(meta.statusValue)).toLowerCase()
-    if (!status) return true // sin status → asumimos que es válido
-    if (status === '31094501' || status === '31094502') return true
-    if (status.includes('open') || status.includes('forth')) return true
-    if (status === '31094503' || status.includes('clos')) return false
-    return true // unknown status → lo dejamos pasar también
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const meta = (r as any).metadata || {}
+    const statusCode = pickFirst(meta.status)
+    const sortStatus = pickFirst(meta.sortStatus)
+    if (statusCode === '31094503' || sortStatus === '3') return false
+    if (statusCode === '31094501' || statusCode === '31094502') return true
+    if (sortStatus === '1' || sortStatus === '2') return true
+    // Sin status reconocible → fallback por deadline futura
+    const deadline = pickFirst(meta.deadlineDate)
+    if (deadline) {
+      const t = new Date(deadline).getTime()
+      if (!Number.isNaN(t) && t > Date.now()) return true
+    }
+    return false
   })
 
-  console.log(`   📦 EU portal after status filter: ${filtered.length}`)
+  console.log(`   📦 EU portal after status filter: ${filtered.length} (was ${results.length})`)
   return filtered.map(r => normalizeEUCall(r)).filter(Boolean) as NormalizedCall[]
+}
+
+/* ----------------------------------------------------------
+   Mapping de framework programme codes a nombres legibles.
+   Verificado con la API real.
+   ---------------------------------------------------------- */
+const FRAMEWORK_CODE_MAP: Record<string, string> = {
+  '31045243': 'Horizon 2020 (H2020)',
+  '43108390': 'Horizon Europe (HORIZON)',
+  '43298916': 'Digital Europe Programme',
+  '43298900': 'LIFE Programme',
+  '43298898': 'EU4Health',
+  '43152860': 'Erasmus+',
+  '43251841': 'Connecting Europe Facility (CEF)',
+  '43298929': 'Single Market Programme',
+  '43298920': 'Internal Security Fund',
+  '43298922': 'European Defence Fund',
+  '43298932': 'AMIF',
+  '43298938': 'BMVI',
+  '43152972': 'Justice Programme',
+  '43152973': 'CERV Programme',
 }
 
 /* ----------------------------------------------------------
@@ -881,132 +928,105 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
   try {
     const meta = raw.metadata || {}
 
-    // ID — probamos múltiples nombres porque SEDIA cambió esquemas varias veces
-    const identifier =
-      pickFirst(meta.identifier) ||
-      pickFirst(meta.topicIdentifier) ||
-      pickFirst(meta.callIdentifier) ||
-      pickFirst(meta.reference) ||
-      raw.reference ||
-      ''
-    if (!identifier) return null
+    // ID limpio del topic (campo verificado: metadata.identifier)
+    const identifier = pickFirst(meta.identifier) || pickFirst(meta.topicIdentifier) || ''
+    // Call identifier separado — usado para derivar el programa
+    const callId = pickFirst(meta.callIdentifier) || ''
+    if (!identifier && !callId) return null
 
-    // Título — preferimos topic title sobre call title
-    const title =
-      pickFirst(meta.topicTitle) ||
-      pickFirst(meta.title) ||
-      pickFirst(meta.callTitle) ||
-      raw.title ||
-      identifier
+    const externalId = identifier || callId
+
+    // Título (campo verificado: metadata.title)
+    const title = pickFirst(meta.title) || pickFirst(meta.callTitle) || raw.title || externalId
 
     // ─────────────────────────────────────────────
-    // Programa — ESTRATEGIA: derivar SIEMPRE del topic ID primero,
-    // que es lo único 100% fiable. SEDIA devuelve códigos numéricos
-    // que no nos sirven para mostrar.
+    // Programa — Triple estrategia (verificada con API real):
+    // 1) Diccionario por código de frameworkProgramme
+    // 2) Derivar del prefijo del callIdentifier (H2020-... / HORIZON-...)
+    // 3) Fallback a "Unknown"
     // ─────────────────────────────────────────────
 
-    // Cualquier string con 6+ dígitos seguidos lo consideramos código SEDIA
-    const looksLikeCode = (s: string) => /^\d{6,}$/.test(s.trim()) || /\b\d{8,}\b/.test(s)
+    const fpCode = pickFirst(meta.frameworkProgramme)
+    let framework = FRAMEWORK_CODE_MAP[fpCode] || ''
 
-    const cleanField = (s: string): string => {
-      const v = (s || '').trim()
-      if (!v) return ''
-      if (looksLikeCode(v)) return ''
-      return v
-    }
-
-    const tryFields = (...fields: unknown[]): string => {
-      for (const f of fields) {
-        const v = cleanField(pickFirst(f))
-        if (v) return v
-      }
-      return ''
-    }
-
-    // 1. PRIMARY: derivar del prefijo del topic ID
-    let framework = deriveProgrammeFromIdentifier(identifier)
-
-    // 2. FALLBACK: si el ID no encaja en ninguna familia conocida, intentamos la API
+    // Si no tenemos mapping del código, derivamos del callIdentifier que es legible
     if (!framework) {
-      framework = tryFields(
-        meta.frameworkProgrammeAcronym,
-        meta.programmeAcronym,
-        meta.frameworkProgrammeDescription,
-        meta.programmeDescription,
-      )
+      framework = deriveProgrammeFromIdentifier(callId) || deriveProgrammeFromIdentifier(identifier)
     }
 
-    // 3. Último recurso
+    if (!framework && fpCode) framework = `Programme ${fpCode}` // último recurso muestra el código sin disfrazar
     if (!framework) framework = 'Unknown programme'
 
-    // Cluster derivado del ID (CL1-CL6) — esto es muy fiable
-    const clusterFromId = deriveClusterFromIdentifier(identifier)
-    const destination = tryFields(
-      meta.destinationDescription,
-      meta.destinationDetails,
-      meta.destination,
-      meta.clusterDescription,
-    )
-
+    // Cluster derivado del topic ID (CL1-CL6) — verificado con HORIZON-CLX-...
+    const clusterFromId = deriveClusterFromIdentifier(identifier) || deriveClusterFromIdentifier(callId)
     let program = framework
     if (clusterFromId && !framework.includes(clusterFromId)) {
       program += ` — ${clusterFromId}`
-    } else if (destination && !looksLikeCode(destination)) {
-      program += ` — ${destination}`
     }
 
-    // Type of action (RIA / IA / CSA) — solo si está limpio
-    const typeOfMGA = tryFields(
-      meta.typeOfMGADescription,
-      meta.typeOfActionDescription,
-    )
-    if (typeOfMGA) program += ` · ${typeOfMGA}`
+    // Type of action — viene como string array legible en metadata.typesOfAction
+    // Ej. ["Research and Innovation action"]
+    const typeOfAction = pickFirst(meta.typesOfAction)
+    if (typeOfAction) {
+      // Acortar a sigla común si encaja
+      const acronym = typeOfAction.match(/^(RIA|IA|CSA|SME|FPA)\b/i)?.[1]?.toUpperCase()
+      program += acronym ? ` · ${acronym}` : ` · ${typeOfAction}`
+    }
 
-    // Status: SEDIA usa códigos numéricos (31094501=Forthcoming, 31094502=Open, 31094503=Closed)
-    const statusRaw = pickFirst(meta.callStatus) || pickFirst(meta.status)
+    // Status (campo verificado: metadata.status como código)
+    const statusCode = pickFirst(meta.status)
+    const sortStatus = pickFirst(meta.sortStatus)
     const externalStatus: ExternalStatus =
-      statusRaw === '31094501' || statusRaw.toLowerCase().includes('forth') ? 'forthcoming' :
-      statusRaw === '31094502' || statusRaw.toLowerCase().includes('open') ? 'open' :
-      statusRaw === '31094503' || statusRaw.toLowerCase().includes('clos') ? 'closed' : 'unknown'
+      statusCode === '31094501' || sortStatus === '1' ? 'forthcoming' :
+      statusCode === '31094502' || sortStatus === '2' ? 'open' :
+      statusCode === '31094503' || sortStatus === '3' ? 'closed' : 'unknown'
 
-    // Fechas
-    const deadlineRaw =
-      pickFirst(meta.deadlineDate) ||
-      pickFirst(meta.deadlineSeries) ||
-      pickFirst(meta.closingDate) ||
-      pickFirst(meta.plannedDeadlineDate)
-    const openRaw =
-      pickFirst(meta.plannedOpeningDate) ||
-      pickFirst(meta.openingDate) ||
-      pickFirst(meta.startDate)
+    // Fechas (campos verificados)
+    const deadlineRaw = pickFirst(meta.deadlineDate)
+    const openRaw = pickFirst(meta.startDate) || pickFirst(meta.plannedOpeningDate)
 
-    // ─────────────────────────────────────────────
-    // Budget — probamos varios campos. Lo formateamos como €X,XXX,XXX si llega como número.
-    // ─────────────────────────────────────────────
-    const budgetRaw = tryFields(
-      meta.budgetOverview,
-      meta.indicativeBudget,
-      meta.totalBudget,
-      meta.budgetMaximumGrantAmount,
-      meta.callBudget,
-      meta.programmeAllocation,
-    )
-
-    let budget = budgetRaw
-    // Si llega como número puro lo formateamos como euros
-    if (budget && /^\d+(\.\d+)?$/.test(budget)) {
-      const n = parseFloat(budget)
-      budget = '€' + n.toLocaleString('en-US', { maximumFractionDigits: 0 })
+    // Budget — el campo budgetOverview viene como JSON STRING complejo
+    // Lo intentamos parsear; si falla, dejamos vacío
+    let budget = ''
+    const budgetRaw = pickFirst(meta.budgetOverview)
+    if (budgetRaw) {
+      try {
+        const parsed = JSON.parse(budgetRaw)
+        // Buscar suma de "planned" en budgetTopicActionMap o similar
+        let total = 0
+        const collectNumbers = (obj: unknown) => {
+          if (obj && typeof obj === 'object') {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            for (const v of Object.values(obj as any)) {
+              if (typeof v === 'number' && v > 1000) total += v
+              else if (typeof v === 'object') collectNumbers(v)
+            }
+          }
+        }
+        collectNumbers(parsed)
+        if (total > 0) {
+          budget = '€' + total.toLocaleString('en-US', { maximumFractionDigits: 0 })
+        }
+      } catch {
+        // budgetOverview no parseable → dejamos vacío
+      }
     }
 
-    // URL al detalle
-    const url = raw.url || `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/${identifier.toLowerCase()}`
+    // URL al detalle — construimos a partir del identifier
+    const topicSlug = (identifier || callId).toLowerCase()
+    const url = `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/${topicSlug}`
 
-    // Description — corta porque viene en HTML largo
-    const description = (raw.summary || raw.content || '').toString().replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 600)
+    // Description — limpiamos HTML del descriptionByte
+    const descSource = pickFirst(meta.descriptionByte) || raw.summary || raw.content || ''
+    const description = descSource
+      .toString()
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 600)
 
     return {
-      externalId: identifier,
+      externalId,
       source: 'EU_PORTAL',
       title,
       fundingBody: 'European Commission',
