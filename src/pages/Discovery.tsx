@@ -280,6 +280,18 @@ const Discovery = () => {
 
     if (actionableOnly) filtered = filtered.filter(c => c.actionable)
 
+    // Filtro defensivo: oculta calls con deadline pasada en todas las vistas excepto Dismissed.
+    // SEDIA tiene lag entre cerrar deadline y cambiar status, + zombies cacheadas.
+    if (view !== 'dismissed') {
+      const todayMs = Date.now()
+      filtered = filtered.filter(c => {
+        if (!c.closeDate) return true // sin fecha → permitimos (Forthcoming aún sin deadline)
+        const t = new Date(c.closeDate).getTime()
+        if (Number.isNaN(t)) return true
+        return t >= todayMs - 86400000 // gracia 1 día por UTC
+      })
+    }
+
     if (sourceFilter !== 'all') filtered = filtered.filter(c => c.source === sourceFilter)
     if (programFilter !== 'all') filtered = filtered.filter(c => c.program === programFilter)
     if (deadlineYearFilter !== 'all') {
@@ -407,10 +419,28 @@ const Discovery = () => {
           }
         }
 
-        // Mantener las del otro source y las viejas que no llegaron (excepto si son closed)
+        // Mantener las del otro source y las viejas que no llegaron, pero descartar:
+        // - calls externamente cerradas
+        // - calls cuya deadline ya pasó (zombies de syncs previas con código viejo)
+        //   excepción: las dismissed/imported las dejamos por trazabilidad histórica.
+        const todayMs = Date.now()
         existingByExternal.forEach(c => {
-          if (c.source !== s) merged.push(c)
-          else if (c.externalStatus !== 'closed') merged.push(c)
+          if (c.source !== s) {
+            merged.push(c)
+            return
+          }
+          if (c.externalStatus === 'closed') return
+          // Si el usuario ya tomó una decisión (dismissed/imported), conservamos por historial
+          if (c.userStatus === 'dismissed' || c.userStatus === 'imported') {
+            merged.push(c)
+            return
+          }
+          // Filtro defensivo: deadline pasada → fuera (eran zombies del sync viejo)
+          if (c.closeDate) {
+            const t = new Date(c.closeDate).getTime()
+            if (!Number.isNaN(t) && t < todayMs - 86400000) return // gracia 1 día
+          }
+          merged.push(c)
         })
 
         persistCalls(merged)
