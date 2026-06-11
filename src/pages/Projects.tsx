@@ -5,6 +5,7 @@ import { formatCurrency, formatNumber, parseEuropeanNumber } from '../utils/form
 import Modal from '../components/Modal'
 import { useAuth } from '../contexts/AuthContext'
 import './Page.css'
+import './SharedTableLayout.css'
 
 interface Project {
   id: string
@@ -1061,7 +1062,10 @@ const Projects = () => {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1>Projects</h1>
+          <h1>Proyectos</h1>
+          <p className="page-subtitle">
+            Proyectos en ejecución y cerrados — con clientes, hitos, facturación y tareas
+          </p>
           <p className="page-subtitle">Running projects from granted proposals and services</p>
         </div>
       </div>

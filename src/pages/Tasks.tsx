@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { Search, ChevronDown, Pencil, Trash2, Plus, List, Calendar, ChevronLeft, ChevronRight } from 'lucide-react'
 import Modal from '../components/Modal'
 import './Page.css'
+import './SharedTableLayout.css'
 
 interface Task {
   id: string
@@ -466,7 +467,10 @@ const Tasks = () => {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1>Tasks</h1>
+          <h1>Tareas</h1>
+          <p className="page-subtitle">
+            Tareas de seguimiento — con prioridades, fechas y asignaciones
+          </p>
           <p className="page-subtitle">Manage all tasks across projects</p>
         </div>
       </div>

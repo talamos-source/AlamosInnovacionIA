@@ -4,6 +4,7 @@ import ActionsMenu from '../components/ActionsMenu'
 import Modal from '../components/Modal'
 import { formatCurrency } from '../utils/formatCurrency'
 import './Page.css'
+import './SharedTableLayout.css'
 
 interface Call {
   id: string
@@ -391,7 +392,10 @@ const Calls = () => {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1>Calls</h1>
+          <h1>Convocatorias</h1>
+          <p className="page-subtitle">
+            Seguimiento de calls públicas y privadas a las que aplicar — fechas, presupuestos y estado
+          </p>
         </div>
       </div>
 
@@ -454,7 +458,7 @@ const Calls = () => {
           </div>
         </div>
 
-        <button className="btn-primary" onClick={handleNewCall}>+ New Call</button>
+        <button className="btn-primary" onClick={handleNewCall}>+ Nueva convocatoria</button>
       </div>
 
       <Modal 

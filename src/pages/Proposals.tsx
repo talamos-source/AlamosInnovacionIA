@@ -5,6 +5,7 @@ import ActionsMenu from '../components/ActionsMenu'
 import Modal from '../components/Modal'
 import { formatCurrency, formatNumber, parseEuropeanNumber } from '../utils/formatCurrency'
 import './Page.css'
+import './SharedTableLayout.css'
 
 interface Proposal {
   id: string
@@ -531,7 +532,10 @@ const Proposals = () => {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1>Proposals</h1>
+          <h1>Propuestas</h1>
+          <p className="page-subtitle">
+            Propuestas en preparación, enviadas y resueltas — con clientes asociados, presupuestos y honorarios
+          </p>
         </div>
       </div>
 
@@ -581,7 +585,7 @@ const Proposals = () => {
           </div>
         </div>
 
-        <button className="btn-primary" onClick={handleNewProposal}>+ New Proposal</button>
+        <button className="btn-primary" onClick={handleNewProposal}>+ Nueva propuesta</button>
       </div>
 
       <Modal 

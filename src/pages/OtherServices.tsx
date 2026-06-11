@@ -4,6 +4,7 @@ import ActionsMenu from '../components/ActionsMenu'
 import Modal from '../components/Modal'
 import { formatCurrency, parseEuropeanNumber } from '../utils/formatCurrency'
 import './Page.css'
+import './SharedTableLayout.css'
 
 interface Service {
   id: string
@@ -235,7 +236,10 @@ const OtherServices = () => {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1>Other Services</h1>
+          <h1>Otros servicios</h1>
+          <p className="page-subtitle">
+            Servicios adicionales fuera de propuestas — mentoring, formación, consultoría puntual
+          </p>
           <p className="page-subtitle">Additional services</p>
         </div>
       </div>
@@ -313,7 +317,7 @@ const OtherServices = () => {
           </div>
         </div>
 
-        <button className="btn-primary" onClick={handleNewService}>+ New Service</button>
+        <button className="btn-primary" onClick={handleNewService}>+ Nuevo servicio</button>
       </div>
 
       <div className="content-section">
