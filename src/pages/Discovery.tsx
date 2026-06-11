@@ -161,6 +161,7 @@ const Discovery = () => {
   const [search, setSearch] = useState('')
   const [sourceFilter, setSourceFilter] = useState<'all' | DiscoverySource>('all')
   const [programFilter, setProgramFilter] = useState<string>('all')
+  const [deadlineYearFilter, setDeadlineYearFilter] = useState<string>('all')
   const [actionableOnly, setActionableOnly] = useState(true)
   const [page, setPage] = useState(1)
   const [syncingSource, setSyncingSource] = useState<DiscoverySource | null>(null)
@@ -231,6 +232,21 @@ const Discovery = () => {
   }, [calls])
 
   /* ----------------------------------------------------------
+     Años de deadline únicos (para el dropdown)
+     ---------------------------------------------------------- */
+
+  const uniqueDeadlineYears = useMemo(() => {
+    const set = new Set<number>()
+    calls.forEach(c => {
+      if (c.closeDate) {
+        const y = new Date(c.closeDate).getFullYear()
+        if (!Number.isNaN(y) && y > 1900) set.add(y)
+      }
+    })
+    return Array.from(set).sort((a, b) => a - b) // ascendente: 2026, 2027, 2028
+  }, [calls])
+
+  /* ----------------------------------------------------------
      Filtrado de la tabla
      ---------------------------------------------------------- */
 
@@ -266,6 +282,14 @@ const Discovery = () => {
 
     if (sourceFilter !== 'all') filtered = filtered.filter(c => c.source === sourceFilter)
     if (programFilter !== 'all') filtered = filtered.filter(c => c.program === programFilter)
+    if (deadlineYearFilter !== 'all') {
+      const targetYear = Number(deadlineYearFilter)
+      filtered = filtered.filter(c => {
+        if (!c.closeDate) return false
+        const y = new Date(c.closeDate).getFullYear()
+        return y === targetYear
+      })
+    }
 
     if (search.trim()) {
       const q = search.toLowerCase().trim()
@@ -277,7 +301,7 @@ const Discovery = () => {
     }
 
     return filtered
-  }, [calls, view, actionableOnly, sourceFilter, programFilter, search])
+  }, [calls, view, actionableOnly, sourceFilter, programFilter, deadlineYearFilter, search])
 
   const totalCount = filteredCalls.length
   const actionableCount = filteredCalls.filter(c => c.actionable).length
@@ -509,6 +533,16 @@ const Discovery = () => {
         >
           <option value="all">All Programs</option>
           {uniquePrograms.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+
+        <select
+          value={deadlineYearFilter}
+          onChange={(e) => setDeadlineYearFilter(e.target.value)}
+          className="filter-btn"
+          title="Filter by deadline year"
+        >
+          <option value="all">All Years</option>
+          {uniqueDeadlineYears.map(y => <option key={y} value={String(y)}>{y}</option>)}
         </select>
 
         <label className="disc-actionable">
