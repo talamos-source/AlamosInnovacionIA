@@ -11,8 +11,10 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
 ;(pdfjsLib as { GlobalWorkerOptions: { workerSrc: string } }).GlobalWorkerOptions.workerSrc = pdfWorkerUrl as string
 
-/** Tamaño máximo de texto extraído por documento (caracteres). Evita pasarse de tokens. */
-const MAX_TEXT_CHARS = 30000
+/** Tamaño máximo de texto extraído por documento (caracteres).
+ *  Sonnet 4.6 tiene 200k tokens de contexto → podemos permitirnos mucho.
+ *  100k chars ≈ 25k tokens, suficiente para un Plan de Empresa completo (anexos incluidos). */
+const MAX_TEXT_CHARS = 100000
 
 export interface ExtractionResult {
   text: string

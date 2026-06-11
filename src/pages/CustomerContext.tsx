@@ -130,6 +130,14 @@ const CustomerContext = () => {
   const [isExtracting, setIsExtracting] = useState(false)
   const [analyzeError, setAnalyzeError] = useState<string | null>(null)
   const [projectsCount, setProjectsCount] = useState(0)
+  const [lastTrace, setLastTrace] = useState<{
+    documentsReceived: number
+    documentsChars: number
+    promptChars: number
+    websiteFetched: boolean
+    tokensInput: number
+    tokensOutput: number
+  } | null>(null)
 
   // Load on mount
   useEffect(() => {
@@ -320,6 +328,23 @@ const CustomerContext = () => {
         suggestions: Record<string, ContextField>
         analyzedAt?: string
         tokensUsed?: { input: number; output: number }
+        trace?: {
+          websiteFetched?: boolean
+          documentsReceived?: number
+          documentsChars?: number
+          promptChars?: number
+        }
+      }
+
+      if (data.trace) {
+        setLastTrace({
+          documentsReceived: data.trace.documentsReceived ?? 0,
+          documentsChars: data.trace.documentsChars ?? 0,
+          promptChars: data.trace.promptChars ?? 0,
+          websiteFetched: !!data.trace.websiteFetched,
+          tokensInput: data.tokensUsed?.input ?? 0,
+          tokensOutput: data.tokensUsed?.output ?? 0,
+        })
       }
 
       setContext(prev => {
@@ -583,6 +608,17 @@ const CustomerContext = () => {
         {context.lastAnalyzedAt && (
           <p className="cc-last-analyzed">
             Last analyzed: {new Date(context.lastAnalyzedAt).toLocaleString('en-GB')}
+            {lastTrace && (
+              <>
+                {' · '}
+                Sources sent: {lastTrace.documentsReceived} documents
+                {' '}({Math.round(lastTrace.documentsChars / 1000)}k chars)
+                {' · '}
+                Website: {lastTrace.websiteFetched ? 'fetched' : 'skipped'}
+                {' · '}
+                Tokens: {lastTrace.tokensInput}↓ {lastTrace.tokensOutput}↑
+              </>
+            )}
           </p>
         )}
       </section>

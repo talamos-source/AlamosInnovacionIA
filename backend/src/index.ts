@@ -331,31 +331,36 @@ const CONTEXT_FIELD_KEYS = [
 ] as const
 
 const SYSTEM_PROMPT = `You are an analyst helping an innovation consultant gather structured context about a client company.
-Your goal is to extract concise, factual context information from the available sources (website content, client profile, and active projects).
+Your goal is to extract concise, factual context information from the available sources (website content, client profile, active projects, and UPLOADED DOCUMENTS such as business plans, pitch decks, NEOTEC plans, etc.).
 
-You will return a STRICT JSON object with these 14 fields (all strings; can be empty if unknown):
+You will return a STRICT JSON object with these 14 fields (all strings; can be empty if truly unknown):
 - businessModel: How the company generates revenue
 - companyOverview: 2-3 sentence company summary
 - competitiveAdvantage: What makes them different from competitors
-- ipStrategy: Patents, IP protection approach (empty if unknown)
+- ipStrategy: Patents, trademarks, IP protection approach
 - keyAchievements: Notable awards, milestones, traction metrics
 - marketOverview: Market context, size, dynamics
 - problemStatement: What problem the company solves
 - solutionDescription: How they solve it
 - targetMarkets: Industries, geographies, customer segments served
-- keyTeamMembers: Founders or key team members mentioned by name (empty if unknown)
-- teamOverview: Team composition, size, capabilities
-- technologyInnovation: Tech stack, methodologies, R&D approach
-- currentTRL: Technology Readiness Level (e.g., "TRL 7 - System prototype demonstration") with brief justification
-- rdiRoadmap: R&D&I roadmap, upcoming initiatives
+- keyTeamMembers: Founders, executives, CEO, CTO, CSO, or key team members. List by NAME with their role when available (e.g., "Maria López (CEO, Co-founder), Juan García (CTO)"). Business plans, NEOTEC plans and similar documents ALMOST ALWAYS contain a dedicated team section — read carefully through ALL uploaded documents, including annexes and CVs.
+- teamOverview: Team composition, size, structure, capabilities, headcount distribution
+- technologyInnovation: Tech stack, methodologies, R&D approach, scientific or engineering basis
+- currentTRL: Technology Readiness Level (e.g., "TRL 7 - System prototype demonstration"). Business plans often state this explicitly — extract the exact level and a short justification.
+- rdiRoadmap: R&D&I roadmap — planned research lines, milestones, year-by-year initiatives. Business plans typically include this as a multi-year plan.
+
+IMPORTANT GUIDANCE:
+- When UPLOADED DOCUMENTS are present, prioritize them over the website. Documents like business plans, NEOTEC applications, investor pitch decks contain detailed information about team, IP, TRL, and R&D roadmap that is rarely on public websites.
+- READ THE ENTIRE document including annexes — team members and CVs are often at the end.
+- Extract NAMED PEOPLE when you find them. Do not return empty just because they appear inside a list or in a table.
+- If a document is in Spanish, you must still return the values in English, but preserve proper names exactly as written.
 
 Rules:
 1. Be concise — 2-4 sentences per field is ideal, no longer than 5
-2. Use ONLY information from the provided sources
-3. If a field cannot be inferred from the sources, return empty string ""
-4. Write in English
-5. Be factual, no marketing fluff, no speculation
-6. Do not hallucinate — if not in sources, leave empty
+2. Use ONLY information from the provided sources (no external knowledge)
+3. Return empty string "" ONLY when you genuinely cannot find anything in any source
+4. Write in English, but keep proper names (people, products, places) in their original language
+5. Be factual, no marketing fluff, no speculation, no hallucination
 
 Return ONLY a valid JSON object — no markdown code fences, no commentary, no preamble.`
 
@@ -436,8 +441,10 @@ interface AnalyzePayload {
   }>
 }
 
-// Máximo de chars por documento al pasarlo a Claude (control de coste de tokens)
-const MAX_DOC_CHARS = 25000
+// Máximo de chars por documento al pasarlo a Claude.
+// Sonnet 4.6 tiene 200k tokens de contexto. Subimos a 80k chars (~20k tokens)
+// para que entren completos planes de empresa con anexos (donde suele ir el equipo).
+const MAX_DOC_CHARS = 80000
 
 app.post('/ai/analyze-client-context', requireAuth, async (req, res) => {
   if (!anthropic) {
@@ -566,7 +573,12 @@ app.post('/ai/analyze-client-context', requireAuth, async (req, res) => {
         input: message.usage?.input_tokens ?? 0,
         output: message.usage?.output_tokens ?? 0,
       },
-      trace,
+      trace: {
+        ...trace,
+        documentsReceived: documents?.length ?? 0,
+        documentsChars: (documents ?? []).reduce((sum, d) => sum + (d.text?.length || 0), 0),
+        promptChars: fullSources.length,
+      },
     })
   } catch (err: any) {
     console.error('AI analysis error:', err)
