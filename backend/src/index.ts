@@ -430,7 +430,14 @@ interface AnalyzePayload {
     budgetFunding?: string
     fee?: string
   }>
+  documents?: Array<{
+    name: string
+    text: string
+  }>
 }
+
+// Máximo de chars por documento al pasarlo a Claude (control de coste de tokens)
+const MAX_DOC_CHARS = 25000
 
 app.post('/ai/analyze-client-context', requireAuth, async (req, res) => {
   if (!anthropic) {
@@ -439,7 +446,7 @@ app.post('/ai/analyze-client-context', requireAuth, async (req, res) => {
     })
   }
 
-  const { customer, projects } = (req.body || {}) as AnalyzePayload
+  const { customer, projects, documents } = (req.body || {}) as AnalyzePayload
 
   if (!customer) {
     return res.status(400).json({ error: 'customer payload is required.' })
@@ -497,7 +504,18 @@ app.post('/ai/analyze-client-context', requireAuth, async (req, res) => {
             .join('\n\n')
         : '\n\n=== PROJECTS ===\n(No funded projects with this client yet)'
 
-    const fullSources = clientSection + websiteSection + projectsSection
+    const documentsSection =
+      documents && documents.length > 0
+        ? `\n\n=== UPLOADED DOCUMENTS ===\n` +
+          documents
+            .map((d, i) => {
+              const text = (d.text || '').slice(0, MAX_DOC_CHARS)
+              return `--- Document ${i + 1}: ${d.name} ---\n${text}`
+            })
+            .join('\n\n')
+        : ''
+
+    const fullSources = clientSection + websiteSection + projectsSection + documentsSection
 
     // 3. Call Claude
     const message = await anthropic.messages.create({

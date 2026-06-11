@@ -301,6 +301,35 @@
   color: var(--color-danger-700);
 }
 
+.cc-doc-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.cc-doc-badge--ok {
+  background-color: var(--color-success-50);
+  color: var(--color-success-700);
+}
+
+.cc-doc-badge--err {
+  background-color: var(--color-danger-50);
+  color: var(--color-danger-700);
+}
+
+.cc-doc-item--error .cc-doc-name {
+  color: var(--color-danger-700);
+}
+
+.cc-source-action[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* ----------------------------------------------------------
    INFO BANNER (la franja explicativa amarilla-suave)
    ---------------------------------------------------------- */

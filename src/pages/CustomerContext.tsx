@@ -12,6 +12,7 @@ import {
   Loader2,
   Check,
 } from 'lucide-react'
+import { extractDocumentText } from '../utils/extractDocumentText'
 import './Page.css'
 import './CustomerContext.css'
 
@@ -33,6 +34,8 @@ interface UploadedDocument {
   name: string
   sizeBytes: number
   uploadedAt: string
+  extractedText?: string
+  extractionError?: string
 }
 
 interface ContextField {
@@ -124,6 +127,7 @@ const CustomerContext = () => {
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [context, setContext] = useState<CustomerContextData>({})
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [isExtracting, setIsExtracting] = useState(false)
   const [analyzeError, setAnalyzeError] = useState<string | null>(null)
   const [projectsCount, setProjectsCount] = useState(0)
 
@@ -204,12 +208,20 @@ const CustomerContext = () => {
   const handleFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files
     if (!files || files.length === 0) return
-    const docs: UploadedDocument[] = Array.from(files).map(f => ({
-      id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      name: f.name,
-      sizeBytes: f.size,
-      uploadedAt: new Date().toISOString(),
-    }))
+
+    setIsExtracting(true)
+    const docs: UploadedDocument[] = []
+    for (const file of Array.from(files)) {
+      const result = await extractDocumentText(file)
+      docs.push({
+        id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: file.name,
+        sizeBytes: file.size,
+        uploadedAt: new Date().toISOString(),
+        extractedText: result.ok ? result.text : undefined,
+        extractionError: result.ok ? undefined : result.error,
+      })
+    }
     setContext(prev => {
       const next = {
         ...prev,
@@ -218,6 +230,7 @@ const CustomerContext = () => {
       persistContext(next)
       return next
     })
+    setIsExtracting(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -270,6 +283,14 @@ const CustomerContext = () => {
         'https://alamosinnovacionia.onrender.com'
       const token = localStorage.getItem('authToken') || ''
 
+      // Documentos: enviamos solo nombre + texto extraído al backend.
+      const documents = (context.uploadedDocuments || [])
+        .filter(d => d.extractedText && d.extractedText.length > 0)
+        .map(d => ({
+          name: d.name,
+          text: d.extractedText as string,
+        }))
+
       const response = await fetch(`${API_BASE}/ai/analyze-client-context`, {
         method: 'POST',
         headers: {
@@ -279,6 +300,7 @@ const CustomerContext = () => {
         body: JSON.stringify({
           customer: fullCustomer || customer,
           projects: relatedProjects,
+          documents,
         }),
       })
 
@@ -424,23 +446,53 @@ const CustomerContext = () => {
               <span className="cc-source-value">
                 {(context.uploadedDocuments?.length || 0)} uploaded
               </span>
-              <button type="button" className="cc-source-action" onClick={handleAddDocument}>
-                <Upload size={12} />
-                Add document
+              <button
+                type="button"
+                className="cc-source-action"
+                onClick={handleAddDocument}
+                disabled={isExtracting}
+              >
+                {isExtracting ? (
+                  <>
+                    <Loader2 size={12} className="cc-spinner" />
+                    Extracting…
+                  </>
+                ) : (
+                  <>
+                    <Upload size={12} />
+                    Add document
+                  </>
+                )}
               </button>
+              <span className="cc-source-hint">PDF · DOCX · XLSX · CSV · TXT</span>
               <input
                 ref={fileInputRef}
                 type="file"
                 multiple
+                accept=".pdf,.docx,.doc,.xlsx,.xls,.xlsm,.csv,.tsv,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv,text/plain,text/markdown"
                 onChange={handleFileSelected}
                 style={{ display: 'none' }}
               />
               {context.uploadedDocuments && context.uploadedDocuments.length > 0 && (
                 <ul className="cc-doc-list">
                   {context.uploadedDocuments.map(doc => (
-                    <li key={doc.id} className="cc-doc-item">
+                    <li
+                      key={doc.id}
+                      className={`cc-doc-item ${doc.extractionError ? 'cc-doc-item--error' : ''}`}
+                      title={doc.extractionError || (doc.extractedText ? 'Text extracted — Claude will use it' : '')}
+                    >
                       <span className="cc-doc-name" title={doc.name}>{doc.name}</span>
                       <span className="cc-doc-size">{formatBytes(doc.sizeBytes)}</span>
+                      {doc.extractedText && (
+                        <span className="cc-doc-badge cc-doc-badge--ok" title="Text extracted">
+                          <Check size={10} />
+                        </span>
+                      )}
+                      {doc.extractionError && (
+                        <span className="cc-doc-badge cc-doc-badge--err" title={doc.extractionError}>
+                          <AlertCircle size={10} />
+                        </span>
+                      )}
                       <button
                         type="button"
                         className="cc-doc-remove"
@@ -462,7 +514,7 @@ const CustomerContext = () => {
               <Briefcase size={20} />
             </div>
             <div className="cc-source-body">
-              <span className="cc-source-label">Projects in NOMOS</span>
+              <span className="cc-source-label">Project in AI</span>
               <span className="cc-source-value">{projectsCount} funded projects</span>
               <span className="cc-source-hint">Auto-included in analysis</span>
             </div>
