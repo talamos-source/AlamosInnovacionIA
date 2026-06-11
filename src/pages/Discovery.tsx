@@ -525,26 +525,43 @@ const Discovery = () => {
           }
         }
 
-        // Mantener las del otro source y las viejas que no llegaron, pero descartar:
-        // - calls externamente cerradas
-        // - calls cuya deadline ya pasó (zombies de syncs previas con código viejo)
-        //   excepción: las dismissed/imported las dejamos por trazabilidad histórica.
+        // Tratamiento de stragglers (calls que tenemos en cache y NO han vuelto en este sync):
+        //
+        // Si el sync fue suficientemente exhaustivo (>= 50 calls de respuesta), confiamos en
+        // que es la verdad y eliminamos los stragglers del mismo source. Esto mata zombies
+        // como "DIGITAL-2023-SKILLS-05-SPECIALEDU" que se quedaron pegados con deadline
+        // 2028 desde syncs viejos con bugs (la API ya no los devuelve, son closed).
+        //
+        // Si el sync trajo pocos (< 50), no nos fiamos (pudo fallar a mitad) y aplicamos
+        // criterios defensivos solo: descartar closed o con deadline pasada.
+        //
+        // En ambos casos: dismissed e imported se conservan por historial.
         const todayMs = Date.now()
+        const syncWasComprehensive = data.calls.length >= 50
+
         existingByExternal.forEach(c => {
+          // Calls de OTRO source: siempre conservar (el sync de este source no las afecta)
           if (c.source !== s) {
             merged.push(c)
             return
           }
-          if (c.externalStatus === 'closed') return
-          // Si el usuario ya tomó una decisión (dismissed/imported), conservamos por historial
+          // Historial de decisiones del usuario: siempre conservar
           if (c.userStatus === 'dismissed' || c.userStatus === 'imported') {
             merged.push(c)
             return
           }
-          // Filtro defensivo: deadline pasada → fuera (eran zombies del sync viejo)
+          // Si externalStatus es closed, fuera
+          if (c.externalStatus === 'closed') return
+
+          if (syncWasComprehensive) {
+            // El sync ha sido exhaustivo y esta call NO ha vuelto → es zombie, fuera.
+            return
+          }
+
+          // Sync no fiable → solo descartamos si la deadline está pasada
           if (c.closeDate) {
             const t = new Date(c.closeDate).getTime()
-            if (!Number.isNaN(t) && t < todayMs - 86400000) return // gracia 1 día
+            if (!Number.isNaN(t) && t < todayMs - 86400000) return
           }
           merged.push(c)
         })
