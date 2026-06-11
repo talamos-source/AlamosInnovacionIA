@@ -645,29 +645,54 @@ function isActionable(title: string, body: string): boolean {
    EU Funding & Tenders Portal — SEDIA Search API
    ---------------------------------------------------------- */
 
+/**
+ * SEDIA Search API requires multipart/form-data, NOT a JSON body.
+ * The shape (verified from working Python client `ajruben/sedia-api-fetchers`):
+ *
+ *   URL params: apiKey=SEDIA & text=*** & pageSize=N & pageNumber=N
+ *   Form fields (multipart, each as application/json blob):
+ *     - query:     { bool: { must: [ { terms: { type: [...] } }, ... ] } }
+ *     - sort:      { field: "deadlineDate", order: "ASC" }
+ *     - languages: ["en"]
+ *
+ * Status codes (verified):
+ *   31094501 = Forthcoming, 31094502 = Open, 31094503 = Closed
+ *
+ * Type codes (verified — grants are 1/2/8, tenders are 0):
+ *   grants = ['1','2','8'],  tenders = ['0']
+ */
 interface EUFetchAttempt {
   url: string
-  method: 'GET' | 'POST'
-  body?: object
   description: string
+  query: object
+  sort: object
+  languages: string[]
 }
 
-async function tryEUEndpoint(attempt: EUFetchAttempt): Promise<{ ok: boolean; results: unknown[]; error?: string }> {
+async function tryEUEndpoint(attempt: EUFetchAttempt): Promise<{ ok: boolean; results: unknown[]; total?: number; error?: string }> {
   console.log(`   📡 Trying: ${attempt.description}`)
-  console.log(`      ${attempt.method} ${attempt.url}`)
+  console.log(`      POST ${attempt.url}`)
+  console.log(`      query: ${JSON.stringify(attempt.query)}`)
+  console.log(`      sort:  ${JSON.stringify(attempt.sort)}`)
 
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 25000)
 
   try {
+    // Build multipart/form-data with three JSON blobs.
+    // IMPORTANT: do NOT set Content-Type header — fetch auto-adds the boundary.
+    const fd = new FormData()
+    fd.append('query', new Blob([JSON.stringify(attempt.query)], { type: 'application/json' }), 'blob')
+    fd.append('sort', new Blob([JSON.stringify(attempt.sort)], { type: 'application/json' }), 'blob')
+    fd.append('languages', new Blob([JSON.stringify(attempt.languages)], { type: 'application/json' }), 'blob')
+
     const response = await fetch(attempt.url, {
-      method: attempt.method,
+      method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
         Accept: 'application/json',
         'User-Agent': 'AlamosInnovacionCRM/1.0 (research@alamosinnovacion.com)',
       },
-      body: attempt.body ? JSON.stringify(attempt.body) : undefined,
+      body: fd,
       signal: controller.signal,
     })
     clearTimeout(timeoutId)
@@ -696,7 +721,11 @@ async function tryEUEndpoint(attempt: EUFetchAttempt): Promise<{ ok: boolean; re
     const d = data as any
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const results = (d.results || d.content || d.data || []) as any[]
-    return { ok: true, results }
+    const total = typeof d.totalResults === 'number' ? d.totalResults : undefined
+    if (total !== undefined) {
+      console.log(`      → totalResults=${total}, returned=${results.length}`)
+    }
+    return { ok: true, results, total }
   } catch (err) {
     clearTimeout(timeoutId)
     const msg = err instanceof Error ? err.message : 'unknown error'
@@ -705,55 +734,51 @@ async function tryEUEndpoint(attempt: EUFetchAttempt): Promise<{ ok: boolean; re
 }
 
 async function fetchEUCalls(): Promise<NormalizedCall[]> {
-  // SEDIA status codes (verified from real API response):
-  // 31094501 = Forthcoming
-  // 31094502 = Open
-  // 31094503 = Closed
+  // ✅ Verified working syntax (multipart/form-data + Elasticsearch DSL).
+  //    Test 2026-06-11 confirmed: totalResults=513, statuses=Open/Forthcoming, deadlines future.
+  //
+  // SEDIA status codes:
+  //   31094501 = Forthcoming, 31094502 = Open, 31094503 = Closed
+  // SEDIA type codes:
+  //   ['1','2','8'] = grants, ['0'] = tenders
   //
   // Field names verified:
-  //   - metadata.status: array de códigos numéricos
-  //   - metadata.sortStatus: "1"/"2"/"3"
-  //   - metadata.callIdentifier: prefijo "H2020-..." o "HORIZON-..."
-  //   - metadata.identifier: topic ID limpio
-  //   - metadata.frameworkProgramme: código (31045243=H2020, 43108390=Horizon Europe…)
+  //   metadata.status         array de códigos numéricos
+  //   metadata.sortStatus     "1"/"2"/"3"
+  //   metadata.callIdentifier prefijo "H2020-..." o "HORIZON-..."
+  //   metadata.identifier     topic ID limpio
+  //   metadata.frameworkProgramme  código (31045243=H2020, 43108390=Horizon Europe…)
+  //   metadata.deadlineDate   array de ISO strings
+
+  const baseUrl = 'https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=***&pageSize=300&pageNumber=1'
 
   const attempts: EUFetchAttempt[] = [
     {
-      description: 'SEDIA Search (fixedConditions status=Open+Forthcoming)',
-      method: 'POST',
-      url: 'https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=*&pageSize=300',
-      body: {
-        languages: ['en'],
-        sort: { field: 'sortStatus', order: 'ASC' },
-        fixedConditions: [
-          {
-            type: 'FixedField',
-            field: 'type',
-            values: ['1'], // Topics
-          },
-          {
-            type: 'FixedField',
-            field: 'status',
-            values: ['31094501', '31094502'], // Forthcoming + Open
-          },
-        ],
+      description: 'SEDIA multipart — Open + Forthcoming grants, sorted by deadline ASC',
+      url: baseUrl,
+      query: {
+        bool: {
+          must: [
+            { terms: { type: ['1', '2', '8'] } },           // Grants only
+            { terms: { status: ['31094501', '31094502'] } }, // Forthcoming + Open
+          ],
+        },
       },
+      sort: { field: 'deadlineDate', order: 'ASC' },
+      languages: ['en'],
     },
     {
-      description: 'SEDIA Search (sin filtro status, filtramos local)',
-      method: 'POST',
-      url: 'https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=*&pageSize=300',
-      body: {
-        languages: ['en'],
-        sort: { field: 'deadlineDate', order: 'ASC' },
-        fixedConditions: [
-          {
-            type: 'FixedField',
-            field: 'type',
-            values: ['1'],
-          },
-        ],
+      description: 'SEDIA multipart — grants only (no status filter, fallback)',
+      url: baseUrl,
+      query: {
+        bool: {
+          must: [
+            { terms: { type: ['1', '2', '8'] } },
+          ],
+        },
       },
+      sort: { field: 'deadlineDate', order: 'ASC' },
+      languages: ['en'],
     },
   ]
 
