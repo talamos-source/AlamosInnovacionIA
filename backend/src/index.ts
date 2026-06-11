@@ -1135,6 +1135,76 @@ function allDatesInPast(field: any, graceDays: number = 0): boolean {
   return anyValid // true solo si tenía fechas válidas y todas pasadas
 }
 
+/**
+ * Formatea un total numérico de € en versión compacta: 1.5B / 20M / 500K.
+ */
+function formatEuroCompact(total: number): string {
+  if (total >= 1_000_000_000) return `€${(total / 1_000_000_000).toFixed(1)}B`
+  if (total >= 1_000_000) {
+    // Para enteros redondos quitamos el ".0"
+    const m = total / 1_000_000
+    return `€${m % 1 === 0 ? m.toFixed(0) : m.toFixed(1)}M`
+  }
+  if (total >= 10_000) return `€${(total / 1_000).toFixed(0)}K`
+  return `€${total.toLocaleString('en-US')}`
+}
+
+/**
+ * Extrae el budget de un topic EU desde el campo `budgetOverview`.
+ * Devuelve string vacío si no se puede determinar.
+ *
+ * Prioridad:
+ *   1. Acciones cuyo "action" empieza por el topic identifier (más preciso).
+ *   2. Fallback: suma de TODAS las acciones del call (visión global).
+ *
+ * Solo suma valores de budgetYearMap (no contribution caps).
+ */
+function extractEUBudget(budgetRaw: string, topicIdentifier: string): string {
+  if (!budgetRaw) return ''
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(budgetRaw)
+  } catch {
+    return ''
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const actionMap = (parsed as any)?.budgetTopicActionMap
+  if (!actionMap || typeof actionMap !== 'object') return ''
+
+  let matchedTotal = 0
+  let allTotal = 0
+  const topicId = (topicIdentifier || '').trim()
+
+  for (const actions of Object.values(actionMap)) {
+    if (!Array.isArray(actions)) continue
+    for (const action of actions) {
+      if (!action || typeof action !== 'object') continue
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const a = action as any
+      const actionName = String(a.action || '')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const yearMap = a.budgetYearMap
+      if (!yearMap || typeof yearMap !== 'object') continue
+
+      let actionTotal = 0
+      for (const v of Object.values(yearMap)) {
+        if (typeof v === 'number' && v > 0) actionTotal += v
+      }
+
+      allTotal += actionTotal
+      // Match estricto: el nombre de la action empieza por el ID del topic.
+      if (topicId && actionName.startsWith(topicId)) {
+        matchedTotal += actionTotal
+      }
+    }
+  }
+
+  const total = matchedTotal > 0 ? matchedTotal : allTotal
+  return total > 0 ? formatEuroCompact(total) : ''
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeEUCall(raw: any): NormalizedCall | null {
   try {
@@ -1199,32 +1269,24 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
     const deadlineRaw = pickLatestDate(meta.deadlineDate)
     const openRaw = pickFirst(meta.startDate) || pickFirst(meta.plannedOpeningDate)
 
-    // Budget — el campo budgetOverview viene como JSON STRING complejo
-    // Lo intentamos parsear; si falla, dejamos vacío
-    let budget = ''
-    const budgetRaw = pickFirst(meta.budgetOverview)
-    if (budgetRaw) {
-      try {
-        const parsed = JSON.parse(budgetRaw)
-        // Buscar suma de "planned" en budgetTopicActionMap o similar
-        let total = 0
-        const collectNumbers = (obj: unknown) => {
-          if (obj && typeof obj === 'object') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            for (const v of Object.values(obj as any)) {
-              if (typeof v === 'number' && v > 1000) total += v
-              else if (typeof v === 'object') collectNumbers(v)
-            }
-          }
-        }
-        collectNumbers(parsed)
-        if (total > 0) {
-          budget = '€' + total.toLocaleString('en-US', { maximumFractionDigits: 0 })
-        }
-      } catch {
-        // budgetOverview no parseable → dejamos vacío
-      }
-    }
+    // Budget — extracción precisa desde budgetOverview (JSON string complejo).
+    // Estructura típica:
+    //   {
+    //     "budgetTopicActionMap": {
+    //       "<actionId>": [{
+    //         "action": "<TOPIC-ID> - <RIA|IA|CSA> ...",
+    //         "budgetYearMap": { "2024": 20000000, "2025": 30000000 },
+    //         "expectedGrants": 0, "minContribution": 0, "maxContribution": 0
+    //       }],
+    //       ...
+    //     }
+    //   }
+    // Estrategia:
+    //   1) Buscamos acciones cuyo "action" empiece por el topic identifier
+    //      (eso es la budget del TOPIC concreto, no de toda la call).
+    //   2) Si no encontramos match, sumamos TODAS las acciones (budget de la call entera).
+    //   3) Solo sumamos valores de budgetYearMap (no expected/min/max contribution).
+    const budget = extractEUBudget(pickFirst(meta.budgetOverview), identifier)
 
     // URL al detalle — construimos a partir del identifier
     const topicSlug = (identifier || callId).toLowerCase()
