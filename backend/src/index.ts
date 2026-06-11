@@ -651,6 +651,9 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
   // type=1 → "Topic"; status filtramos open + forthcoming.
   // 31094501 = Forthcoming, 31094502 = Open, 31094503 = Closed (en SEDIA)
 
+  // Estrategia: NO filtramos por status en la API porque el field name varía
+  // (status / callStatus / sortStatus...). Pedimos todos los topics y filtramos
+  // localmente con la red de seguridad de abajo.
   const url = 'https://api.tech.ec.europa.eu/search-api/prod/rest/search?apiKey=SEDIA&text=*&pageSize=300&pageNumber=1'
   const body = {
     languages: ['en'],
@@ -661,19 +664,16 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
         field: 'type',
         values: ['1'], // Topics
       },
-      {
-        type: 'FixedField',
-        field: 'callStatus',
-        values: ['31094501', '31094502'], // Forthcoming + Open
-      },
     ],
   }
 
+  console.log(`   📡 EU portal request: ${url}`)
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+  console.log(`   📡 EU portal response: HTTP ${response.status}`)
   if (!response.ok) {
     const errText = await response.text()
     throw new Error(`EU portal API: HTTP ${response.status} - ${errText.slice(0, 200)}`)
@@ -689,15 +689,36 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
   if (results.length > 0) {
     console.log('   🔍 First raw EU result (for field diagnosis):')
     console.log(JSON.stringify(results[0], null, 2).slice(0, 3000))
+
+    // También listamos las KEYS de metadata para entender qué campos están disponibles
+    const meta = results[0].metadata || {}
+    const keys = Object.keys(meta)
+    console.log(`   🔑 Metadata keys (${keys.length}): ${keys.join(', ')}`)
+
+    // Y muestra el valor de los 3-4 campos más relevantes
+    for (const k of ['frameworkProgramme', 'frameworkProgrammeDescription', 'frameworkProgrammeAcronym',
+                     'programmeAcronym', 'programmeDescription', 'topicIdentifier', 'callIdentifier',
+                     'callStatus', 'status', 'deadlineDate', 'plannedOpeningDate', 'budgetOverview',
+                     'totalBudget', 'indicativeBudget']) {
+      if (meta[k]) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const val = Array.isArray(meta[k]) ? `[${(meta[k] as any[]).map(v => `"${v}"`).join(', ')}]` : `"${meta[k]}"`
+        console.log(`      ${k}: ${val}`)
+      }
+    }
   }
 
-  // Filtramos del lado servidor (por si el fixedConditions no funciona como esperado):
-  // mantenemos solo Open + Forthcoming
+  // Filtro JS-side de status: solo Open + Forthcoming.
+  // Si NO encontramos NINGÚN campo de status reconocible, dejamos pasar
+  // (mejor mostrar que filtrar a 0).
   const filtered = results.filter(r => {
     const meta = r.metadata || {}
-    const status = pickFirst(meta.callStatus) || pickFirst(meta.status)
-    return status === '31094501' || status === '31094502' ||
-           status.toLowerCase().includes('open') || status.toLowerCase().includes('forth')
+    const status = (pickFirst(meta.callStatus) || pickFirst(meta.status) || pickFirst(meta.sortStatus) || pickFirst(meta.statusValue)).toLowerCase()
+    if (!status) return true // sin status → asumimos que es válido
+    if (status === '31094501' || status === '31094502') return true
+    if (status.includes('open') || status.includes('forth')) return true
+    if (status === '31094503' || status.includes('clos')) return false
+    return true // unknown status → lo dejamos pasar también
   })
 
   console.log(`   📦 EU portal after status filter: ${filtered.length}`)
@@ -710,11 +731,20 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
    ---------------------------------------------------------- */
 function deriveProgrammeFromIdentifier(id: string): string {
   const upper = (id || '').toUpperCase()
+  // El orden importa: los más específicos primero
+  if (upper.startsWith('HORIZON-EIC-') || upper.startsWith('HORIZON-EIC')) return 'Horizon Europe (HORIZON) — EIC'
+  if (upper.startsWith('HORIZON-MSCA-')) return 'Horizon Europe (HORIZON) — Marie Skłodowska-Curie Actions'
+  if (upper.startsWith('HORIZON-ERC-')) return 'Horizon Europe (HORIZON) — ERC'
+  if (upper.startsWith('HORIZON-WIDERA-')) return 'Horizon Europe (HORIZON) — Widening Participation'
+  if (upper.startsWith('HORIZON-INFRA-')) return 'Horizon Europe (HORIZON) — Research Infrastructures'
+  if (upper.startsWith('HORIZON-MISS-')) return 'Horizon Europe (HORIZON) — Missions'
+  if (upper.startsWith('HORIZON-JU-')) return 'Horizon Europe (HORIZON) — Joint Undertakings'
   if (upper.startsWith('HORIZON-')) return 'Horizon Europe (HORIZON)'
-  if (upper.startsWith('HORIZON-EIC-')) return 'Horizon Europe — EIC'
+
   if (upper.startsWith('EIC-')) return 'Horizon Europe — EIC'
   if (upper.startsWith('ERC-')) return 'Horizon Europe — ERC'
   if (upper.startsWith('MSCA-')) return 'Horizon Europe — Marie Skłodowska-Curie Actions'
+
   if (upper.startsWith('DIGITAL-')) return 'Digital Europe Programme'
   if (upper.startsWith('CEF-')) return 'Connecting Europe Facility'
   if (upper.startsWith('EU4H-')) return 'EU4Health'
@@ -727,6 +757,14 @@ function deriveProgrammeFromIdentifier(id: string): string {
   if (upper.startsWith('ISF-')) return 'Internal Security Fund'
   if (upper.startsWith('BMVI-')) return 'Border Management and Visa Instrument'
   if (upper.startsWith('SMP-')) return 'Single Market Programme'
+  if (upper.startsWith('EMFAF-')) return 'EMFAF — European Maritime, Fisheries and Aquaculture Fund'
+  if (upper.startsWith('IMCAP-')) return 'Information Measures relating to CAP'
+  if (upper.startsWith('UCPM-')) return 'Union Civil Protection Mechanism'
+  if (upper.startsWith('I3-')) return 'Interregional Innovation Investments (I3)'
+  if (upper.startsWith('EDF-')) return 'European Defence Fund'
+  if (upper.startsWith('IBA-')) return 'Internal Border Areas (IBA)'
+  if (upper.startsWith('RFCS-')) return 'Research Fund for Coal and Steel'
+
   return ''
 }
 
@@ -780,58 +818,65 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
       identifier
 
     // ─────────────────────────────────────────────
-    // Programa / framework — TRES estrategias:
-    // 1) Buscar campos "Description" o "Acronym" que son legibles
-    // 2) Derivar del prefijo del topic ID (HORIZON- → Horizon Europe)
-    // 3) Si vienen códigos numéricos puros, los ignoramos
+    // Programa — ESTRATEGIA: derivar SIEMPRE del topic ID primero,
+    // que es lo único 100% fiable. SEDIA devuelve códigos numéricos
+    // que no nos sirven para mostrar.
     // ─────────────────────────────────────────────
-    const looksLikeCode = (s: string) => /^\d+$/.test(s.trim())
+
+    // Cualquier string con 6+ dígitos seguidos lo consideramos código SEDIA
+    const looksLikeCode = (s: string) => /^\d{6,}$/.test(s.trim()) || /\b\d{8,}\b/.test(s)
+
+    const cleanField = (s: string): string => {
+      const v = (s || '').trim()
+      if (!v) return ''
+      if (looksLikeCode(v)) return ''
+      return v
+    }
 
     const tryFields = (...fields: unknown[]): string => {
       for (const f of fields) {
-        const v = pickFirst(f).trim()
-        if (v && !looksLikeCode(v)) return v
+        const v = cleanField(pickFirst(f))
+        if (v) return v
       }
       return ''
     }
 
-    let framework = tryFields(
-      meta.frameworkProgrammeDescription,
-      meta.frameworkProgrammeAcronym,
-      meta.programmeAcronym,
-      meta.programmeDescription,
-      meta.frameworkProgramme,
-      meta.programmePeriod,
-    )
+    // 1. PRIMARY: derivar del prefijo del topic ID
+    let framework = deriveProgrammeFromIdentifier(identifier)
 
-    // Si no encontró nada legible, derivamos del topic ID
+    // 2. FALLBACK: si el ID no encaja en ninguna familia conocida, intentamos la API
     if (!framework) {
-      framework = deriveProgrammeFromIdentifier(identifier)
+      framework = tryFields(
+        meta.frameworkProgrammeAcronym,
+        meta.programmeAcronym,
+        meta.frameworkProgrammeDescription,
+        meta.programmeDescription,
+      )
     }
-    if (!framework) framework = 'Horizon Europe'
 
-    // Cluster / Destination
+    // 3. Último recurso
+    if (!framework) framework = 'Unknown programme'
+
+    // Cluster derivado del ID (CL1-CL6) — esto es muy fiable
+    const clusterFromId = deriveClusterFromIdentifier(identifier)
     const destination = tryFields(
-      meta.destinationDetails,
       meta.destinationDescription,
+      meta.destinationDetails,
       meta.destination,
       meta.clusterDescription,
     )
-    let cluster = ''
-    if (!destination) {
-      cluster = deriveClusterFromIdentifier(identifier)
-    }
 
     let program = framework
-    if (destination) program += ` — ${destination}`
-    else if (cluster) program += ` — ${cluster}`
+    if (clusterFromId && !framework.includes(clusterFromId)) {
+      program += ` — ${clusterFromId}`
+    } else if (destination && !looksLikeCode(destination)) {
+      program += ` — ${destination}`
+    }
 
-    // Type of action (RIA / IA / CSA / etc.)
+    // Type of action (RIA / IA / CSA) — solo si está limpio
     const typeOfMGA = tryFields(
       meta.typeOfMGADescription,
       meta.typeOfActionDescription,
-      meta.typeOfMGA,
-      meta.typeOfAction,
     )
     if (typeOfMGA) program += ` · ${typeOfMGA}`
 
