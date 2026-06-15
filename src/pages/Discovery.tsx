@@ -736,14 +736,13 @@ const Discovery = () => {
               <th>Call</th>
               <th>Program</th>
               <th>Deadline</th>
-              <th>Budget</th>
               <th>Status</th>
               <th style={{ width: 90, textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {pageCalls.length === 0 ? (
-              <tr><td colSpan={7} className="empty-row">No calls found. Try syncing a source to fetch fresh opportunities.</td></tr>
+              <tr><td colSpan={6} className="empty-row">No calls found. Try syncing a source to fetch fresh opportunities.</td></tr>
             ) : pageCalls.map(call => {
               const dDays = daysUntil(call.closeDate)
               return (
@@ -786,7 +785,6 @@ const Discovery = () => {
                       )}
                     </div>
                   </td>
-                  <td>{call.budget || '—'}</td>
                   <td>
                     <DiscoveryStatusBadge status={call.userStatus} externalStatus={call.externalStatus} />
                   </td>
