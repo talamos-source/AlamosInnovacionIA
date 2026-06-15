@@ -321,7 +321,7 @@ const Discovery = () => {
       dismissed: calls.filter(c => c.userStatus === 'dismissed').length,
       closingSoon: open.filter(c => {
         const d = daysUntil(c.closeDate)
-        return d !== null && d >= 0 && d <= 14
+        return d !== null && d >= 0 && d <= 30
       }).length,
       thisWeek: open.filter(c => isThisWeek(c.discoveredAt)).length,
     }
@@ -390,7 +390,7 @@ const Discovery = () => {
       case 'closing-soon':
         filtered = filtered.filter(c => {
           const d = daysUntil(c.closeDate)
-          return d !== null && d >= 0 && d <= 14
+          return d !== null && d >= 0 && d <= 30
         })
         break
       case 'this-week':
@@ -480,6 +480,11 @@ const Discovery = () => {
     setSyncBanner(null)
     const targets: DiscoverySource[] = source === 'all' ? ['EU_PORTAL', 'BDNS'] : [source]
 
+    // Mantenemos un snapshot que se actualiza tras cada iteración.
+    // Sin esto, el sync 'all' (iter 1 EU + iter 2 BDNS) usaba el mismo `calls`
+    // congelado en el closure → perdíamos las calls añadidas en iter 1.
+    let currentCalls = calls
+
     for (const s of targets) {
       setSyncingSource(s)
       persistSources({
@@ -504,9 +509,9 @@ const Discovery = () => {
 
         const data = await response.json() as { calls: Array<Omit<DiscoveryCall, 'id' | 'userStatus' | 'discoveredAt'>> }
 
-        // Merge con calls existentes
+        // Merge con calls existentes (usar snapshot actualizado, no el closure original)
         const existingByExternal = new Map<string, DiscoveryCall>()
-        calls.forEach(c => existingByExternal.set(`${c.source}::${c.externalId}`, c))
+        currentCalls.forEach(c => existingByExternal.set(`${c.source}::${c.externalId}`, c))
 
         const now = new Date().toISOString()
         let newCount = 0
@@ -582,6 +587,7 @@ const Discovery = () => {
         })
 
         persistCalls(merged)
+        currentCalls = merged // siguiente iteración usa el state ACTUALIZADO
         persistSources({
           ...sources,
           [s]: {
@@ -806,7 +812,7 @@ const Discovery = () => {
                     <div className="disc-deadline">
                       <span>{formatDate(call.closeDate)}</span>
                       {dDays !== null && (
-                        <span className={`disc-deadline-rel ${dDays < 0 ? 'past' : dDays <= 14 ? 'soon' : ''}`}>
+                        <span className={`disc-deadline-rel ${dDays < 0 ? 'past' : dDays <= 30 ? 'soon' : ''}`}>
                           {dDays < 0 ? `${Math.abs(dDays)} days past` : `${dDays} days`}
                         </span>
                       )}
@@ -943,13 +949,14 @@ const DiscoveryStatusBadge = ({
   status: DiscoveryUserStatus
   externalStatus: DiscoveryExternalStatus
 }) => {
-  // Si status user = new, mostramos "New" con punto brand.
-  // Si reviewing / dismissed / imported, prima el user status.
-  // Si nada de eso, mostramos el externalStatus (open / forthcoming / closed).
+  // Reglas de display:
+  //  · Si has tomado acción (reviewing / dismissed / imported) → prima esa.
+  //  · Si no, mostramos el externalStatus (Open / Forthcoming / Closed) — más útil que "New"
+  //    porque siempre todo es "new" tras sync inicial.
+  //  · Sin externalStatus reconocible → fallback "—"
   let label = ''
   let cls = ''
-  if (status === 'new') { label = 'New'; cls = 'brand' }
-  else if (status === 'reviewing') { label = 'Reviewing'; cls = 'warning' }
+  if (status === 'reviewing') { label = 'Reviewing'; cls = 'warning' }
   else if (status === 'dismissed') { label = 'Dismissed'; cls = 'muted' }
   else if (status === 'imported') { label = 'Imported'; cls = 'success' }
   else if (externalStatus === 'open') { label = 'Open'; cls = 'success' }
