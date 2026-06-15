@@ -602,6 +602,7 @@ interface NormalizedCall {
   title: string
   fundingBody: string
   program: string
+  typeOfAction?: string
   openDate?: string
   closeDate?: string
   budget?: string
@@ -1340,13 +1341,12 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
       program += ` — ${clusterFromId}`
     }
 
-    // Type of action — viene como string array legible en metadata.typesOfAction
-    // Ej. ["Research and Innovation action"]
-    const typeOfAction = pickFirst(meta.typesOfAction)
-    if (typeOfAction) {
-      // Acortar a sigla común si encaja
-      const acronym = typeOfAction.match(/^(RIA|IA|CSA|SME|FPA)\b/i)?.[1]?.toUpperCase()
-      program += acronym ? ` · ${acronym}` : ` · ${typeOfAction}`
+    // Type of action — viene como string array en metadata.typesOfAction
+    // Ej. ["Research and Innovation action"], ["HORIZON Coordination and Support Actions"]
+    // Para cascade (type=8) no existe ese campo: usamos "Cascade Funding" como etiqueta.
+    let typeOfAction = pickFirst(meta.typesOfAction) || ''
+    if (!typeOfAction && isCascade) {
+      typeOfAction = 'Cascade Funding'
     }
 
     // Status (campo verificado: metadata.status como código)
@@ -1400,6 +1400,7 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
       title,
       fundingBody: 'European Commission',
       program,
+      typeOfAction: typeOfAction || undefined,
       openDate: openRaw || undefined,
       closeDate: deadlineRaw || undefined,
       budget: budget || undefined,

@@ -337,6 +337,12 @@
   color: var(--color-text-secondary);
 }
 
+.disc-type-action {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  max-width: 200px;
+}
+
 .disc-deadline {
   display: flex;
   flex-direction: column;

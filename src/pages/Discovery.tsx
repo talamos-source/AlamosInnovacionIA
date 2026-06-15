@@ -29,6 +29,7 @@ export interface DiscoveryCall {
   title: string
   fundingBody: string
   program: string
+  typeOfAction?: string
   openDate?: string
   closeDate?: string
   budget?: string
@@ -241,6 +242,7 @@ const Discovery = () => {
   const [search, setSearch] = useState('')
   const [sourceFilter, setSourceFilter] = useState<'all' | DiscoverySource>('all')
   const [programFilter, setProgramFilter] = useState<string>('all')
+  const [typeOfActionFilter, setTypeOfActionFilter] = useState<string>('all')
   const [deadlineYearFilter, setDeadlineYearFilter] = useState<string>('all')
   const [actionableOnly, setActionableOnly] = useState(true)
   const [page, setPage] = useState(1)
@@ -341,6 +343,18 @@ const Discovery = () => {
      Años de deadline únicos (para el dropdown)
      ---------------------------------------------------------- */
 
+  /* ----------------------------------------------------------
+     Type of Action únicos (para el dropdown)
+     ---------------------------------------------------------- */
+
+  const uniqueTypesOfAction = useMemo(() => {
+    const set = new Set<string>()
+    calls.forEach(c => {
+      if (c.typeOfAction && c.typeOfAction.trim()) set.add(c.typeOfAction.trim())
+    })
+    return Array.from(set).sort()
+  }, [calls])
+
   const uniqueDeadlineYears = useMemo(() => {
     const set = new Set<number>()
     calls.forEach(c => {
@@ -400,6 +414,7 @@ const Discovery = () => {
 
     if (sourceFilter !== 'all') filtered = filtered.filter(c => c.source === sourceFilter)
     if (programFilter !== 'all') filtered = filtered.filter(c => c.program === programFilter)
+    if (typeOfActionFilter !== 'all') filtered = filtered.filter(c => c.typeOfAction === typeOfActionFilter)
     if (deadlineYearFilter !== 'all') {
       const targetYear = Number(deadlineYearFilter)
       filtered = filtered.filter(c => {
@@ -419,7 +434,7 @@ const Discovery = () => {
     }
 
     return filtered
-  }, [calls, view, actionableOnly, sourceFilter, programFilter, deadlineYearFilter, search])
+  }, [calls, view, actionableOnly, sourceFilter, programFilter, typeOfActionFilter, deadlineYearFilter, search])
 
   const totalCount = filteredCalls.length
   const actionableCount = filteredCalls.filter(c => c.actionable).length
@@ -689,6 +704,16 @@ const Discovery = () => {
         </select>
 
         <select
+          value={typeOfActionFilter}
+          onChange={(e) => setTypeOfActionFilter(e.target.value)}
+          className="filter-btn"
+          title="Filter by type of action (RIA, IA, CSA, Cascade…)"
+        >
+          <option value="all">All Action Types</option>
+          {uniqueTypesOfAction.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+
+        <select
           value={deadlineYearFilter}
           onChange={(e) => setDeadlineYearFilter(e.target.value)}
           className="filter-btn"
@@ -735,6 +760,7 @@ const Discovery = () => {
               </th>
               <th>Call</th>
               <th>Program</th>
+              <th>Type of Action</th>
               <th>Deadline</th>
               <th>Status</th>
               <th style={{ width: 90, textAlign: 'right' }}>Actions</th>
@@ -742,7 +768,7 @@ const Discovery = () => {
           </thead>
           <tbody>
             {pageCalls.length === 0 ? (
-              <tr><td colSpan={6} className="empty-row">No calls found. Try syncing a source to fetch fresh opportunities.</td></tr>
+              <tr><td colSpan={7} className="empty-row">No calls found. Try syncing a source to fetch fresh opportunities.</td></tr>
             ) : pageCalls.map(call => {
               const dDays = daysUntil(call.closeDate)
               return (
@@ -775,6 +801,7 @@ const Discovery = () => {
                     </div>
                   </td>
                   <td className="disc-program">{call.program || '—'}</td>
+                  <td className="disc-type-action">{call.typeOfAction || '—'}</td>
                   <td>
                     <div className="disc-deadline">
                       <span>{formatDate(call.closeDate)}</span>
