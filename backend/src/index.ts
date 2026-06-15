@@ -767,12 +767,12 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
       query: {
         bool: {
           must: [
-            // type 1=Topic, 2=Call. EXCLUIMOS type=8 (cascade/FSTP/competitive calls
-            // publicados por proyectos financiados). type=8 contamina con entidades que
-            // comparten identifier con su topic padre pero sin budgetOverview/latestInfos,
-            // saltándose nuestros filtros de cierre. Si en el futuro quieres FSTP, hacemos
-            // un source aparte con su propia normalización.
-            { terms: { type: ['1', '2'] } },
+            // type 1=Topic, 2=Call, 8=Cascade/FSTP/competitive calls.
+            // Incluimos los 3 porque las cascade (type=8) son oportunidades reales
+            // (ej. "Third Call for Pilots"). El bug histórico de "DIGITAL-2023 zombie"
+            // se resuelve con la dedup mejorada: type=8 dedupa por REFERENCE (único
+            // por cascade), type=1/2 por identifier (de topic). Así no colisionan.
+            { terms: { type: ['1', '2', '8'] } },
             { terms: { status: ['31094501', '31094502'] } }, // Forthcoming + Open
           ],
         },
@@ -859,30 +859,47 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
 
   console.log(`   📦 EU portal raw count: ${results.length}`)
 
-  // Deduplicación por topic identifier — sin filtro de idioma, SEDIA devuelve
-  // la misma call repetida en varios idiomas (en, fr, de, etc.). Preferimos en si está.
+  // Deduplicación con clave compuesta type+ID:
+  // - type=1/2 (topic/call): clave = "1::identifier" o "2::identifier"
+  //   Misma identifier en distintos idiomas → 1 entry (preferimos EN).
+  // - type=8 (cascade/FSTP): clave = "8::REFERENCE" (cada cascade es único)
+  //   Mismo identifier pueden compartir varios cascades distintos sin colisionar.
+  // - Otro caso raro: fallback a "type::identifier"
+  // Resultado: type=1 y type=8 con misma identifier NO colisionan, ambos llegan al filtro
+  // de status; el closed se descarta y el cascade open se conserva.
   {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const byId = new Map<string, any>()
     for (const r of results) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const meta = (r as any).metadata || {}
-      const id = pickFirst(meta.identifier) || pickFirst(meta.callIdentifier) || pickFirst(meta.callccm2Id) || (r as { reference?: string }).reference || ''
-      if (!id) continue
-      const lang = pickFirst(meta.language).toLowerCase()
-      const existing = byId.get(id)
-      if (!existing) {
-        byId.set(id, r)
+      const type = pickFirst(meta.type)
+      const identifier = pickFirst(meta.identifier) || pickFirst(meta.callIdentifier) || pickFirst(meta.callccm2Id)
+      const reference = (r as { reference?: string }).reference || pickFirst(meta.REFERENCE)
+
+      let key = ''
+      if (type === '8') {
+        key = `8::${reference || identifier || ''}`
+      } else if (type) {
+        key = `${type}::${identifier || reference || ''}`
       } else {
-        // Si la actual es 'en' y la guardada no, sustituimos (preferimos inglés)
+        key = identifier || reference || ''
+      }
+      if (!key || key.endsWith('::')) continue
+
+      const lang = pickFirst(meta.language).toLowerCase()
+      const existing = byId.get(key)
+      if (!existing) {
+        byId.set(key, r)
+      } else {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const existingLang = pickFirst((existing as any).metadata?.language).toLowerCase()
-        if (lang === 'en' && existingLang !== 'en') byId.set(id, r)
+        if (lang === 'en' && existingLang !== 'en') byId.set(key, r)
       }
     }
     const dedupCount = results.length - byId.size
     results = Array.from(byId.values())
-    console.log(`   🧹 Deduplicated by topic ID: ${results.length} unique (removed ${dedupCount} duplicates)`)
+    console.log(`   🧹 Deduplicated by (type, ID): ${results.length} unique (removed ${dedupCount} duplicates)`)
   }
 
   // 🔍 Debug: imprime el PRIMER resultado entero para diagnóstico
@@ -915,40 +932,23 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
   //   status[0] === "31094503" → Closed
   //   sortStatus[0] === "1"/"2" → Forthcoming/Open
   //   sortStatus[0] === "3" → Closed
+  // FILTRO SIMPLIFICADO (decisión del usuario): solo por fecha de cierre.
+  //  · Si la call tiene closingDate (cascade type=8) → usar ese
+  //  · Si tiene deadlineDate (topic type=1/2) → usar la más tardía del array
+  //  · Si la fecha resultante está pasada (más de 1 día) → fuera
+  //  · Si no hay fecha → mantener (probablemente Forthcoming sin fecha asignada aún)
+  // Confiamos en la fecha como verdad. Ignoramos status, latestInfos, budgetOverview cross-checks.
   const filtered = results.filter(r => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const meta = (r as any).metadata || {}
-    const statusCode = pickFirst(meta.status)
-    const sortStatus = pickFirst(meta.sortStatus)
-
-    // Descarte por status explícito
-    if (statusCode === '31094503' || sortStatus === '3') return false
-
-    // Defensa CRÍTICA: SEDIA SEARCH a veces tiene metadata.status desincronizada.
-    // Si latestInfos dice "has closed on the…" o "evaluation finalised", es que está
-    // cerrada aunque el status diga otra cosa.
-    if (isStaleClosedByLatestInfos(meta.latestInfos)) return false
-
-    // Verificación con deadlines REALES desde budgetOverview (no metadata.deadlineDate
-    // que está sucio). Si TODAS las deadlines reales pasaron → cerrada.
-    const identifier = pickFirst(meta.identifier) || pickFirst(meta.callIdentifier) || ''
-    const realDeadlines = extractRealDeadlinesFromBudget(pickFirst(meta.budgetOverview), identifier)
-    if (realDeadlines.length > 0 && allDatesInPast(realDeadlines, 1)) return false
-
-    // Fallback al campo metadata.deadlineDate (puede tener 2028 incorrecto pero al menos
-    // sirve si budgetOverview no tiene datos)
-    if (realDeadlines.length === 0 && allDatesInPast(meta.deadlineDate, 1)) return false
-
-    if (statusCode === '31094501' || statusCode === '31094502') return true
-    if (sortStatus === '1' || sortStatus === '2') return true
-
-    // Sin status reconocible → fallback por la última deadline en futuro
-    const deadline = pickLatestDate(meta.deadlineDate)
-    if (deadline) {
-      const t = new Date(deadline).getTime()
-      if (!Number.isNaN(t) && t > Date.now()) return true
-    }
-    return false
+    // Coge la última fecha del campo correcto según qué exista
+    const closingDate = pickLatestDate(meta.closingDate)
+    const deadlineDate = pickLatestDate(meta.deadlineDate)
+    const effective = closingDate || deadlineDate
+    if (!effective) return true // Sin fecha → conservamos (puede ser forthcoming)
+    const t = new Date(effective).getTime()
+    if (Number.isNaN(t)) return true
+    return t >= Date.now() - 86400000 // gracia 1 día por UTC
   })
 
   console.log(`   📦 EU portal after status filter: ${filtered.length} (was ${results.length})`)
@@ -1297,10 +1297,23 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
     const callId = pickFirst(meta.callIdentifier) || ''
     if (!identifier && !callId) return null
 
-    const externalId = identifier || callId
+    const type = pickFirst(meta.type)
+    const isCascade = type === '8'
+
+    // externalId: para topics (type 1/2) usamos identifier — único por topic.
+    // Para cascade (type 8), DISTINTAS cascade comparten identifier (el del topic padre),
+    // así que usamos REFERENCE que sí es único por cada cascade.
+    const reference = raw.reference || pickFirst(meta.REFERENCE) || ''
+    const externalId = isCascade
+      ? (reference || `${identifier}::cascade`)
+      : (identifier || callId)
 
     // Título (campo verificado: metadata.title)
-    const title = pickFirst(meta.title) || pickFirst(meta.callTitle) || raw.title || externalId
+    // Para cascades, callTitle/caName suelen tener el nombre del proyecto financiador.
+    const rawTitle = pickFirst(meta.title) || pickFirst(meta.callTitle) || raw.title || ''
+    const title = isCascade
+      ? (rawTitle ? `[Cascade] ${rawTitle}` : `[Cascade] ${identifier}`)
+      : (rawTitle || externalId)
 
     // ─────────────────────────────────────────────
     // Programa — Triple estrategia (verificada con API real):
@@ -1344,13 +1357,9 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
       statusCode === '31094502' || sortStatus === '2' ? 'open' :
       statusCode === '31094503' || sortStatus === '3' ? 'closed' : 'unknown'
 
-    // Fechas — fuente primaria: budgetOverview (coincide con detail API y portal real).
-    // metadata.deadlineDate de SEDIA SEARCH a veces trae fechas inventadas (2028 cuando
-    // la deadline real fue 2024). Solo se usa como fallback si budgetOverview no tiene.
-    const realDeadlines = extractRealDeadlinesFromBudget(pickFirst(meta.budgetOverview), identifier)
-    const deadlineRaw = realDeadlines.length > 0
-      ? pickLatestDate(realDeadlines)
-      : pickLatestDate(meta.deadlineDate)
+    // Fechas — closingDate primero (cascade), deadlineDate después (topics).
+    // Cogemos la fecha más tardía del array (multi-cut-off → último cut-off).
+    const deadlineRaw = pickLatestDate(meta.closingDate) || pickLatestDate(meta.deadlineDate)
     const openRaw = pickFirst(meta.startDate) || pickFirst(meta.plannedOpeningDate)
 
     // Budget — extracción precisa desde budgetOverview (JSON string complejo).
