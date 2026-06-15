@@ -767,7 +767,12 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
       query: {
         bool: {
           must: [
-            { terms: { type: ['1', '2', '8'] } },           // Grants only
+            // type 1=Topic, 2=Call. EXCLUIMOS type=8 (cascade/FSTP/competitive calls
+            // publicados por proyectos financiados). type=8 contamina con entidades que
+            // comparten identifier con su topic padre pero sin budgetOverview/latestInfos,
+            // saltándose nuestros filtros de cierre. Si en el futuro quieres FSTP, hacemos
+            // un source aparte con su propia normalización.
+            { terms: { type: ['1', '2'] } },
             { terms: { status: ['31094501', '31094502'] } }, // Forthcoming + Open
           ],
         },
@@ -784,7 +789,7 @@ async function fetchEUCalls(): Promise<NormalizedCall[]> {
       query: {
         bool: {
           must: [
-            { terms: { type: ['1', '2', '8'] } },
+            { terms: { type: ['1', '2'] } },
           ],
         },
       },
