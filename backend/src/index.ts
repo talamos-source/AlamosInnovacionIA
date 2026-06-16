@@ -1452,26 +1452,56 @@ async function fetchBDNSDetail(numConv: string | number): Promise<any | null> {
 }
 
 async function fetchBDNSCalls(): Promise<NormalizedCall[]> {
-  // Paso 1: Search — lista de IDs. Rango amplio: 60 días pasado + 1 año futuro.
+  // Paso 1: Search PAGINADO + filtro a nivel1 estatal/autonómico.
+  // BDNS publica 200-500 calls cada día (la mayoría LOCAL municipales irrelevantes
+  // para I+D+i). Para no perdernos CDTI/ministerios/comunidades que llegan en página 2-5,
+  // paginamos hasta MAX_SEARCH_PAGES, y descartamos LOCAL ya en search (solo 10 campos
+  // por call, no toca detail).
+  const MAX_SEARCH_PAGES = 15      // 15 × 200 = 3000 calls como máximo
+  const RELEVANT_NIVELES = new Set(['ESTADO', 'AUTONOMICA', 'AUTONOMICO'])
+
   const fechaDesde = formatBDNSDate(new Date(Date.now() - 60 * 86400000))
   const fechaHasta = formatBDNSDate(new Date(Date.now() + 365 * 86400000))
-  const searchUrl = `${BDNS_SEARCH_BASE}?vpd=GE&fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}&pageSize=200&page=0`
 
-  console.log(`📡 BDNS search: ${searchUrl}`)
-  const searchResp = await fetch(searchUrl, {
-    headers: { Accept: 'application/json', 'User-Agent': 'AlamosInnovacionCRM/1.0' },
-  })
-  if (!searchResp.ok) {
-    throw new Error(`BDNS search failed with HTTP ${searchResp.status}`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const allRelevantSearchItems: Array<{ numeroConvocatoria?: string | number; nivel1?: string }> = []
+  let totalScanned = 0
+  let totalElements: number | undefined
+
+  for (let page = 0; page < MAX_SEARCH_PAGES; page++) {
+    const searchUrl = `${BDNS_SEARCH_BASE}?vpd=GE&fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}&pageSize=200&page=${page}`
+    if (page === 0) console.log(`📡 BDNS search (paginated): ${searchUrl}`)
+    else console.log(`   ↳ page ${page}`)
+
+    const resp = await fetch(searchUrl, {
+      headers: { Accept: 'application/json', 'User-Agent': 'AlamosInnovacionCRM/1.0' },
+    })
+    if (!resp.ok) {
+      if (page === 0) throw new Error(`BDNS search failed with HTTP ${resp.status}`)
+      console.warn(`   page ${page} failed: ${resp.status}, stopping`)
+      break
+    }
+    const data = await resp.json() as { content?: unknown[]; totalElements?: number; last?: boolean }
+    const pageItems = (data.content || []) as Array<{ numeroConvocatoria?: string | number; nivel1?: string }>
+    if (totalElements === undefined) totalElements = data.totalElements
+    totalScanned += pageItems.length
+
+    // Filtra al nivel — descarta LOCAL que es el ruido (subvenciones municipales)
+    const relevantInPage = pageItems.filter(it => {
+      const n1 = String(it.nivel1 || '').toUpperCase().trim()
+      return RELEVANT_NIVELES.has(n1)
+    })
+    allRelevantSearchItems.push(...relevantInPage)
+
+    if (data.last || pageItems.length < 200) break // última página o resultado parcial
   }
-  const searchData = await searchResp.json() as { content?: unknown[]; totalElements?: number }
-  const items = (searchData.content || []) as Array<{ numeroConvocatoria?: string | number }>
-  console.log(`   ✓ BDNS search returned ${items.length} convocatorias (total in range: ${searchData.totalElements || '?'})`)
 
-  if (items.length === 0) return []
+  console.log(`   ✓ BDNS search: scanned ${totalScanned} of ${totalElements || '?'} total, ${allRelevantSearchItems.length} are ESTADO/AUTONOMICO`)
+
+  if (allRelevantSearchItems.length === 0) return []
 
   // Paso 2: Detail por cada uno, en batches paralelos
-  const numConvs = items
+  const numConvs = allRelevantSearchItems
     .map(it => it.numeroConvocatoria)
     .filter((n): n is string | number => n !== undefined && n !== null)
 
