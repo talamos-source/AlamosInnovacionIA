@@ -1593,7 +1593,9 @@ function normalizeBDNSCall(raw: any): NormalizedCall | null {
       description: undefined,
       geographicScope: 'National',
       aidType: 'Grant',
-      actionable: isActionable(title, fundingBody + ' ' + program + ' ' + (typeOfAction || '')),
+      // Antes filtrábamos por keywords I+D+i, pero perdíamos demasiadas. Marcamos todas
+      // como actionable (igual que las EU); el usuario decide en la UI con los filtros.
+      actionable: true,
       region,
     }
   } catch (err) {
@@ -1633,7 +1635,7 @@ app.post('/discovery/sync', requireAuth, async (req, res) => {
         allCalls.push(...calls)
       } else if (s === 'BDNS') {
         const calls = await fetchBDNSCalls()
-        console.log(`   → BDNS returned ${calls.length} calls (${calls.filter(c => c.actionable).length} actionable)`)
+        console.log(`   → BDNS returned ${calls.length} calls`)
         allCalls.push(...calls)
       }
     } catch (err) {
