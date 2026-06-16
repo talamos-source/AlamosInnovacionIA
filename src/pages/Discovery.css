@@ -343,6 +343,19 @@
   max-width: 200px;
 }
 
+.disc-region {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  max-width: 160px;
+}
+
+.disc-budget {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
 .disc-deadline {
   display: flex;
   flex-direction: column;

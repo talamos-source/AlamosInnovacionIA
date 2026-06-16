@@ -612,6 +612,7 @@ interface NormalizedCall {
   geographicScope?: 'European' | 'National' | 'Regional' | 'International'
   aidType?: 'Grant' | 'Loan' | 'Mixed' | 'Tax Credit'
   actionable: boolean
+  region?: string
 }
 
 /* ----------------------------------------------------------
@@ -1422,57 +1423,83 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
    BDNS — Spanish Subvenciones API
    ---------------------------------------------------------- */
 
+/**
+ * BDNS estrategia 2-pasos:
+ *   1) Search endpoint /api/convocatorias/busqueda → lista de numeroConvocatoria (mínima info)
+ *   2) Para cada numeroConvocatoria → detail endpoint con campos completos
+ *      (organo, instrumentos, presupuestoTotal, regiones, fechas Inicio/FinSolicitud)
+ *
+ * Tras el detail, filtramos por fechaFinSolicitud >= hoy.
+ * Los detail se piden en paralelo en batches para no saturar el servidor.
+ */
+
+const BDNS_SEARCH_BASE = 'https://www.pap.hacienda.gob.es/bdnstrans/api/convocatorias/busqueda'
+const BDNS_DETAIL_BASE = 'https://www.pap.hacienda.gob.es/bdnstrans/api/convocatorias'
+const BDNS_DETAIL_CONCURRENCY = 10 // detail requests en paralelo
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchBDNSDetail(numConv: string | number): Promise<any | null> {
+  const url = `${BDNS_DETAIL_BASE}?vpd=GE&numConv=${numConv}`
+  try {
+    const r = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'AlamosInnovacionCRM/1.0' },
+    })
+    if (!r.ok) return null
+    return await r.json()
+  } catch {
+    return null
+  }
+}
+
 async function fetchBDNSCalls(): Promise<NormalizedCall[]> {
-  // BDNS tiene varios endpoints públicos. Probamos en orden hasta que uno funcione.
-  // Sin auth, JSON. Páginamos hasta los últimos 60 días.
+  // Paso 1: Search — lista de IDs. Rango amplio: 60 días pasado + 1 año futuro.
   const fechaDesde = formatBDNSDate(new Date(Date.now() - 60 * 86400000))
   const fechaHasta = formatBDNSDate(new Date(Date.now() + 365 * 86400000))
+  const searchUrl = `${BDNS_SEARCH_BASE}?vpd=GE&fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}&pageSize=200&page=0`
 
-  // Endpoints en orden de preferencia. Si uno falla por 404 o cambio de schema, prueba el siguiente.
-  const candidateUrls = [
-    `https://www.infosubvenciones.es/bdnstrans/api/convocatorias?vpd=GE&fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}&pageSize=200&page=0`,
-    `https://www.pap.hacienda.gob.es/bdnstrans/api/convocatorias?vpd=GE&fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}&pageSize=200&page=0`,
-    `https://www.pap.hacienda.gob.es/bdnstrans/api/convocatorias/busqueda?vpd=GE&fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}&pageSize=200&page=0`,
-  ]
-
-  let lastError = ''
-  for (const url of candidateUrls) {
-    try {
-      console.log(`Trying BDNS endpoint: ${url}`)
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'AlamosInnovacionCRM/1.0',
-        },
-      })
-      if (!response.ok) {
-        lastError = `${response.status} from ${new URL(url).host}`
-        console.warn(`  → ${lastError}`)
-        continue
-      }
-      const text = await response.text()
-      let data: unknown
-      try {
-        data = JSON.parse(text)
-      } catch {
-        lastError = `Non-JSON response from ${new URL(url).host}`
-        console.warn(`  → ${lastError}: ${text.slice(0, 200)}`)
-        continue
-      }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const d = data as any
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const items: any[] = d.content || d.contenido || d.data || d.results || (Array.isArray(d) ? d : [])
-      console.log(`  ✓ BDNS returned ${items.length} items from ${new URL(url).host}`)
-      if (items.length === 0) continue
-      return items.map(it => normalizeBDNSCall(it)).filter(Boolean) as NormalizedCall[]
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : 'fetch error'
-      console.warn(`  → exception: ${lastError}`)
-    }
+  console.log(`📡 BDNS search: ${searchUrl}`)
+  const searchResp = await fetch(searchUrl, {
+    headers: { Accept: 'application/json', 'User-Agent': 'AlamosInnovacionCRM/1.0' },
+  })
+  if (!searchResp.ok) {
+    throw new Error(`BDNS search failed with HTTP ${searchResp.status}`)
   }
-  throw new Error(`BDNS — all endpoints failed. Last error: ${lastError}`)
+  const searchData = await searchResp.json() as { content?: unknown[]; totalElements?: number }
+  const items = (searchData.content || []) as Array<{ numeroConvocatoria?: string | number }>
+  console.log(`   ✓ BDNS search returned ${items.length} convocatorias (total in range: ${searchData.totalElements || '?'})`)
+
+  if (items.length === 0) return []
+
+  // Paso 2: Detail por cada uno, en batches paralelos
+  const numConvs = items
+    .map(it => it.numeroConvocatoria)
+    .filter((n): n is string | number => n !== undefined && n !== null)
+
+  console.log(`   📡 Fetching ${numConvs.length} BDNS details in batches of ${BDNS_DETAIL_CONCURRENCY}…`)
+  const startMs = Date.now()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const details: any[] = []
+  for (let i = 0; i < numConvs.length; i += BDNS_DETAIL_CONCURRENCY) {
+    const batch = numConvs.slice(i, i + BDNS_DETAIL_CONCURRENCY)
+    const batchResults = await Promise.all(batch.map(n => fetchBDNSDetail(n)))
+    details.push(...batchResults.filter(Boolean))
+  }
+  const elapsed = ((Date.now() - startMs) / 1000).toFixed(1)
+  console.log(`   ✓ Retrieved ${details.length}/${numConvs.length} details in ${elapsed}s`)
+
+  // Paso 3: Filtra por fechaFinSolicitud >= hoy (con 1 día de gracia por UTC)
+  const todayMs = Date.now() - 86400000
+  const stillOpen = details.filter(d => {
+    const closeStr = d?.fechaFinSolicitud
+    if (!closeStr) return true // sin fecha → mantenemos (puede ser Forthcoming sin planificar)
+    const t = new Date(String(closeStr)).getTime()
+    if (Number.isNaN(t)) return true
+    return t >= todayMs
+  })
+  console.log(`   📦 BDNS after deadline filter: ${stillOpen.length} (was ${details.length})`)
+
+  // Paso 4: Normaliza
+  return stillOpen.map(d => normalizeBDNSCall(d)).filter(Boolean) as NormalizedCall[]
 }
 
 function formatBDNSDate(d: Date): string {
@@ -1486,91 +1513,88 @@ function formatBDNSDate(d: Date): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeBDNSCall(raw: any): NormalizedCall | null {
   try {
-    const externalId = (
+    // ID externo
+    const externalId = String(
+      raw.codigoBDNS ||
       raw.numeroConvocatoria ||
-      raw.codigoConvocatoria ||
-      raw['codigo-convocatoria'] ||
-      raw.codigo ||
       raw.id ||
       ''
-    ).toString()
+    )
     if (!externalId) return null
 
-    const title = (
-      raw.titulo ||
-      raw.tituloConvocatoria ||
-      raw.descripcion ||
-      raw.objeto ||
-      externalId
-    ).toString()
+    // Título: descripcion es lo más completo
+    const title = String(raw.descripcion || raw.descripcionLeng || externalId)
 
-    const organo = (
-      raw.organo ||
-      raw.organoConcedente ||
-      raw.entidadConcedente ||
-      raw.descripcionOrgano ||
-      raw.administracion ||
-      ''
-    ).toString()
+    // Organo es objeto {nivel1, nivel2, nivel3} → program más específico al menos específico
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const organo = (raw.organo || {}) as { nivel1?: string; nivel2?: string; nivel3?: string }
+    const organoParts = [organo.nivel3, organo.nivel2, organo.nivel1].filter(Boolean)
+    const program = organoParts.length > 0 ? organoParts.join(' · ') : 'Administración Pública'
+    // fundingBody: el más específico (nivel3 es la entidad concedente, ej. "AYUNTAMIENTO DE VIGO")
+    const fundingBody = organo.nivel3 || organo.nivel2 || organo.nivel1 || 'Administración Pública'
 
-    const program = (
-      raw.instrumento ||
-      raw.programa ||
-      raw.tipoConvocatoria ||
-      raw.finalidadConvocatoria ||
-      ''
-    ).toString()
+    // Type of Action: combina instrumentos[] + tipoConvocatoria
+    //   instrumentos: [{descripcion: 'SUBVENCIÓN Y ENTREGA…'}]
+    //   tipoConvocatoria: 'Concesión directa - instrumental'
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const instrumentos: Array<{ descripcion?: string }> = Array.isArray(raw.instrumentos) ? raw.instrumentos : []
+    const instrumentoStr = instrumentos.map(i => i.descripcion).filter(Boolean).join(', ')
+    const tipoConvocatoria = String(raw.tipoConvocatoria || '').trim()
+    const typeOfActionParts: string[] = []
+    if (instrumentoStr) typeOfActionParts.push(instrumentoStr)
+    if (tipoConvocatoria && tipoConvocatoria !== instrumentoStr) typeOfActionParts.push(tipoConvocatoria)
+    const typeOfAction = typeOfActionParts.join(' — ') || undefined
 
-    const fechaFin = (
-      raw.fechaSolicitudFin ||
-      raw.fechaFinSolicitud ||
-      raw.fechaFin ||
-      raw['fecha-fin-solicitud'] ||
-      ''
-    ).toString()
+    // Region: regiones[] como array de {descripcion}
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const regiones: Array<{ descripcion?: string }> = Array.isArray(raw.regiones) ? raw.regiones : []
+    const region = regiones.map(r => r.descripcion).filter(Boolean).join(', ') || undefined
 
-    const fechaInicio = (
-      raw.fechaSolicitudInicio ||
-      raw.fechaInicioSolicitud ||
-      raw.fechaInicio ||
-      raw['fecha-inicio-solicitud'] ||
-      ''
-    ).toString()
+    // Budget: presupuestoTotal es un número (no string)
+    let budget: string | undefined
+    if (typeof raw.presupuestoTotal === 'number' && raw.presupuestoTotal > 0) {
+      budget = formatEuroCompact(raw.presupuestoTotal)
+    } else if (typeof raw.presupuestoTotal === 'string' && raw.presupuestoTotal) {
+      const n = Number(raw.presupuestoTotal)
+      if (!Number.isNaN(n) && n > 0) budget = formatEuroCompact(n)
+    }
 
-    const budget = (
-      raw.presupuestoTotal ||
-      raw.importe ||
-      raw.cuantia ||
-      raw.financiacion ||
-      ''
-    ).toString()
+    // Fechas
+    const fechaInicio = String(raw.fechaInicioSolicitud || '').trim()
+    const fechaFin = String(raw.fechaFinSolicitud || '').trim()
 
-    const callUrl = (
-      raw.urlBaseRegional ||
-      raw.urlConvocatoria ||
-      raw.url ||
-      `https://www.pap.hacienda.gob.es/bdnstrans/GE/es/convocatoria/${externalId}`
-    ).toString()
+    // externalStatus según las fechas (mismo criterio que EU):
+    //   forthcoming = aún no ha empezado el periodo de solicitud
+    //   open        = estamos dentro del periodo
+    //   closed      = ya pasó la fecha fin
+    const now = Date.now()
+    const initMs = fechaInicio ? new Date(fechaInicio).getTime() : NaN
+    const closeMs = fechaFin ? new Date(fechaFin).getTime() : NaN
+    let externalStatus: ExternalStatus = 'unknown'
+    if (!Number.isNaN(closeMs) && closeMs < now - 86400000) externalStatus = 'closed'
+    else if (!Number.isNaN(initMs) && initMs > now) externalStatus = 'forthcoming'
+    else if (!Number.isNaN(closeMs) && closeMs >= now - 86400000) externalStatus = 'open'
 
-    const today = Date.now()
-    const closeMs = fechaFin ? parseSpanishDate(fechaFin).getTime() : NaN
-    const externalStatus: ExternalStatus = !Number.isNaN(closeMs) && closeMs < today ? 'closed' : 'open'
+    // URL portal de BDNS
+    const callUrl = `https://www.pap.hacienda.gob.es/bdnstrans/GE/es/convocatoria/${externalId}`
 
     return {
       externalId,
       source: 'BDNS',
       title,
-      fundingBody: organo || 'Ministerio',
+      fundingBody,
       program,
+      typeOfAction,
       openDate: fechaInicio || undefined,
       closeDate: fechaFin || undefined,
-      budget: budget || undefined,
+      budget,
       externalStatus,
       url: callUrl,
       description: undefined,
       geographicScope: 'National',
       aidType: 'Grant',
-      actionable: isActionable(title, organo + ' ' + program),
+      actionable: isActionable(title, fundingBody + ' ' + program + ' ' + (typeOfAction || '')),
+      region,
     }
   } catch (err) {
     console.error('normalizeBDNSCall failed:', err)

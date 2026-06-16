@@ -30,6 +30,7 @@ export interface DiscoveryCall {
   fundingBody: string
   program: string
   typeOfAction?: string
+  region?: string
   openDate?: string
   closeDate?: string
   budget?: string
@@ -767,6 +768,8 @@ const Discovery = () => {
               <th>Call</th>
               <th>Program</th>
               <th>Type of Action</th>
+              <th>Region</th>
+              <th>Budget</th>
               <th>Deadline</th>
               <th>Status</th>
               <th style={{ width: 90, textAlign: 'right' }}>Actions</th>
@@ -774,7 +777,7 @@ const Discovery = () => {
           </thead>
           <tbody>
             {pageCalls.length === 0 ? (
-              <tr><td colSpan={7} className="empty-row">No calls found. Try syncing a source to fetch fresh opportunities.</td></tr>
+              <tr><td colSpan={9} className="empty-row">No calls found. Try syncing a source to fetch fresh opportunities.</td></tr>
             ) : pageCalls.map(call => {
               const dDays = daysUntil(call.closeDate)
               return (
@@ -808,6 +811,8 @@ const Discovery = () => {
                   </td>
                   <td className="disc-program">{call.program || '—'}</td>
                   <td className="disc-type-action">{call.typeOfAction || '—'}</td>
+                  <td className="disc-region">{call.region || '—'}</td>
+                  <td className="disc-budget">{call.budget || '—'}</td>
                   <td>
                     <div className="disc-deadline">
                       <span>{formatDate(call.closeDate)}</span>
