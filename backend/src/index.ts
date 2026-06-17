@@ -1452,56 +1452,103 @@ async function fetchBDNSDetail(numConv: string | number): Promise<any | null> {
 }
 
 async function fetchBDNSCalls(): Promise<NormalizedCall[]> {
-  // Paso 1: Search PAGINADO + filtro a nivel1 estatal/autonómico.
-  // BDNS publica 200-500 calls cada día (la mayoría LOCAL municipales irrelevantes
-  // para I+D+i). Para no perdernos CDTI/ministerios/comunidades que llegan en página 2-5,
-  // paginamos hasta MAX_SEARCH_PAGES, y descartamos LOCAL ya en search (solo 10 campos
-  // por call, no toca detail).
-  const MAX_SEARCH_PAGES = 15      // 15 × 200 = 3000 calls como máximo
+  // ESTRATEGIA: búsqueda por KEYWORDS I+D+i SIN filtro de fecha.
+  // Por qué: el filtro fechaDesde/fechaHasta del BDNS search excluye calls Forthcoming
+  // (que aún no han abierto periodo de solicitud) — confirmed con CDTI 912587.
+  // Por contrato, BDNS publica MILES de calls/día, pero la mayoría LOCAL irrelevantes.
+  // Mejor enfoque: buscar por keywords específicas de I+D+i, deduplicar, filtrar nivel.
+
   const RELEVANT_NIVELES = new Set(['ESTADO', 'AUTONOMICA', 'AUTONOMICO'])
 
-  const fechaDesde = formatBDNSDate(new Date(Date.now() - 60 * 86400000))
-  const fechaHasta = formatBDNSDate(new Date(Date.now() + 365 * 86400000))
+  // Keywords I+D+i en castellano. Cubren los principales organismos y temáticas.
+  // Si añades una, recuerda revisar duplicados y testear que no infla pages.
+  const SEARCH_KEYWORDS = [
+    // ─── Organismos clave nacionales (ESTADO) ───
+    'CDTI',
+    'AGENCIA ESTATAL DE INVESTIGACIÓN',
+    'MINISTERIO DE CIENCIA',
+    'MINISTERIO DE INDUSTRIA',
+    'MINISTERIO DE CULTURA',
+    'MINISTERIO DE EDUCACIÓN',
+    'MINISTERIO DE TRANSICIÓN ECOLÓGICA',
+    'INDUSTRIA, COMERCIO Y TURISMO',
+    'ISCIII',
+    'Instituto de Salud Carlos III',
+    'IDAE',
+    'ICEX',
+    'ENISA',
+    'EOI',
+    'INCIBE',
+    'RED.es',
+    // ─── Temáticas I+D+i ───
+    'innovación',
+    'investigación',
+    'desarrollo tecnológico',
+    'I+D+i',
+    'modernización',
+    'doctorado',
+    'transferencia tecnológica',
+    'tecnológica',
+    'digitalización',
+    'transformación digital',
+    'industrial',
+    // ─── Temáticas autonómicas / culturales / emprendedoras ───
+    'emprendimiento',
+    'pyme',
+    'cultura',
+    'audiovisual',
+    'patrimonio',
+    'creativa',
+    'internacionalización',
+    'exportación',
+    'sostenibilidad',
+    'circular',
+  ]
+  const MAX_PAGES_PER_KEYWORD = 5 // 5 × 200 = 1000 resultados máx por keyword
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const allRelevantSearchItems: Array<{ numeroConvocatoria?: string | number; nivel1?: string }> = []
-  let totalScanned = 0
-  let totalElements: number | undefined
+  const allRelevantSearchItems = new Map<string | number, { numeroConvocatoria: string | number; nivel1?: string }>()
 
-  for (let page = 0; page < MAX_SEARCH_PAGES; page++) {
-    const searchUrl = `${BDNS_SEARCH_BASE}?vpd=GE&fechaDesde=${fechaDesde}&fechaHasta=${fechaHasta}&pageSize=200&page=${page}`
-    if (page === 0) console.log(`📡 BDNS search (paginated): ${searchUrl}`)
-    else console.log(`   ↳ page ${page}`)
+  for (const keyword of SEARCH_KEYWORDS) {
+    let totalForKeyword = 0
+    for (let page = 0; page < MAX_PAGES_PER_KEYWORD; page++) {
+      const encoded = encodeURIComponent(keyword)
+      const searchUrl = `${BDNS_SEARCH_BASE}?vpd=GE&descripcion=${encoded}&pageSize=200&page=${page}`
 
-    const resp = await fetch(searchUrl, {
-      headers: { Accept: 'application/json', 'User-Agent': 'AlamosInnovacionCRM/1.0' },
-    })
-    if (!resp.ok) {
-      if (page === 0) throw new Error(`BDNS search failed with HTTP ${resp.status}`)
-      console.warn(`   page ${page} failed: ${resp.status}, stopping`)
-      break
+      const resp = await fetch(searchUrl, {
+        headers: { Accept: 'application/json', 'User-Agent': 'AlamosInnovacionCRM/1.0' },
+      })
+      if (!resp.ok) {
+        if (page === 0) console.warn(`   keyword "${keyword}" failed: ${resp.status}`)
+        break
+      }
+      const data = await resp.json() as { content?: unknown[]; totalElements?: number; last?: boolean }
+      const pageItems = (data.content || []) as Array<{ numeroConvocatoria?: string | number; nivel1?: string }>
+      totalForKeyword += pageItems.length
+
+      for (const it of pageItems) {
+        const n1 = String(it.nivel1 || '').toUpperCase().trim()
+        if (!RELEVANT_NIVELES.has(n1)) continue
+        if (it.numeroConvocatoria === undefined || it.numeroConvocatoria === null) continue
+        allRelevantSearchItems.set(it.numeroConvocatoria, {
+          numeroConvocatoria: it.numeroConvocatoria,
+          nivel1: it.nivel1,
+        })
+      }
+
+      if (data.last || pageItems.length < 200) break
     }
-    const data = await resp.json() as { content?: unknown[]; totalElements?: number; last?: boolean }
-    const pageItems = (data.content || []) as Array<{ numeroConvocatoria?: string | number; nivel1?: string }>
-    if (totalElements === undefined) totalElements = data.totalElements
-    totalScanned += pageItems.length
-
-    // Filtra al nivel — descarta LOCAL que es el ruido (subvenciones municipales)
-    const relevantInPage = pageItems.filter(it => {
-      const n1 = String(it.nivel1 || '').toUpperCase().trim()
-      return RELEVANT_NIVELES.has(n1)
-    })
-    allRelevantSearchItems.push(...relevantInPage)
-
-    if (data.last || pageItems.length < 200) break // última página o resultado parcial
+    console.log(`   🔍 keyword "${keyword}" → ${totalForKeyword} matches`)
   }
 
-  console.log(`   ✓ BDNS search: scanned ${totalScanned} of ${totalElements || '?'} total, ${allRelevantSearchItems.length} are ESTADO/AUTONOMICO`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const allRelevantSearchItemsArr = Array.from(allRelevantSearchItems.values()) as Array<{ numeroConvocatoria?: string | number; nivel1?: string }>
+  console.log(`   ✓ BDNS keyword search: ${allRelevantSearchItemsArr.length} unique ESTADO/AUTONOMICO calls`)
 
-  if (allRelevantSearchItems.length === 0) return []
+  if (allRelevantSearchItemsArr.length === 0) return []
 
   // Paso 2: Detail por cada uno, en batches paralelos
-  const numConvs = allRelevantSearchItems
+  const numConvs = allRelevantSearchItemsArr
     .map(it => it.numeroConvocatoria)
     .filter((n): n is string | number => n !== undefined && n !== null)
 
