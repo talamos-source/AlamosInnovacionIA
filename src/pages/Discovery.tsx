@@ -244,6 +244,7 @@ const Discovery = () => {
   const [sourceFilter, setSourceFilter] = useState<'all' | DiscoverySource>('all')
   const [programFilter, setProgramFilter] = useState<string>('all')
   const [typeOfActionFilter, setTypeOfActionFilter] = useState<string>('all')
+  const [regionFilter, setRegionFilter] = useState<string>('all')
   const [deadlineYearFilter, setDeadlineYearFilter] = useState<string>('all')
   const [actionableOnly, setActionableOnly] = useState(true)
   const [page, setPage] = useState(1)
@@ -356,6 +357,18 @@ const Discovery = () => {
     return Array.from(set).sort()
   }, [calls])
 
+  /* ----------------------------------------------------------
+     Regiones únicas (para el dropdown)
+     ---------------------------------------------------------- */
+
+  const uniqueRegions = useMemo(() => {
+    const set = new Set<string>()
+    calls.forEach(c => {
+      if (c.region && c.region.trim()) set.add(c.region.trim())
+    })
+    return Array.from(set).sort()
+  }, [calls])
+
   const uniqueDeadlineYears = useMemo(() => {
     const set = new Set<number>()
     calls.forEach(c => {
@@ -416,6 +429,7 @@ const Discovery = () => {
     if (sourceFilter !== 'all') filtered = filtered.filter(c => c.source === sourceFilter)
     if (programFilter !== 'all') filtered = filtered.filter(c => c.program === programFilter)
     if (typeOfActionFilter !== 'all') filtered = filtered.filter(c => c.typeOfAction === typeOfActionFilter)
+    if (regionFilter !== 'all') filtered = filtered.filter(c => c.region === regionFilter)
     if (deadlineYearFilter !== 'all') {
       const targetYear = Number(deadlineYearFilter)
       filtered = filtered.filter(c => {
@@ -435,7 +449,7 @@ const Discovery = () => {
     }
 
     return filtered
-  }, [calls, view, actionableOnly, sourceFilter, programFilter, typeOfActionFilter, deadlineYearFilter, search])
+  }, [calls, view, actionableOnly, sourceFilter, programFilter, typeOfActionFilter, regionFilter, deadlineYearFilter, search])
 
   const totalCount = filteredCalls.length
   const actionableCount = filteredCalls.filter(c => c.actionable).length
@@ -718,6 +732,16 @@ const Discovery = () => {
         >
           <option value="all">All Action Types</option>
           {uniqueTypesOfAction.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+
+        <select
+          value={regionFilter}
+          onChange={(e) => setRegionFilter(e.target.value)}
+          className="filter-btn"
+          title="Filter by region (only BDNS calls have region)"
+        >
+          <option value="all">All Regions</option>
+          {uniqueRegions.map(r => <option key={r} value={r}>{r}</option>)}
         </select>
 
         <select

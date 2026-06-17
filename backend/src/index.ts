@@ -1487,11 +1487,19 @@ async function fetchBDNSCalls(): Promise<NormalizedCall[]> {
     'MINISTERIO DE ECONOMIA',
   ]
 
+  // Match autonomic level — BDNS puede usar varias formas
+  const AUTONOMIC_LEVEL_PATTERNS = [
+    'AUTONOMICA', 'AUTONOMICO', 'AUTONÓMICA', 'AUTONÓMICO',
+    'COMUNIDAD AUTONOMA', 'COMUNIDAD AUTÓNOMA',
+    'CCAA', 'C.A.', 'AUTONOMIA',
+  ]
   // Devuelve true si esta call entra por nuestro filtro de organos
   const isRelevantOrgano = (nivel1?: string, nivel2?: string): boolean => {
     const n1 = String(nivel1 || '').toUpperCase().trim()
     const n2 = String(nivel2 || '').toUpperCase().trim()
-    if (n1 === 'AUTONOMICA' || n1 === 'AUTONOMICO') return true
+    // Autonomic: cualquier variante
+    if (AUTONOMIC_LEVEL_PATTERNS.some(p => n1 === p || n1.startsWith(p))) return true
+    // Estado: solo los ministerios autorizados
     if (n1 === 'ESTADO') {
       return ALLOWED_MINISTRY_PATTERNS.some(m => n2.includes(m))
     }
