@@ -1587,9 +1587,19 @@ async function fetchBDNSCalls(): Promise<NormalizedCall[]> {
   const elapsed = ((Date.now() - startMs) / 1000).toFixed(1)
   console.log(`   ✓ Retrieved ${details.length}/${numConvs.length} details in ${elapsed}s`)
 
-  // Paso 3: Filtra por fechaFinSolicitud >= hoy (con 1 día de gracia por UTC)
+  // Paso 3a: Filtra por tipoConvocatoria — descartamos Concesión directa
+  // (son nominativas con beneficiario predeterminado, no son competitivas, no aplican).
+  const beforeTipoFilter = details.length
+  const competitiveDetails = details.filter(d => {
+    const tipo = String(d?.tipoConvocatoria || '').toUpperCase()
+    if (tipo.includes('CONCESIÓN DIRECTA') || tipo.includes('CONCESION DIRECTA')) return false
+    return true
+  })
+  console.log(`   📦 BDNS after tipoConvocatoria filter (excluded Concesión directa): ${competitiveDetails.length} (was ${beforeTipoFilter})`)
+
+  // Paso 3b: Filtra por fechaFinSolicitud >= hoy (con 1 día de gracia por UTC)
   const todayMs = Date.now() - 86400000
-  const stillOpen = details.filter(d => {
+  const stillOpen = competitiveDetails.filter(d => {
     const closeStr = d?.fechaFinSolicitud
     if (!closeStr) return true // sin fecha → mantenemos (puede ser Forthcoming sin planificar)
     const t = new Date(String(closeStr)).getTime()
