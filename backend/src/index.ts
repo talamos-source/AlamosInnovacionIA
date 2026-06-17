@@ -1435,18 +1435,24 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
 
 const BDNS_SEARCH_BASE = 'https://www.pap.hacienda.gob.es/bdnstrans/api/convocatorias/busqueda'
 const BDNS_DETAIL_BASE = 'https://www.pap.hacienda.gob.es/bdnstrans/api/convocatorias'
-const BDNS_DETAIL_CONCURRENCY = 10 // detail requests en paralelo
+const BDNS_DETAIL_CONCURRENCY = 30 // detail requests en paralelo
+const BDNS_DETAIL_TIMEOUT_MS = 5000 // si un detail tarda > 5s, lo descartamos
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchBDNSDetail(numConv: string | number): Promise<any | null> {
   const url = `${BDNS_DETAIL_BASE}?vpd=GE&numConv=${numConv}`
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), BDNS_DETAIL_TIMEOUT_MS)
   try {
     const r = await fetch(url, {
       headers: { Accept: 'application/json', 'User-Agent': 'AlamosInnovacionCRM/1.0' },
+      signal: controller.signal,
     })
+    clearTimeout(timer)
     if (!r.ok) return null
     return await r.json()
   } catch {
+    clearTimeout(timer)
     return null
   }
 }
@@ -1462,7 +1468,9 @@ async function fetchBDNSCalls(): Promise<NormalizedCall[]> {
   // páginas son las más recientes. 50 pages × 200 = 10.000 calls cubre ~6 semanas de
   // BDNS activity, más que suficiente para captar Forthcoming + Open recientes.
 
-  const MAX_SEARCH_PAGES = 50
+  // 20 pages × 200 = 4000 calls scanned. Render HTTP timeout ~60s, así que limitamos.
+  // CDTI 912587 (numConv ~912587, top numConv ~913524) está en página 5-7, dentro del rango.
+  const MAX_SEARCH_PAGES = 20
 
   // Patrones de match para nivel2 = ministerios relevantes. Substring match
   // (case-insensitive) para tolerar variaciones del nombre completo.
@@ -1495,39 +1503,50 @@ async function fetchBDNSCalls(): Promise<NormalizedCall[]> {
   let totalScanned = 0
   let totalElements: number | undefined
 
-  console.log(`📡 BDNS search (no date filter, paginating top ${MAX_SEARCH_PAGES} pages)…`)
-  for (let page = 0; page < MAX_SEARCH_PAGES; page++) {
-    const searchUrl = `${BDNS_SEARCH_BASE}?vpd=GE&pageSize=200&page=${page}`
+  console.log(`📡 BDNS search (no date filter, paginating top ${MAX_SEARCH_PAGES} pages in parallel)…`)
+  const SEARCH_BATCH = 5 // pedimos 5 páginas en paralelo a la vez
+  let stopPaging = false
+  for (let start = 0; start < MAX_SEARCH_PAGES && !stopPaging; start += SEARCH_BATCH) {
+    const pages = Array.from({ length: Math.min(SEARCH_BATCH, MAX_SEARCH_PAGES - start) }, (_, i) => start + i)
+    const responses = await Promise.all(pages.map(async p => {
+      const searchUrl = `${BDNS_SEARCH_BASE}?vpd=GE&pageSize=200&page=${p}`
+      try {
+        const resp = await fetch(searchUrl, {
+          headers: { Accept: 'application/json', 'User-Agent': 'AlamosInnovacionCRM/1.0' },
+        })
+        if (!resp.ok) return { page: p, error: resp.status, data: null }
+        const data = await resp.json() as { content?: unknown[]; totalElements?: number; last?: boolean }
+        return { page: p, error: null, data }
+      } catch (e) {
+        return { page: p, error: e instanceof Error ? e.message : 'unknown', data: null }
+      }
+    }))
 
-    const resp = await fetch(searchUrl, {
-      headers: { Accept: 'application/json', 'User-Agent': 'AlamosInnovacionCRM/1.0' },
-    })
-    if (!resp.ok) {
-      if (page === 0) throw new Error(`BDNS search failed with HTTP ${resp.status}`)
-      console.warn(`   page ${page} failed: ${resp.status}, stopping`)
-      break
-    }
-    const data = await resp.json() as { content?: unknown[]; totalElements?: number; last?: boolean }
-    const pageItems = (data.content || []) as Array<{ numeroConvocatoria?: string | number; nivel1?: string; nivel2?: string }>
-    if (totalElements === undefined) totalElements = data.totalElements
-    totalScanned += pageItems.length
+    for (const r of responses) {
+      if (!r.data) {
+        if (r.page === 0) throw new Error(`BDNS search failed on page 0: ${r.error}`)
+        console.warn(`   page ${r.page} failed: ${r.error}`)
+        continue
+      }
+      const pageItems = (r.data.content || []) as Array<{ numeroConvocatoria?: string | number; nivel1?: string; nivel2?: string }>
+      if (totalElements === undefined) totalElements = r.data.totalElements
+      totalScanned += pageItems.length
 
-    let relevantInPage = 0
-    for (const it of pageItems) {
-      if (!isRelevantOrgano(it.nivel1, it.nivel2)) continue
-      if (it.numeroConvocatoria === undefined || it.numeroConvocatoria === null) continue
-      allRelevantSearchItems.set(it.numeroConvocatoria, {
-        numeroConvocatoria: it.numeroConvocatoria,
-        nivel1: it.nivel1,
-        nivel2: it.nivel2,
-      })
-      relevantInPage++
-    }
+      let relevantInPage = 0
+      for (const it of pageItems) {
+        if (!isRelevantOrgano(it.nivel1, it.nivel2)) continue
+        if (it.numeroConvocatoria === undefined || it.numeroConvocatoria === null) continue
+        allRelevantSearchItems.set(it.numeroConvocatoria, {
+          numeroConvocatoria: it.numeroConvocatoria,
+          nivel1: it.nivel1,
+          nivel2: it.nivel2,
+        })
+        relevantInPage++
+      }
+      console.log(`   ↳ page ${r.page}: ${pageItems.length} items, ${relevantInPage} relevant`)
 
-    if (page % 5 === 0 || relevantInPage > 0) {
-      console.log(`   ↳ page ${page}: ${pageItems.length} items, ${relevantInPage} relevant (acc total relevant: ${allRelevantSearchItems.size})`)
+      if (r.data.last || pageItems.length < 200) stopPaging = true
     }
-    if (data.last || pageItems.length < 200) break
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
