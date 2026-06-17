@@ -1452,98 +1452,87 @@ async function fetchBDNSDetail(numConv: string | number): Promise<any | null> {
 }
 
 async function fetchBDNSCalls(): Promise<NormalizedCall[]> {
-  // ESTRATEGIA: búsqueda por KEYWORDS I+D+i SIN filtro de fecha.
-  // Por qué: el filtro fechaDesde/fechaHasta del BDNS search excluye calls Forthcoming
-  // (que aún no han abierto periodo de solicitud) — confirmed con CDTI 912587.
-  // Por contrato, BDNS publica MILES de calls/día, pero la mayoría LOCAL irrelevantes.
-  // Mejor enfoque: buscar por keywords específicas de I+D+i, deduplicar, filtrar nivel.
+  // ESTRATEGIA: paginar el search SIN filtro de fecha (porque excluye Forthcoming)
+  // y filtrar al organo:
+  //   - nivel1 = AUTONOMICA → todos (todas las CCAA)
+  //   - nivel1 = ESTADO → solo si nivel2 está en lista cerrada de ministerios
+  //   - resto (LOCAL) → descartado
+  //
+  // BDNS sin filtro fecha devuelve por numeroConvocatoria DESC, así que las primeras
+  // páginas son las más recientes. 50 pages × 200 = 10.000 calls cubre ~6 semanas de
+  // BDNS activity, más que suficiente para captar Forthcoming + Open recientes.
 
-  const RELEVANT_NIVELES = new Set(['ESTADO', 'AUTONOMICA', 'AUTONOMICO'])
+  const MAX_SEARCH_PAGES = 50
 
-  // Keywords I+D+i en castellano. Cubren los principales organismos y temáticas.
-  // Si añades una, recuerda revisar duplicados y testear que no infla pages.
-  const SEARCH_KEYWORDS = [
-    // ─── Organismos clave nacionales (ESTADO) ───
-    'CDTI',
-    'AGENCIA ESTATAL DE INVESTIGACIÓN',
-    'MINISTERIO DE CIENCIA',
-    'MINISTERIO DE INDUSTRIA',
+  // Patrones de match para nivel2 = ministerios relevantes. Substring match
+  // (case-insensitive) para tolerar variaciones del nombre completo.
+  const ALLOWED_MINISTRY_PATTERNS = [
     'MINISTERIO DE CULTURA',
-    'MINISTERIO DE EDUCACIÓN',
-    'MINISTERIO DE TRANSICIÓN ECOLÓGICA',
-    'INDUSTRIA, COMERCIO Y TURISMO',
-    'ISCIII',
-    'Instituto de Salud Carlos III',
-    'IDAE',
-    'ICEX',
-    'ENISA',
-    'EOI',
-    'INCIBE',
-    'RED.es',
-    // ─── Temáticas I+D+i ───
-    'innovación',
-    'investigación',
-    'desarrollo tecnológico',
-    'I+D+i',
-    'modernización',
-    'doctorado',
-    'transferencia tecnológica',
-    'tecnológica',
-    'digitalización',
-    'transformación digital',
-    'industrial',
-    // ─── Temáticas autonómicas / culturales / emprendedoras ───
-    'emprendimiento',
-    'pyme',
-    'cultura',
-    'audiovisual',
-    'patrimonio',
-    'creativa',
-    'internacionalización',
-    'exportación',
-    'sostenibilidad',
-    'circular',
+    'MINISTERIO DE CIENCIA',
+    'MINISTERIO DE ASUNTOS EXTERIORES',
+    'MINISTERIO PARA LA TRANSFORMACIÓN DIGITAL',
+    'MINISTERIO PARA LA TRANSFORMACION DIGITAL', // sin tilde por si BDNS varía
+    'MINISTERIO DE INDUSTRIA',
+    'MINISTERIO DE TRABAJO',
+    'MINISTERIO DE TRANSPORTES',
+    'MINISTERIO DE ECONOMÍA',
+    'MINISTERIO DE ECONOMIA',
   ]
-  const MAX_PAGES_PER_KEYWORD = 5 // 5 × 200 = 1000 resultados máx por keyword
+
+  // Devuelve true si esta call entra por nuestro filtro de organos
+  const isRelevantOrgano = (nivel1?: string, nivel2?: string): boolean => {
+    const n1 = String(nivel1 || '').toUpperCase().trim()
+    const n2 = String(nivel2 || '').toUpperCase().trim()
+    if (n1 === 'AUTONOMICA' || n1 === 'AUTONOMICO') return true
+    if (n1 === 'ESTADO') {
+      return ALLOWED_MINISTRY_PATTERNS.some(m => n2.includes(m))
+    }
+    return false
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const allRelevantSearchItems = new Map<string | number, { numeroConvocatoria: string | number; nivel1?: string }>()
+  const allRelevantSearchItems = new Map<string | number, { numeroConvocatoria: string | number; nivel1?: string; nivel2?: string }>()
+  let totalScanned = 0
+  let totalElements: number | undefined
 
-  for (const keyword of SEARCH_KEYWORDS) {
-    let totalForKeyword = 0
-    for (let page = 0; page < MAX_PAGES_PER_KEYWORD; page++) {
-      const encoded = encodeURIComponent(keyword)
-      const searchUrl = `${BDNS_SEARCH_BASE}?vpd=GE&descripcion=${encoded}&pageSize=200&page=${page}`
+  console.log(`📡 BDNS search (no date filter, paginating top ${MAX_SEARCH_PAGES} pages)…`)
+  for (let page = 0; page < MAX_SEARCH_PAGES; page++) {
+    const searchUrl = `${BDNS_SEARCH_BASE}?vpd=GE&pageSize=200&page=${page}`
 
-      const resp = await fetch(searchUrl, {
-        headers: { Accept: 'application/json', 'User-Agent': 'AlamosInnovacionCRM/1.0' },
-      })
-      if (!resp.ok) {
-        if (page === 0) console.warn(`   keyword "${keyword}" failed: ${resp.status}`)
-        break
-      }
-      const data = await resp.json() as { content?: unknown[]; totalElements?: number; last?: boolean }
-      const pageItems = (data.content || []) as Array<{ numeroConvocatoria?: string | number; nivel1?: string }>
-      totalForKeyword += pageItems.length
-
-      for (const it of pageItems) {
-        const n1 = String(it.nivel1 || '').toUpperCase().trim()
-        if (!RELEVANT_NIVELES.has(n1)) continue
-        if (it.numeroConvocatoria === undefined || it.numeroConvocatoria === null) continue
-        allRelevantSearchItems.set(it.numeroConvocatoria, {
-          numeroConvocatoria: it.numeroConvocatoria,
-          nivel1: it.nivel1,
-        })
-      }
-
-      if (data.last || pageItems.length < 200) break
+    const resp = await fetch(searchUrl, {
+      headers: { Accept: 'application/json', 'User-Agent': 'AlamosInnovacionCRM/1.0' },
+    })
+    if (!resp.ok) {
+      if (page === 0) throw new Error(`BDNS search failed with HTTP ${resp.status}`)
+      console.warn(`   page ${page} failed: ${resp.status}, stopping`)
+      break
     }
-    console.log(`   🔍 keyword "${keyword}" → ${totalForKeyword} matches`)
+    const data = await resp.json() as { content?: unknown[]; totalElements?: number; last?: boolean }
+    const pageItems = (data.content || []) as Array<{ numeroConvocatoria?: string | number; nivel1?: string; nivel2?: string }>
+    if (totalElements === undefined) totalElements = data.totalElements
+    totalScanned += pageItems.length
+
+    let relevantInPage = 0
+    for (const it of pageItems) {
+      if (!isRelevantOrgano(it.nivel1, it.nivel2)) continue
+      if (it.numeroConvocatoria === undefined || it.numeroConvocatoria === null) continue
+      allRelevantSearchItems.set(it.numeroConvocatoria, {
+        numeroConvocatoria: it.numeroConvocatoria,
+        nivel1: it.nivel1,
+        nivel2: it.nivel2,
+      })
+      relevantInPage++
+    }
+
+    if (page % 5 === 0 || relevantInPage > 0) {
+      console.log(`   ↳ page ${page}: ${pageItems.length} items, ${relevantInPage} relevant (acc total relevant: ${allRelevantSearchItems.size})`)
+    }
+    if (data.last || pageItems.length < 200) break
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const allRelevantSearchItemsArr = Array.from(allRelevantSearchItems.values()) as Array<{ numeroConvocatoria?: string | number; nivel1?: string }>
-  console.log(`   ✓ BDNS keyword search: ${allRelevantSearchItemsArr.length} unique ESTADO/AUTONOMICO calls`)
+  console.log(`   ✓ BDNS search: scanned ${totalScanned} of ${totalElements || '?'} total, ${allRelevantSearchItemsArr.length} pass organo filter`)
 
   if (allRelevantSearchItemsArr.length === 0) return []
 
