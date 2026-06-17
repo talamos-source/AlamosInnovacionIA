@@ -1508,58 +1508,65 @@ async function fetchBDNSCalls(): Promise<NormalizedCall[]> {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const allRelevantSearchItems = new Map<string | number, { numeroConvocatoria: string | number; nivel1?: string; nivel2?: string }>()
-  let totalScanned = 0
-  let totalElements: number | undefined
 
-  console.log(`📡 BDNS search (no date filter, paginating top ${MAX_SEARCH_PAGES} pages in parallel)…`)
-  const SEARCH_BATCH = 5 // pedimos 5 páginas en paralelo a la vez
-  let stopPaging = false
-  for (let start = 0; start < MAX_SEARCH_PAGES && !stopPaging; start += SEARCH_BATCH) {
-    const pages = Array.from({ length: Math.min(SEARCH_BATCH, MAX_SEARCH_PAGES - start) }, (_, i) => start + i)
-    const responses = await Promise.all(pages.map(async p => {
-      const searchUrl = `${BDNS_SEARCH_BASE}?vpd=GE&pageSize=200&page=${p}`
-      try {
-        const resp = await fetch(searchUrl, {
-          headers: { Accept: 'application/json', 'User-Agent': 'AlamosInnovacionCRM/1.0' },
-        })
-        if (!resp.ok) return { page: p, error: resp.status, data: null }
-        const data = await resp.json() as { content?: unknown[]; totalElements?: number; last?: boolean }
-        return { page: p, error: null, data }
-      } catch (e) {
-        return { page: p, error: e instanceof Error ? e.message : 'unknown', data: null }
+  // Helper para paginar un endpoint con filtros opcionales
+  const paginatedSearch = async (label: string, queryParams: string, maxPages: number) => {
+    let scanned = 0, relevant = 0
+    let stopPaging = false
+    const SEARCH_BATCH = 5
+    for (let start = 0; start < maxPages && !stopPaging; start += SEARCH_BATCH) {
+      const pages = Array.from({ length: Math.min(SEARCH_BATCH, maxPages - start) }, (_, i) => start + i)
+      const responses = await Promise.all(pages.map(async p => {
+        const url = `${BDNS_SEARCH_BASE}?${queryParams}&pageSize=200&page=${p}`
+        try {
+          const resp = await fetch(url, {
+            headers: { Accept: 'application/json', 'User-Agent': 'AlamosInnovacionCRM/1.0' },
+          })
+          if (!resp.ok) return { page: p, data: null }
+          return { page: p, data: await resp.json() as { content?: unknown[]; last?: boolean } }
+        } catch {
+          return { page: p, data: null }
+        }
+      }))
+      for (const r of responses) {
+        if (!r.data) continue
+        const pageItems = (r.data.content || []) as Array<{ numeroConvocatoria?: string | number; nivel1?: string; nivel2?: string }>
+        scanned += pageItems.length
+        for (const it of pageItems) {
+          if (!isRelevantOrgano(it.nivel1, it.nivel2)) continue
+          if (it.numeroConvocatoria === undefined || it.numeroConvocatoria === null) continue
+          if (!allRelevantSearchItems.has(it.numeroConvocatoria)) relevant++
+          allRelevantSearchItems.set(it.numeroConvocatoria, {
+            numeroConvocatoria: it.numeroConvocatoria,
+            nivel1: it.nivel1,
+            nivel2: it.nivel2,
+          })
+        }
+        if (r.data.last || pageItems.length < 200) stopPaging = true
       }
-    }))
-
-    for (const r of responses) {
-      if (!r.data) {
-        if (r.page === 0) throw new Error(`BDNS search failed on page 0: ${r.error}`)
-        console.warn(`   page ${r.page} failed: ${r.error}`)
-        continue
-      }
-      const pageItems = (r.data.content || []) as Array<{ numeroConvocatoria?: string | number; nivel1?: string; nivel2?: string }>
-      if (totalElements === undefined) totalElements = r.data.totalElements
-      totalScanned += pageItems.length
-
-      let relevantInPage = 0
-      for (const it of pageItems) {
-        if (!isRelevantOrgano(it.nivel1, it.nivel2)) continue
-        if (it.numeroConvocatoria === undefined || it.numeroConvocatoria === null) continue
-        allRelevantSearchItems.set(it.numeroConvocatoria, {
-          numeroConvocatoria: it.numeroConvocatoria,
-          nivel1: it.nivel1,
-          nivel2: it.nivel2,
-        })
-        relevantInPage++
-      }
-      console.log(`   ↳ page ${r.page}: ${pageItems.length} items, ${relevantInPage} relevant`)
-
-      if (r.data.last || pageItems.length < 200) stopPaging = true
     }
+    console.log(`   ↳ [${label}] scanned ${scanned}, ${relevant} new relevant added`)
   }
+
+  console.log(`📡 BDNS search — pagination + text searches in parallel…`)
+  // 4 estrategias en paralelo para cubrir más coverage:
+  //  1) Recent pagination (calls recientes, captura Forthcoming)
+  //  2) Text "CONSEJERÍA" (típica autonómica — Andalucía, Madrid, Galicia, etc.)
+  //  3) Text "MINISTERIO" (estatal — refuerza ministerios)
+  //  4) Text "AGENCIA" (agencias estatales y autonómicas de innovación)
+  await Promise.all([
+    paginatedSearch('recent', 'vpd=GE', MAX_SEARCH_PAGES),
+    paginatedSearch('CONSEJERÍA', `vpd=GE&descripcion=${encodeURIComponent('CONSEJERÍA')}`, 10),
+    paginatedSearch('MINISTERIO', `vpd=GE&descripcion=${encodeURIComponent('MINISTERIO')}`, 5),
+    paginatedSearch('AGENCIA', `vpd=GE&descripcion=${encodeURIComponent('AGENCIA')}`, 5),
+  ])
+
+  const totalScanned = allRelevantSearchItems.size
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const allRelevantSearchItemsArr = Array.from(allRelevantSearchItems.values()) as Array<{ numeroConvocatoria?: string | number; nivel1?: string }>
-  console.log(`   ✓ BDNS search: scanned ${totalScanned} of ${totalElements || '?'} total, ${allRelevantSearchItemsArr.length} pass organo filter`)
+  console.log(`   ✓ BDNS search: ${allRelevantSearchItemsArr.length} unique calls passed organo filter across all strategies`)
+  void totalScanned // suprimir TS unused
 
   if (allRelevantSearchItemsArr.length === 0) return []
 
