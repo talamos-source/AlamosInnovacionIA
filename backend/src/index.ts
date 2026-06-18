@@ -2,6 +2,7 @@
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
+import { getEvergreenAsNormalizedList } from './evergreenCalls.js'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { google } from 'googleapis'
@@ -644,75 +645,15 @@ tech client. A call targeting environment/climate (LIFE) IS relevant if the clie
 sustainability tech, even if "I+D" doesn't appear in the title.
 
 ═══════════════════════════════════════════════════════════════════════
-KNOWN RECURRENT R+D+i PROGRAMMES (consider these even if not in input list)
+EVERGREEN PROGRAMMES IN THE INPUT
 ═══════════════════════════════════════════════════════════════════════
-These programmes either are PERMANENTLY open or open ANNUALLY. The system's
-Discovery feed may not always have them current. When a client profile clearly
-matches one of these, INCLUDE it as a recommendation with an estimated next-call
-month, even if its exact callId is not in the input list. Use a synthetic
-callId following the pattern shown below.
+The input list ALREADY includes 21 EVERGREEN recurrent programmes (CDTI permanents,
+CDTI/AEI annuals, EIC, Eureka, EIT, LIFE, Erasmus+). They have synthetic IDs like
+"CDTI-PID-PERMANENT", "EIC-ACCELERATOR-2026", "EUROSTARS-2026". Their description
+starts with "[Evergreen permanent]" or "[Evergreen annual]" so you can identify them.
 
-SPAIN (CDTI and Min. Ciencia) — National:
-- callId "CDTI-PID-PERMANENT" — Proyectos de I+D (CDTI). Open permanently.
-  TRL 4-9, individual or consortium. €175K-€5M. For tech-development projects
-  generating new product/process. URL: https://www.cdti.es/ayudas/proyectos-de-i-d
-- callId "CDTI-CERVERA-PERMANENT" — Proyectos I+D Cervera (transferencia tecnológica).
-  Open permanently. Requires collaboration with Centro Tecnológico Cervera. €175K-€5M.
-  URL: https://www.cdti.es/ayudas/proyectos-de-id-de-transferencia-tecnologica-cervera-0
-- callId "CDTI-LINEA-DIRECTA-INN-PERMANENT" — Línea Directa de Innovación.
-  Open permanently. TRL 7-9, ya con producto, para industrialización.
-  URL: https://www.cdti.es/ayudas/linea-directa-de-innovacion
-- callId "CDTI-LINEA-DIRECTA-EXPANSION-PERMANENT" — Línea Directa de Expansión.
-  Open permanently. Para escalado de empresas innovadoras.
-  URL: https://www.cdti.es/ayudas/linea-directa-de-expansion
-- callId "CDTI-INFRAESTRUCTURAS-PERMANENT" — Ayudas Infraestructuras Ensayo.
-  Open permanently. URL: https://www.cdti.es/ayudas/linea-de-ayudas-infraestructuras-de-ensayo-y-experimentacion
-- callId "CDTI-NEOTEC-ANNUAL-2026" — NEOTEC (EBT). Annual. Typical call May-June.
-  Up to €325K. TRL 4-7. PYME ≤3 años o spin-off. URL: https://www.cdti.es/ayudas/ayudas-neotec
-- callId "CDTI-MISIONES-ANNUAL-2026" — Misiones de Ciencia e Innovación. Annual.
-  Consortium projects with high tech ambition. €5-10M.
-  URL: https://www.cdti.es/ayudas/misiones-ciencia-e-innovacion
-- callId "CDTI-INNTERCONECTA-STEP-ANNUAL-2026" — Innterconecta STEP. Annual.
-  Consortium R+D regional. URL: https://www.cdti.es/ayudas/innterconecta-step
-- callId "AEI-TORRES-QUEVEDO-ANNUAL-2026" — Torres Quevedo. Annual ~Oct-Nov.
-  Contratación de doctores en empresa por 3 años. ~€55K/año subsidio.
-- callId "AEI-DOCTORADOS-INDUSTRIALES-ANNUAL-2026" — Doctorados Industriales.
-  Annual. Contratación doctorando 4 años.
-- callId "AEI-COLABORACION-PUBLICO-PRIVADA-ANNUAL-2026" — Colaboración Público-Privada.
-  Annual. Consorcio universidad/OPI + empresa.
-
-EU — Recurrent:
-- callId "EIC-ACCELERATOR-2026" — EIC Accelerator. ~2 cutoffs/year.
-  Deep-tech scaleups. Grant €2.5M + equity. TRL 5-9.
-  URL: https://eic.ec.europa.eu/eic-funding-opportunities/eic-accelerator_en
-- callId "EIC-PATHFINDER-2026" — EIC Pathfinder. ~2 cutoffs/year.
-  Early-stage breakthrough research. TRL 1-3. €3-4M consortium.
-  URL: https://eic.ec.europa.eu/eic-funding-opportunities/eic-pathfinder_en
-- callId "EIC-TRANSITION-2026" — EIC Transition. ~2 cutoffs/year.
-  Bridge research-to-market. TRL 3-6. €2.5M.
-  URL: https://eic.ec.europa.eu/eic-funding-opportunities/eic-transition_en
-- callId "EIC-STEP-SCALE-2026" — STEP Scale up. Annual. Strategic tech scaleup.
-  URL: https://eic.ec.europa.eu/eic-funding-opportunities/step-scale_en
-- callId "EUROSTARS-2026" — Eurostars. ~2 cutoffs/year. Consortium PYME from
-  ≥2 Eureka countries. Innovative product market-ready in <3 years. €500K-1.5M.
-  URL: https://www.eurekanetwork.org/programmes-and-calls/eurostars/
-- callId "INNOWWIDE-2026" — Innowwide. Annual. Viability studies for SMEs in
-  international markets. €60K. URL: https://www.eurekanetwork.org/programmes-and-calls/innowwide/
-- callId "EUREKA-CLUSTERS-2026" — Eureka clusters (ITEA, CELTIC-NEXT, Eurogia,
-  Smart Cities). Annual calls per cluster. Sector-specific.
-  URL: https://www.eurekanetwork.org/programmes-and-calls/
-- callId "EIT-ANNUAL-2026" — EIT (Innovation, Climate, Digital, Health,
-  Manufacturing, Food, Urban Mobility). Annual sector-specific calls.
-- callId "LIFE-ANNUAL-2026" — LIFE Programme. Annual. Environment/climate
-  action. €1-10M. URL: https://cinea.ec.europa.eu/programmes/life_en
-- callId "ERASMUS-PLUS-2026" — Erasmus+. Annual. Strategic partnerships,
-  knowledge alliances. URL: https://erasmus-plus.ec.europa.eu/es/funding-calls
-
-When recommending a recurrent programme NOT in the input list:
-- Use the synthetic callId from the list above
-- Mark source as "BDNS" for CDTI/AEI ones, "EU_PORTAL" for EU ones
-- Set recommendedMonth to the expected next call window
-- Add a sentence in 'reasoning' explaining why this recurrent programme fits this client
+Treat them EXACTLY like any other candidate. Score them with the same method. They are
+always available so they tend to score well on "Capacity/timing" dimension.
 
 ═══════════════════════════════════════════════════════════════════════
 DECISION CRITERIA (in order of importance):
@@ -868,15 +809,24 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
     })
   }
 
-  const { customer, context, fundingProfile, calls, timeline } = (req.body || {}) as RoadmapPayload
+  const { customer, context, fundingProfile, calls: rawCalls, timeline } = (req.body || {}) as RoadmapPayload
 
   if (!customer) return res.status(400).json({ error: 'customer payload is required.' })
-  if (!Array.isArray(calls) || calls.length === 0) {
+  if (!Array.isArray(rawCalls) || rawCalls.length === 0) {
     return res.status(400).json({ error: 'calls payload is required and non-empty.' })
   }
   if (![1, 2, 3].includes(timeline)) {
     return res.status(400).json({ error: 'timeline must be 1, 2 or 3 years.' })
   }
+
+  // Inyecta el catálogo evergreen al pool de calls. El agente las tratará como cualquier otra
+  // call, con sus synthetic IDs (CDTI-PID-PERMANENT, EIC-ACCELERATOR-2026, etc.). De-duplicar
+  // si por casualidad el cliente ya envía alguna sintética desde Discovery.
+  const evergreenCalls = getEvergreenAsNormalizedList()
+  const existingIds = new Set(rawCalls.map(c => c.externalId))
+  const evergreenToAdd = evergreenCalls.filter(e => !existingIds.has(e.externalId))
+  const calls = [...rawCalls, ...evergreenToAdd]
+  console.log(`📚 Evergreen catalog injected: ${evergreenToAdd.length} added (of ${evergreenCalls.length} total). Pool: ${calls.length}`)
 
   try {
     // Edad de la empresa — clave para reglas tipo NEOTEC (solo ≤3 años)
@@ -1131,21 +1081,16 @@ Return JSON { "candidateIds": [...] } with 30-60 callIds that plausibly fit this
 
 ⚠️ HARD REQUIREMENT: Return 10-15 recommendations (NOT fewer than 10 unless candidate list literally has <10 plausible options). The consultant filters manually after — your job is to populate the working set generously, NOT to over-filter. Include borderline candidates with fitScore 50-65 rather than excluding them.
 
-🎯 SOURCE BALANCE (CRITICAL): the roadmap MUST include BOTH sources, in healthy proportion.
-   - At least 5-8 from the CANDIDATE list below (REAL open/forthcoming calls with concrete
-     deadlines). These are the actionable opportunities discovered today.
-   - At least 4-6 from the KNOWN RECURRENT R+D+i PROGRAMMES catalog (CDTI permanents like
-     CDTI-PID-PERMANENT, CDTI-CERVERA-PERMANENT, EU recurrents like EIC-ACCELERATOR-2026,
-     EUROSTARS-2026, MISIONES, INNTERCONECTA, etc.). These are predictable, always available,
-     and central to any I+D+i roadmap.
+🎯 SOURCE BALANCE (CRITICAL): the roadmap MUST include BOTH:
+   - At least 5-8 REAL open/forthcoming calls from the candidate list (Discovery — concrete deadlines)
+   - At least 4-6 EVERGREEN calls (recurrent — descriptions start with "[Evergreen ...]")
+   Both are PRE-INCLUDED in the candidate list below. Don't pad with evergreen at the expense
+   of real opens, and don't ignore evergreen either.
 
-Use the candidates' real callIds (e.g. "DIGITAL-2024-INDUSTRY-XX", "BDNS-913456") for Discovery
-calls. Use synthetic IDs (e.g. "CDTI-PID-PERMANENT", "EIC-ACCELERATOR-2026") for evergreen.
-
-For evergreen calls with permanent or annual cadence, recommendedMonth is an estimate of when
+For evergreen calls (cadence permanent or annual), recommendedMonth is an estimate of when
 the consultant should start preparation — the actual deadline is flexible/annual.
 
-Apply ELIGIBILITY RULES strictly. If client has WON NEOTEC, NEVER include any NEOTEC variant (synthetic or real).
+Apply ELIGIBILITY RULES strictly. If client has WON NEOTEC, NEVER recommend NEOTEC.
 Return ONLY the JSON object per the schema. No markdown fences, no surrounding text.
 
 ${pass2FullPrompt}`,
