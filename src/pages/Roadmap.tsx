@@ -866,7 +866,11 @@ const RecommendationCard = ({
       <header className="rm-rec-header">
         <div className="rm-rec-priority">#{rec.priorityOrder}</div>
         <div className="rm-rec-title-wrap">
-          <h3>{rec.title}</h3>
+          <h3>{
+            // Limpia prefijos tipo "[Evergreen permanent]" o "[Evergreen annual]" si llegan
+            // desde un roadmap viejo guardado o si el agente se confunde y los pone en title.
+            (rec.title || '').replace(/^\[Evergreen[^\]]*\]\s*/i, '').trim() || rec.callId
+          }</h3>
           <div className="rm-rec-meta">
             <span className={`rm-source-badge rm-source-badge--${rec.source.toLowerCase()}`}>
               {sourceLabel(rec.source)}

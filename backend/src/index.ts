@@ -649,11 +649,16 @@ EVERGREEN PROGRAMMES IN THE INPUT
 ═══════════════════════════════════════════════════════════════════════
 The input list ALREADY includes 21 EVERGREEN recurrent programmes (CDTI permanents,
 CDTI/AEI annuals, EIC, Eureka, EIT, LIFE, Erasmus+). They have synthetic IDs like
-"CDTI-PID-PERMANENT", "EIC-ACCELERATOR-2026", "EUROSTARS-2026". Their description
-starts with "[Evergreen permanent]" or "[Evergreen annual]" so you can identify them.
+"CDTI-PID-PERMANENT", "EIC-ACCELERATOR-2026", "EUROSTARS-2026". You can identify them
+because their typeOfAction field says "Permanently open (evergreen)" or
+"Recurrent annual/biannual (evergreen)".
 
 Treat them EXACTLY like any other candidate. Score them with the same method. They are
 always available so they tend to score well on "Capacity/timing" dimension.
+
+IMPORTANT — when writing the title of a recommendation, COPY the call's title field
+EXACTLY as-is. Do NOT prepend "[Evergreen ...]" or "[Permanent]" or any other tag.
+The frontend renders the title verbatim.
 
 ═══════════════════════════════════════════════════════════════════════
 DECISION CRITERIA (in order of importance):

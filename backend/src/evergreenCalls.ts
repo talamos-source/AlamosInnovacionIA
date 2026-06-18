@@ -503,10 +503,13 @@ export function evergreenAsNormalized(e: EvergreenCall): {
   rdiReasons?: string[]
 } {
   const budgetText = `€${(e.typicalBudgetEUR.min / 1000).toFixed(0)}K - €${(e.typicalBudgetEUR.max / 1000).toFixed(0)}K`
+  // Cadence info va en typeOfAction (no en description) para que no contamine
+  // el title que el agente extrae para las recomendaciones.
   const typeOfAction = e.cadence === 'permanent'
-    ? 'Permanently open'
-    : `Recurrent ${e.cadence} call${e.typicalOpenWindow ? ` (${e.typicalOpenWindow})` : ''}`
-  const desc = `[Evergreen ${e.cadence}] ${e.description} | TRL ${e.typicalTRL.min}-${e.typicalTRL.max} | Sizes: ${e.eligibility.sizes.join(',')}${e.eligibility.requiresConsortium ? ' | requires consortium' : ''}${e.eligibility.requiresInternational ? ' | requires international partners' : ''}${e.eligibility.onceInLifetime ? ' | ONCE-IN-LIFETIME' : ''}${e.eligibility.maxCompanyAgeYears ? ` | max company age ${e.eligibility.maxCompanyAgeYears}y` : ''} | Tags: ${e.sectorTags.join(', ')}`
+    ? 'Permanently open (evergreen)'
+    : `Recurrent ${e.cadence} (evergreen)${e.typicalOpenWindow ? ` — ${e.typicalOpenWindow}` : ''}`
+  // Description LIMPIO (sin prefijos tipo [Evergreen X]) — solo metadata útil
+  const desc = `${e.description} | TRL ${e.typicalTRL.min}-${e.typicalTRL.max} | Sizes: ${e.eligibility.sizes.join(',')}${e.eligibility.requiresConsortium ? ' | requires consortium' : ''}${e.eligibility.requiresInternational ? ' | requires international partners' : ''}${e.eligibility.onceInLifetime ? ' | ONCE-IN-LIFETIME' : ''}${e.eligibility.maxCompanyAgeYears ? ` | max company age ${e.eligibility.maxCompanyAgeYears}y` : ''} | Tags: ${e.sectorTags.join(', ')}`
 
   return {
     externalId: e.externalId,
