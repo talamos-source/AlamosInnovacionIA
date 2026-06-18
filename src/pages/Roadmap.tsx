@@ -237,7 +237,19 @@ const RoadmapPage = () => {
           customer,
           context: flattenContext(context),
           fundingProfile,
-          calls: idiCalls.slice(0, 250), // cap por tamaño de prompt
+          // Cap para evitar prompts gigantes y Premature close.
+          // Si tienes 300 I+D+i calls, mandamos las primeras 80 ordenadas por rdiScore desc + deadline asc.
+          calls: idiCalls
+            .slice()
+            .sort((a, b) => {
+              const sa = a.rdiScore ?? 0
+              const sb = b.rdiScore ?? 0
+              if (sb !== sa) return sb - sa
+              const da = a.closeDate ? new Date(a.closeDate).getTime() : Infinity
+              const db = b.closeDate ? new Date(b.closeDate).getTime() : Infinity
+              return da - db
+            })
+            .slice(0, 80),
           timeline,
         }),
       })

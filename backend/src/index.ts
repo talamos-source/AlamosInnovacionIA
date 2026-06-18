@@ -758,23 +758,23 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
         ].join('\n')
       : ''
 
-    // Calls section — keep it compact since we may have hundreds
+    // Calls section — COMPACT format. Cada call en una línea para reducir tokens.
+    // Sin descripciones largas — el agente decide por título + organismo + programa.
     const callsLines = [
-      '\n\n=== AVAILABLE FUNDING CALLS (filter for R+D+i, deadline ≥ today) ===',
-      `Total calls below: ${calls.length}`,
+      '\n\n=== AVAILABLE FUNDING CALLS (R+D+i pre-filtered, deadline ≥ today) ===',
+      `Total: ${calls.length}`,
       ...calls.map((c, i) => {
-        return [
-          `[${i + 1}] ID: ${c.externalId} | Source: ${c.source} | Status: ${c.externalStatus}`,
-          `  Title: ${c.title.slice(0, 200)}`,
-          `  Body: ${c.fundingBody || '?'} | Program: ${c.program || '?'}`,
-          c.typeOfAction && `  Action: ${c.typeOfAction}`,
-          c.region && `  Region: ${c.region}`,
-          c.budget && `  Budget: ${c.budget}`,
-          c.closeDate && `  Deadline: ${c.closeDate.split('T')[0]}`,
-          c.openDate && `  Opens: ${c.openDate.split('T')[0]}`,
-          c.rdiScore !== undefined && `  R+D+i score: ${c.rdiScore}`,
-          c.description && `  Description: ${c.description.slice(0, 300)}`,
-        ].filter(Boolean).join('\n')
+        const parts = [
+          `[${i + 1}] ${c.externalId}`,
+          `(${c.source})`,
+          c.title.slice(0, 140),
+          c.program && `· ${c.program}`,
+          c.typeOfAction && `· ${c.typeOfAction.slice(0, 60)}`,
+          c.region && `· ${c.region}`,
+          c.budget && `· ${c.budget}`,
+          c.closeDate && `· closes ${c.closeDate.split('T')[0]}`,
+        ].filter(Boolean)
+        return parts.join(' ')
       }),
     ].join('\n')
 
@@ -784,21 +784,36 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
 
     console.log(`🗺️ Generating roadmap for ${customer.name} | timeline=${timeline}y | ${calls.length} calls input | promptChars=${fullPrompt.length}`)
 
-    const message = await anthropic.messages.create({
-      model: CLAUDE_MODEL,
-      max_tokens: 4000,
-      system: ROADMAP_SYSTEM_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: `Build a strategic R+D+i funding roadmap for this client over the next ${horizonText}.
+    // Retry una vez si Claude da "Premature close" (problema transitorio de red)
+    const callClaude = async () =>
+      anthropic!.messages.create({
+        model: CLAUDE_MODEL,
+        max_tokens: 8000,
+        system: ROADMAP_SYSTEM_PROMPT,
+        messages: [
+          {
+            role: 'user',
+            content: `Build a strategic R+D+i funding roadmap for this client over the next ${horizonText}.
 Select 8-15 best-fitting calls from the input list and distribute them strategically across the timeline.
 Return ONLY the JSON object per the schema.
 
 ${fullPrompt}`,
-        },
-      ],
-    })
+          },
+        ],
+      })
+
+    let message
+    try {
+      message = await callClaude()
+    } catch (e1: any) {
+      const msg = String(e1?.message || '')
+      if (msg.includes('Premature close') || msg.includes('ECONNRESET') || msg.includes('socket hang up')) {
+        console.warn(`Roadmap: first call failed (${msg.slice(0, 100)}), retrying once…`)
+        message = await callClaude()
+      } else {
+        throw e1
+      }
+    }
 
     const firstBlock = message.content[0]
     const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : ''
