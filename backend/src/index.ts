@@ -781,11 +781,14 @@ NOT a blocker. Use them only to (a) calibrate the client's track record (b) avoi
 the EXACT same project twice in overlapping periods.
 
 Rules:
-- Recommend 10-15 calls maximum. The consultant will filter further. Aim higher rather than lower.
+- TARGET: 10-15 recommendations. This is the consultant's working set for manual review.
+  - You MUST return at least 10 if there are 10+ candidates with any plausible fit.
+  - Returning fewer than 10 is only acceptable if literally <10 calls in the input could fit.
+  - Don't be conservative — the consultant filters further manually. Include borderline-fit
+    candidates with lower fitScore (e.g. 50-65) rather than excluding them.
 - callId MUST EXIST in the input list OR be one of the synthetic recurrent IDs from the catalog.
 - Sort recommendations by priorityOrder.
-- recommendedMonth must be within the horizon. Spread them.
-- If no call clearly fits, return fewer recommendations (could be 4-6).
+- recommendedMonth must be within the horizon. Spread them — don't pile all in 3 months.
 - Keep reasoning concise (1-2 sentences), risks concise (1 sentence).
 - Return ONLY the JSON, no surrounding text or markdown. Do NOT wrap in markdown fences.`
 
@@ -909,12 +912,18 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
     // Detección específica de NEOTEC en histórico — única regla de one-shot-lifetime.
     // Otros programas (CDTI PID, Cervera, Línea Directa, etc.) SE PUEDEN volver a solicitar
     // para un proyecto/línea tecnológica distinta. Solo NEOTEC es estricto.
-    const hasWonNeotec = (fundingProfile?.fundingHistory || []).some(h => {
+    // Buscamos en TODOS los campos relevantes del histórico (incl. organism y executionStatus).
+    const neotecPatterns = /\bNEOTEC\b|\bEBT\b|EMPRESAS\s+DE\s+BASE\s+TECNOL[OÓ]GICA|CDTI[\s-]*NEOTEC/i
+    const neotecHits = (fundingProfile?.fundingHistory || []).filter(h => {
       if (h.status !== 'won') return false
-      const combined = `${h.name} ${h.programme} ${h.projectDescription}`.toUpperCase()
-      return combined.includes('NEOTEC') || combined.includes('EMPRESAS DE BASE TECNOLÓGICA')
-        || combined.includes('EMPRESAS DE BASE TECNOLOGICA')
+      const combined = `${h.name || ''} | ${h.programme || ''} | ${h.organism || ''} | ${h.projectDescription || ''}`
+      return neotecPatterns.test(combined)
     })
+    const hasWonNeotec = neotecHits.length > 0
+    console.log(`🧠 NEOTEC blocklist check: ${hasWonNeotec ? `ACTIVE (${neotecHits.length} matches in history)` : 'inactive'} | history entries: ${fundingProfile?.fundingHistory?.length || 0}`)
+    if (hasWonNeotec) {
+      neotecHits.forEach(h => console.log(`   ↳ matched: "${h.name}" / "${h.programme}" / "${h.organism}" / "${h.projectDescription?.slice(0, 80)}"`))
+    }
 
     const wonBlocklist = hasWonNeotec
       ? [
@@ -1103,9 +1112,23 @@ Return JSON { "candidateIds": [...] } with 30-60 callIds that plausibly fit this
     const deepResult = await callClaude(
       ROADMAP_SYSTEM_PROMPT,
       `Build a strategic R+D+i funding roadmap for this client over the next ${horizonText}.
-Select 10-15 best-fitting calls from the CANDIDATE list (already pre-filtered) and distribute them strategically across the timeline.
-INCLUDE recurrent programmes from the KNOWN RECURRENT R+D+i PROGRAMMES catalog when they fit (use synthetic callIds like CDTI-NEOTEC-ANNUAL-2026). Always include CDTI-PID-PERMANENT and EIC-ACCELERATOR-2026 for tech clients unless already won, plus EUROSTARS-2026 for consortium-capable clients.
-Apply ELIGIBILITY RULES strictly (NEOTEC only ≤3y company, no NEOTEC if already won, etc.).
+
+⚠️ HARD REQUIREMENT: Return 10-15 recommendations (NOT fewer than 10 unless candidate list literally has <10 plausible options). The consultant filters manually after — your job is to populate the working set generously, NOT to over-filter. Include borderline candidates with fitScore 50-65 rather than excluding them.
+
+🎯 PRIORITY ORDER for sources (CRITICAL):
+1. PRIMARY (8-12 recommendations): pick the strongest fits from the CANDIDATE list below.
+   These are REAL, currently OPEN or FORTHCOMING calls with concrete deadlines and budgets.
+   The Discovery data is fresh and these are the actionable opportunities.
+2. SUPPLEMENT (2-4 recommendations): add evergreen recurrent programmes from the KNOWN
+   RECURRENT R+D+i PROGRAMMES catalog ONLY where the candidate list doesn't cover the
+   client's needs (e.g. no permanent CDTI option in candidates → add CDTI-PID-PERMANENT).
+   DO NOT pad the list with evergreen at the expense of real open candidates.
+
+If the candidate list has ≥10 plausible fits, prefer those over evergreen. Use the candidates'
+real callIds (e.g. "DIGITAL-2024-INDUSTRY-XX", "BDNS-913456"), real titles, real deadlines.
+Only use synthetic IDs (e.g. CDTI-PID-PERMANENT) when supplementing.
+
+Apply ELIGIBILITY RULES strictly. If client has WON NEOTEC, NEVER include any NEOTEC variant (synthetic or real).
 Return ONLY the JSON object per the schema. No markdown fences, no surrounding text.
 
 ${pass2FullPrompt}`,
