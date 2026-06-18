@@ -650,12 +650,13 @@ Output a JSON object EXACTLY matching this schema:
 }
 
 Rules:
-- Recommend 8-15 calls maximum. Quality over quantity.
+- Recommend 5-8 calls maximum. Quality over quantity.
 - callId MUST EXIST in the input list (do not invent).
 - Sort recommendations by priorityOrder.
 - recommendedMonth must be within the horizon. Spread them.
-- If no call clearly fits, return fewer recommendations (could be 3-5).
-- Return ONLY the JSON, no surrounding text or markdown.`
+- If no call clearly fits, return fewer recommendations (could be 2-4).
+- Keep reasoning concise (1-2 sentences), risks concise (1 sentence).
+- Return ONLY the JSON, no surrounding text or markdown. Do NOT wrap in markdown fences.`
 
 interface RoadmapPayload {
   customer: {
@@ -807,17 +808,17 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
     console.log(`🗺️ Generating roadmap for ${customer.name} | timeline=${timeline}y | ${calls.length} calls input | promptChars=${fullPrompt.length} | model=${CLAUDE_MODEL_FAST}`)
 
     // Llamada con .finalMessage() (más estable que iterar el stream manualmente).
-    const callClaudeFinal = async (): Promise<{ text: string; inputTokens: number; outputTokens: number }> => {
+    const callClaudeFinal = async (): Promise<{ text: string; inputTokens: number; outputTokens: number; stopReason: string | null }> => {
       const stream = anthropic!.messages.stream({
         model: CLAUDE_MODEL_FAST,
-        max_tokens: 5000,
+        max_tokens: 3000, // Output más compacto para terminar antes
         system: ROADMAP_SYSTEM_PROMPT,
         messages: [
           {
             role: 'user',
             content: `Build a strategic R+D+i funding roadmap for this client over the next ${horizonText}.
-Select 8-15 best-fitting calls from the input list and distribute them strategically across the timeline.
-Return ONLY the JSON object per the schema.
+Select 5-8 best-fitting calls from the input list and distribute them strategically across the timeline.
+Return ONLY the JSON object per the schema. No markdown fences, no surrounding text.
 
 ${fullPrompt}`,
           },
@@ -830,6 +831,7 @@ ${fullPrompt}`,
         text,
         inputTokens: finalMessage.usage?.input_tokens ?? 0,
         outputTokens: finalMessage.usage?.output_tokens ?? 0,
+        stopReason: finalMessage.stop_reason || null,
       }
     }
 
@@ -846,7 +848,11 @@ ${fullPrompt}`,
         throw e1
       }
     }
-    const { text, inputTokens, outputTokens } = streamResult
+    const { text, inputTokens, outputTokens, stopReason } = streamResult
+    console.log(`🗺️ Claude responded: ${outputTokens} tokens, stop_reason=${stopReason}, textLen=${text.length}`)
+    if (stopReason && stopReason !== 'end_turn') {
+      console.warn(`⚠️ Claude stopped unexpectedly: ${stopReason}. Response may be truncated.`)
+    }
     let jsonText = text.trim()
     if (jsonText.startsWith('```')) {
       jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
