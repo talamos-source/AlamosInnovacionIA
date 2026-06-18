@@ -24,7 +24,16 @@ import './FundingProfile.css'
 
 type ProjectTypePreference = 'individual' | 'colaborativo' | 'ambos'
 type AmountRange = '<100k' | '100k-500k' | '500k-2M' | '>2M'
-type FundingHistoryStatus = 'won' | 'lost' | 'pending'
+// Estados que reflejan el flujo del CRM Álamos:
+//  · in-progress: propuesta en redacción
+//  · pending: propuesta enviada, esperando resolución
+//  · won: propuesta concedida (pasa a Proyecto automáticamente en el CRM)
+//  · lost: propuesta no concedida (dismissed)
+type FundingHistoryStatus = 'in-progress' | 'pending' | 'won' | 'lost'
+// Sub-estado de ejecución para los proyectos (solo cuando status === 'won'):
+//  · ongoing: proyecto en ejecución
+//  · ended: proyecto terminado
+type ExecutionStatus = 'ongoing' | 'ended'
 
 export interface FundingHistoryEntry {
   id: string
@@ -35,6 +44,7 @@ export interface FundingHistoryEntry {
   requestedAmount: number   // Importe solicitado €
   grantedAmount?: number    // Importe concedido € (si ganó)
   status: FundingHistoryStatus
+  executionStatus?: ExecutionStatus // Solo aplica si status === 'won' y se ejecutó como proyecto
   projectDescription: string // Descripción breve del proyecto
   source?: 'manual' | 'project' | 'proposal' // origen — útil para badge UI + para no re-importar
   sourceRefId?: string       // id del project/proposal de origen — evitar duplicados al re-importar
@@ -179,13 +189,20 @@ const parseAmountToNumber = (raw?: string): number => {
   return Number.isNaN(n) ? 0 : n
 }
 
-// Convierte un Project del CRM en una entrada de funding history (status WON por defecto —
-// si el proyecto existe es porque la propuesta fue aceptada).
+// Convierte un Project del CRM en entrada de funding history.
+// Si existe un Project es porque su Proposal fue ganada → status: 'won'.
+// El executionStatus lee el status real del proyecto:
+//   'ongoing' (en ejecución) | 'ended' (terminado).
 const projectToHistoryEntry = (p: ProjectRow): FundingHistoryEntry => {
   const year = p.callYear
     ? Number(p.callYear)
     : p.startDate ? new Date(p.startDate).getFullYear() : new Date().getFullYear()
   const requested = parseAmountToNumber(p.budgetFunding)
+  const rawStatus = (p.status || '').toLowerCase().trim()
+  let executionStatus: ExecutionStatus | undefined
+  if (rawStatus === 'ended' || rawStatus === 'finished' || rawStatus === 'completed') executionStatus = 'ended'
+  else if (rawStatus === 'ongoing' || rawStatus === 'in execution' || rawStatus === 'active') executionStatus = 'ongoing'
+  // Si BaseProject no tuviera un estado reconocido, dejamos executionStatus indefinido
   return {
     id: `fh-from-project-${p.id}`,
     name: p.call || p.title || 'Project',
@@ -195,6 +212,7 @@ const projectToHistoryEntry = (p: ProjectRow): FundingHistoryEntry => {
     requestedAmount: requested,
     grantedAmount: requested > 0 ? requested : undefined,
     status: 'won',
+    executionStatus,
     projectDescription: p.title,
     source: 'project',
     sourceRefId: p.id,
@@ -202,14 +220,20 @@ const projectToHistoryEntry = (p: ProjectRow): FundingHistoryEntry => {
 }
 
 // Convierte una Proposal del CRM en entrada de funding history.
-// status: Granted → won, Dismissed → lost, otro (In Progress/Pending) → pending
+// Mapping según flujo Álamos:
+//   'in progress' → in-progress   (propuesta en redacción)
+//   'pending'     → pending       (propuesta enviada, esperando)
+//   'granted'     → won           (debería ya tener Project, raro verlo aquí)
+//   'dismissed'   → lost          (perdida)
 const proposalToHistoryEntry = (p: ProposalRow): FundingHistoryEntry => {
   const year = p.createdAt ? new Date(p.createdAt).getFullYear() : new Date().getFullYear()
   const requested = parseAmountToNumber(p.budgetFunding)
   let status: FundingHistoryStatus = 'pending'
-  const st = (p.status || '').toLowerCase()
+  const st = (p.status || '').toLowerCase().trim()
   if (st === 'granted') status = 'won'
   else if (st === 'dismissed') status = 'lost'
+  else if (st === 'in progress' || st === 'in-progress') status = 'in-progress'
+  else if (st === 'pending') status = 'pending'
   return {
     id: `fh-from-proposal-${p.id}`,
     name: p.call || p.proposal,
@@ -597,20 +621,44 @@ const FundingProfilePage = () => {
                     {entry.grantedAmount !== undefined && <small>{formatEuroShort(entry.grantedAmount)}</small>}
                   </div>
                   <div className="fp-history-field">
-                    <label>Status</label>
+                    <label>Application status</label>
                     <select
                       value={entry.status}
-                      onChange={(e) => updateHistoryEntry(entry.id, { status: e.target.value as FundingHistoryStatus })}
+                      onChange={(e) => {
+                        const newStatus = e.target.value as FundingHistoryStatus
+                        // Si cambia a algo distinto de 'won', limpia executionStatus
+                        updateHistoryEntry(entry.id, {
+                          status: newStatus,
+                          executionStatus: newStatus === 'won' ? entry.executionStatus : undefined,
+                        })
+                      }}
                     >
+                      <option value="in-progress">In progress (drafting)</option>
+                      <option value="pending">Pending (submitted)</option>
                       <option value="won">Won</option>
                       <option value="lost">Lost</option>
-                      <option value="pending">Pending</option>
                     </select>
                   </div>
+                  {entry.status === 'won' && (
+                    <div className="fp-history-field">
+                      <label>Project status</label>
+                      <select
+                        value={entry.executionStatus || ''}
+                        onChange={(e) => updateHistoryEntry(entry.id, {
+                          executionStatus: (e.target.value || undefined) as ExecutionStatus | undefined,
+                        })}
+                      >
+                        <option value="">—</option>
+                        <option value="ongoing">Ongoing</option>
+                        <option value="ended">Ended</option>
+                      </select>
+                    </div>
+                  )}
                   <div className="fp-history-field fp-history-field--icon">
                     {entry.status === 'won' && <Award size={20} className="fp-status-icon fp-status-icon--won" />}
                     {entry.status === 'lost' && <XCircle size={20} className="fp-status-icon fp-status-icon--lost" />}
                     {entry.status === 'pending' && <Clock size={20} className="fp-status-icon fp-status-icon--pending" />}
+                    {entry.status === 'in-progress' && <Sparkles size={20} className="fp-status-icon fp-status-icon--inprogress" />}
                   </div>
                 </div>
 

@@ -273,6 +273,7 @@
 .fp-history-entry--won { border-left-color: var(--color-success-500); }
 .fp-history-entry--lost { border-left-color: var(--color-danger-500); }
 .fp-history-entry--pending { border-left-color: var(--color-warning-500); }
+.fp-history-entry--in-progress { border-left-color: var(--color-brand-500); }
 
 .fp-history-row {
   display: grid;
@@ -317,6 +318,7 @@
 .fp-status-icon--won { color: var(--color-success-600); }
 .fp-status-icon--lost { color: var(--color-danger-600); }
 .fp-status-icon--pending { color: var(--color-warning-600); }
+.fp-status-icon--inprogress { color: var(--color-brand-600); }
 
 .fp-history-actions {
   display: flex;
