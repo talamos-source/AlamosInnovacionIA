@@ -249,7 +249,7 @@ const RoadmapPage = () => {
               const db = b.closeDate ? new Date(b.closeDate).getTime() : Infinity
               return da - db
             })
-            .slice(0, 80),
+            .slice(0, 40),
           timeline,
         }),
       })

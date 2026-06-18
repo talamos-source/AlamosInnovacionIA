@@ -41,7 +41,16 @@ const ALLOWED_GOOGLE_EMAILS = (process.env.ALLOWED_GOOGLE_EMAILS || '')
 // Anthropic client (Claude) — para análisis de contexto de clientes
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6'
-const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null
+// Modelo más pequeño y rápido para el Roadmap (matching estructurado, no reasoning profundo).
+// Reduce dramáticamente el tiempo de respuesta y evita timeouts intermedios.
+const CLAUDE_MODEL_FAST = process.env.CLAUDE_MODEL_FAST || 'claude-haiku-4-5-20251001'
+const anthropic = ANTHROPIC_API_KEY
+  ? new Anthropic({
+      apiKey: ANTHROPIC_API_KEY,
+      timeout: 120 * 1000,   // 2 min máximo por petición (default es 10min, lo bajamos para fail fast)
+      maxRetries: 0,          // Hacemos retries manualmente para tener control fino
+    })
+  : null
 
 const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID || ''
 const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET || ''
@@ -782,18 +791,17 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
 
     const horizonText = `${timeline} year${timeline === 1 ? '' : 's'} starting today (${new Date().toISOString().split('T')[0]})`
 
-    console.log(`🗺️ Generating roadmap for ${customer.name} | timeline=${timeline}y | ${calls.length} calls input | promptChars=${fullPrompt.length}`)
+    console.log(`🗺️ Generating roadmap for ${customer.name} | timeline=${timeline}y | ${calls.length} calls input | promptChars=${fullPrompt.length} | model=${CLAUDE_MODEL_FAST}`)
 
-    // STREAMING — usamos messages.stream() en lugar de create(). Claude envía la respuesta
-    // en chunks y mantiene la conexión viva. Esto evita el "Premature close" que pasaba
-    // con create() cuando la respuesta tardaba > X segundos (Render/proxy cortaba).
+    // STREAMING + modelo HAIKU (rápido) — para evitar timeouts intermedios.
+    // Roadmap es matching + selección estructurada, no requiere reasoning profundo.
     const callClaudeStreaming = async (): Promise<{ text: string; inputTokens: number; outputTokens: number }> => {
       let fullText = ''
       let inputTokens = 0
       let outputTokens = 0
       const stream = anthropic!.messages.stream({
-        model: CLAUDE_MODEL,
-        max_tokens: 8000,
+        model: CLAUDE_MODEL_FAST,
+        max_tokens: 6000,
         system: ROADMAP_SYSTEM_PROMPT,
         messages: [
           {
@@ -851,7 +859,7 @@ ${fullPrompt}`,
     return res.json({
       roadmap: parsed,
       generatedAt: new Date().toISOString(),
-      model: CLAUDE_MODEL,
+      model: CLAUDE_MODEL_FAST,
       tokensUsed: {
         input: inputTokens,
         output: outputTokens,
