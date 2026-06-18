@@ -251,6 +251,19 @@ const RoadmapPage = () => {
     setActiveRoadmap(updated)
   }
 
+  const handleUpdateRecommendationMonth = (callId: string, newMonth: string) => {
+    if (!activeRoadmap) return
+    updateActiveRoadmap(r => ({
+      ...r,
+      result: {
+        ...r.result,
+        recommendations: r.result.recommendations.map(rec =>
+          rec.callId === callId ? { ...rec, recommendedMonth: newMonth } : rec
+        ),
+      },
+    }))
+  }
+
   const handleRemoveRecommendation = (callId: string) => {
     if (!activeRoadmap) return
     updateActiveRoadmap(r => ({
@@ -693,6 +706,7 @@ const RoadmapPage = () => {
                 rec={rec}
                 idiCalls={idiCalls}
                 onRemove={() => handleRemoveRecommendation(rec.callId)}
+                onUpdateMonth={(m) => handleUpdateRecommendationMonth(rec.callId, m)}
               />
             ))}
             <button
@@ -790,12 +804,22 @@ const RoadmapPage = () => {
    ============================================================ */
 
 const RecommendationCard = ({
-  rec, idiCalls, onRemove,
+  rec, idiCalls, onRemove, onUpdateMonth,
 }: {
   rec: RoadmapRecommendation
   idiCalls: DiscoveryCall[]
   onRemove?: () => void
+  onUpdateMonth?: (newMonth: string) => void
 }) => {
+  const [editingMonth, setEditingMonth] = useState(false)
+  const [draftMonth, setDraftMonth] = useState(rec.recommendedMonth)
+
+  const saveMonth = () => {
+    if (/^\d{4}-\d{2}$/.test(draftMonth) && onUpdateMonth) {
+      onUpdateMonth(draftMonth)
+    }
+    setEditingMonth(false)
+  }
   const originalCall = idiCalls.find(c => c.externalId === rec.callId)
   const deadlineStr = originalCall?.closeDate ? new Date(originalCall.closeDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
 
@@ -840,8 +864,21 @@ const RecommendationCard = ({
         <p className="rm-rec-reasoning">{rec.reasoning}</p>
         <div className="rm-rec-grid">
           <div className="rm-rec-cell">
-            <span className="rm-cell-label">Apply by</span>
-            <strong>{formatRecommendedMonth(rec.recommendedMonth)}</strong>
+            <span className="rm-cell-label">Apply by {onUpdateMonth && !editingMonth && <button type="button" className="rm-cell-edit-btn" onClick={() => { setDraftMonth(rec.recommendedMonth); setEditingMonth(true) }} title="Edit month">✎</button>}</span>
+            {editingMonth ? (
+              <span className="rm-month-edit">
+                <input
+                  type="month"
+                  value={draftMonth}
+                  onChange={(e) => setDraftMonth(e.target.value)}
+                  onBlur={saveMonth}
+                  onKeyDown={(e) => { if (e.key === 'Enter') saveMonth(); if (e.key === 'Escape') setEditingMonth(false) }}
+                  autoFocus
+                />
+              </span>
+            ) : (
+              <strong>{formatRecommendedMonth(rec.recommendedMonth)}</strong>
+            )}
             <span className="muted">deadline {deadlineStr}</span>
           </div>
           <div className="rm-rec-cell">

@@ -1115,18 +1115,19 @@ Return JSON { "candidateIds": [...] } with 30-60 callIds that plausibly fit this
 
 ⚠️ HARD REQUIREMENT: Return 10-15 recommendations (NOT fewer than 10 unless candidate list literally has <10 plausible options). The consultant filters manually after — your job is to populate the working set generously, NOT to over-filter. Include borderline candidates with fitScore 50-65 rather than excluding them.
 
-🎯 PRIORITY ORDER for sources (CRITICAL):
-1. PRIMARY (8-12 recommendations): pick the strongest fits from the CANDIDATE list below.
-   These are REAL, currently OPEN or FORTHCOMING calls with concrete deadlines and budgets.
-   The Discovery data is fresh and these are the actionable opportunities.
-2. SUPPLEMENT (2-4 recommendations): add evergreen recurrent programmes from the KNOWN
-   RECURRENT R+D+i PROGRAMMES catalog ONLY where the candidate list doesn't cover the
-   client's needs (e.g. no permanent CDTI option in candidates → add CDTI-PID-PERMANENT).
-   DO NOT pad the list with evergreen at the expense of real open candidates.
+🎯 SOURCE BALANCE (CRITICAL): the roadmap MUST include BOTH sources, in healthy proportion.
+   - At least 5-8 from the CANDIDATE list below (REAL open/forthcoming calls with concrete
+     deadlines). These are the actionable opportunities discovered today.
+   - At least 4-6 from the KNOWN RECURRENT R+D+i PROGRAMMES catalog (CDTI permanents like
+     CDTI-PID-PERMANENT, CDTI-CERVERA-PERMANENT, EU recurrents like EIC-ACCELERATOR-2026,
+     EUROSTARS-2026, MISIONES, INNTERCONECTA, etc.). These are predictable, always available,
+     and central to any I+D+i roadmap.
 
-If the candidate list has ≥10 plausible fits, prefer those over evergreen. Use the candidates'
-real callIds (e.g. "DIGITAL-2024-INDUSTRY-XX", "BDNS-913456"), real titles, real deadlines.
-Only use synthetic IDs (e.g. CDTI-PID-PERMANENT) when supplementing.
+Use the candidates' real callIds (e.g. "DIGITAL-2024-INDUSTRY-XX", "BDNS-913456") for Discovery
+calls. Use synthetic IDs (e.g. "CDTI-PID-PERMANENT", "EIC-ACCELERATOR-2026") for evergreen.
+
+For evergreen calls with permanent or annual cadence, recommendedMonth is an estimate of when
+the consultant should start preparation — the actual deadline is flexible/annual.
 
 Apply ELIGIBILITY RULES strictly. If client has WON NEOTEC, NEVER include any NEOTEC variant (synthetic or real).
 Return ONLY the JSON object per the schema. No markdown fences, no surrounding text.
