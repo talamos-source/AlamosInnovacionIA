@@ -590,6 +590,254 @@ app.post('/ai/analyze-client-context', requireAuth, async (req, res) => {
 })
 
 /* ============================================================
+   POST /ai/generate-roadmap
+   Agente que genera un roadmap estratégico de financiación I+D+i
+   para un cliente, sobre un horizonte temporal.
+   ============================================================ */
+
+const ROADMAP_SYSTEM_PROMPT = `You are an expert R+D+i public funding consultant in Spain and the EU.
+Your job: given a client profile (company data + tech + funding history + preferences) and a list of
+available public funding calls (Spanish BDNS + EU Horizon/Digital Europe/EIC/etc), select the BEST
+calls that fit this client and build a strategic timeline.
+
+Decision criteria (in order of importance):
+1. ELIGIBILITY: Does the client's profile (sector, size, region, TRL, partners capability) match
+   the call requirements?
+2. STRATEGIC FIT: Does the call align with the client's R+D+i roadmap, target TRL, and tech focus?
+3. CAPACITY: Can the client realistically prepare and execute (deadlines, co-financing, dedication)?
+4. RISK: Avoid overlaps with the client's funding history (no double-funding same project type same year).
+   Avoid calls that compete for the same resources.
+5. TIMELINE: Distribute applications across the horizon for steady funding flow, not all in one quarter.
+
+Output a JSON object EXACTLY matching this schema:
+{
+  "executiveSummary": "2-3 sentences explaining the overall strategy for this client.",
+  "totalPotentialFunding": "human-readable range, e.g. '€800K - €1.5M'",
+  "totalCallsRecommended": <integer>,
+  "recommendations": [
+    {
+      "callId": "<exact callId or externalId from input list>",
+      "title": "<call title (copy from input)>",
+      "source": "EU_PORTAL" or "BDNS",
+      "fitScore": <integer 0-100>,
+      "reasoning": "2-3 sentences explaining WHY this call fits this client.",
+      "recommendedMonth": "YYYY-MM (when to START preparing)",
+      "estimatedFundingRange": "human-readable € range",
+      "risks": "1 sentence about main risk or watchout.",
+      "priorityOrder": <integer, 1=highest>
+    }
+  ]
+}
+
+Rules:
+- Recommend 8-15 calls maximum. Quality over quantity.
+- callId MUST EXIST in the input list (do not invent).
+- Sort recommendations by priorityOrder.
+- recommendedMonth must be within the horizon. Spread them.
+- If no call clearly fits, return fewer recommendations (could be 3-5).
+- Return ONLY the JSON, no surrounding text or markdown.`
+
+interface RoadmapPayload {
+  customer: {
+    name?: string
+    company?: string
+    country?: string
+    region?: string
+    companySize?: string
+    category?: string
+    description?: string
+  }
+  context?: {
+    businessModel?: string
+    technologyInnovation?: string
+    currentTRL?: string
+    rdiRoadmap?: string
+    [k: string]: string | undefined
+  }
+  fundingProfile?: {
+    coFinancingCapacityPercent?: number
+    preferredProjectType?: string
+    desiredAmountRange?: string
+    targetTRL?: number
+    fundingHistory?: Array<{
+      name: string
+      organism: string
+      programme: string
+      year: number
+      requestedAmount: number
+      grantedAmount?: number
+      status: string
+      executionStatus?: string
+      projectDescription: string
+    }>
+  }
+  calls: Array<{
+    externalId: string
+    source: 'EU_PORTAL' | 'BDNS'
+    title: string
+    fundingBody: string
+    program: string
+    typeOfAction?: string
+    region?: string
+    budget?: string
+    closeDate?: string
+    openDate?: string
+    externalStatus: string
+    rdiScore?: number
+    description?: string
+  }>
+  timeline: 1 | 2 | 3 // años desde hoy
+}
+
+app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
+  if (!anthropic) {
+    return res.status(503).json({
+      error: 'AI roadmap generation is not configured. Set ANTHROPIC_API_KEY.',
+    })
+  }
+
+  const { customer, context, fundingProfile, calls, timeline } = (req.body || {}) as RoadmapPayload
+
+  if (!customer) return res.status(400).json({ error: 'customer payload is required.' })
+  if (!Array.isArray(calls) || calls.length === 0) {
+    return res.status(400).json({ error: 'calls payload is required and non-empty.' })
+  }
+  if (![1, 2, 3].includes(timeline)) {
+    return res.status(400).json({ error: 'timeline must be 1, 2 or 3 years.' })
+  }
+
+  try {
+    // Build client section
+    const clientLines = [
+      '=== CLIENT PROFILE ===',
+      customer.name && `Name: ${customer.name}`,
+      customer.company && `Legal name: ${customer.company}`,
+      customer.country && `Country: ${customer.country}`,
+      customer.region && `Region (CCAA if Spain): ${customer.region}`,
+      customer.companySize && `Size: ${customer.companySize}`,
+      customer.category && `Category: ${customer.category}`,
+      customer.description && `\nDescription:\n${customer.description}`,
+    ].filter(Boolean).join('\n')
+
+    // Build context section (from CustomerContext AI extraction)
+    const contextLines = context
+      ? [
+          '\n\n=== R+D+i CONTEXT (extracted by AI from docs/website) ===',
+          context.businessModel && `Business model: ${context.businessModel}`,
+          context.technologyInnovation && `Tech innovation: ${context.technologyInnovation}`,
+          context.currentTRL && `Current TRL: ${context.currentTRL}`,
+          context.rdiRoadmap && `R+D+i roadmap: ${context.rdiRoadmap}`,
+        ].filter(Boolean).join('\n')
+      : ''
+
+    // Build funding profile section
+    const fpLines = fundingProfile
+      ? [
+          '\n\n=== FUNDING PROFILE ===',
+          fundingProfile.coFinancingCapacityPercent !== undefined &&
+            `Co-financing capacity: ${fundingProfile.coFinancingCapacityPercent}%`,
+          fundingProfile.preferredProjectType && `Preferred project type: ${fundingProfile.preferredProjectType}`,
+          fundingProfile.desiredAmountRange && `Desired amount range: ${fundingProfile.desiredAmountRange}`,
+          fundingProfile.targetTRL !== undefined && `Target TRL (in 2y): ${fundingProfile.targetTRL}`,
+        ].filter(Boolean).join('\n')
+      : ''
+
+    // Funding history (helps agent avoid overlaps and consider track record)
+    const historyLines = fundingProfile?.fundingHistory && fundingProfile.fundingHistory.length > 0
+      ? [
+          '\n\n=== FUNDING HISTORY (past applications) ===',
+          ...fundingProfile.fundingHistory.map((h, i) => {
+            const statusStr = h.status === 'won'
+              ? `WON${h.executionStatus ? ` (${h.executionStatus})` : ''}`
+              : h.status.toUpperCase()
+            const amountStr = h.grantedAmount
+              ? `granted €${h.grantedAmount.toLocaleString()}`
+              : h.requestedAmount > 0 ? `requested €${h.requestedAmount.toLocaleString()}` : ''
+            return `${i + 1}. [${statusStr}] ${h.year} — ${h.name} — ${h.organism || '?'} — ${amountStr}\n   ${h.projectDescription}`
+          }),
+        ].join('\n')
+      : ''
+
+    // Calls section — keep it compact since we may have hundreds
+    const callsLines = [
+      '\n\n=== AVAILABLE FUNDING CALLS (filter for R+D+i, deadline ≥ today) ===',
+      `Total calls below: ${calls.length}`,
+      ...calls.map((c, i) => {
+        return [
+          `[${i + 1}] ID: ${c.externalId} | Source: ${c.source} | Status: ${c.externalStatus}`,
+          `  Title: ${c.title.slice(0, 200)}`,
+          `  Body: ${c.fundingBody || '?'} | Program: ${c.program || '?'}`,
+          c.typeOfAction && `  Action: ${c.typeOfAction}`,
+          c.region && `  Region: ${c.region}`,
+          c.budget && `  Budget: ${c.budget}`,
+          c.closeDate && `  Deadline: ${c.closeDate.split('T')[0]}`,
+          c.openDate && `  Opens: ${c.openDate.split('T')[0]}`,
+          c.rdiScore !== undefined && `  R+D+i score: ${c.rdiScore}`,
+          c.description && `  Description: ${c.description.slice(0, 300)}`,
+        ].filter(Boolean).join('\n')
+      }),
+    ].join('\n')
+
+    const fullPrompt = clientLines + contextLines + fpLines + historyLines + callsLines
+
+    const horizonText = `${timeline} year${timeline === 1 ? '' : 's'} starting today (${new Date().toISOString().split('T')[0]})`
+
+    console.log(`🗺️ Generating roadmap for ${customer.name} | timeline=${timeline}y | ${calls.length} calls input | promptChars=${fullPrompt.length}`)
+
+    const message = await anthropic.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 4000,
+      system: ROADMAP_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: 'user',
+          content: `Build a strategic R+D+i funding roadmap for this client over the next ${horizonText}.
+Select 8-15 best-fitting calls from the input list and distribute them strategically across the timeline.
+Return ONLY the JSON object per the schema.
+
+${fullPrompt}`,
+        },
+      ],
+    })
+
+    const firstBlock = message.content[0]
+    const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : ''
+    let jsonText = text.trim()
+    if (jsonText.startsWith('```')) {
+      jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+    }
+
+    let parsed: any
+    try {
+      parsed = JSON.parse(jsonText)
+    } catch (parseErr) {
+      console.error('Roadmap: Claude returned invalid JSON:', text.slice(0, 500))
+      return res.status(502).json({
+        error: 'AI returned invalid JSON',
+        raw: text.slice(0, 1500),
+      })
+    }
+
+    return res.json({
+      roadmap: parsed,
+      generatedAt: new Date().toISOString(),
+      model: CLAUDE_MODEL,
+      tokensUsed: {
+        input: message.usage?.input_tokens ?? 0,
+        output: message.usage?.output_tokens ?? 0,
+      },
+      callsConsidered: calls.length,
+      timeline,
+    })
+  } catch (err: any) {
+    console.error('Roadmap generation error:', err)
+    return res.status(500).json({
+      error: err?.message || 'Roadmap generation failed',
+    })
+  }
+})
+
+/* ============================================================
    DISCOVERY — Sync de calls desde EU Funding Portal y BDNS
    ============================================================ */
 
