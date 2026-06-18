@@ -784,9 +784,14 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
 
     console.log(`🗺️ Generating roadmap for ${customer.name} | timeline=${timeline}y | ${calls.length} calls input | promptChars=${fullPrompt.length}`)
 
-    // Retry una vez si Claude da "Premature close" (problema transitorio de red)
-    const callClaude = async () =>
-      anthropic!.messages.create({
+    // STREAMING — usamos messages.stream() en lugar de create(). Claude envía la respuesta
+    // en chunks y mantiene la conexión viva. Esto evita el "Premature close" que pasaba
+    // con create() cuando la respuesta tardaba > X segundos (Render/proxy cortaba).
+    const callClaudeStreaming = async (): Promise<{ text: string; inputTokens: number; outputTokens: number }> => {
+      let fullText = ''
+      let inputTokens = 0
+      let outputTokens = 0
+      const stream = anthropic!.messages.stream({
         model: CLAUDE_MODEL,
         max_tokens: 8000,
         system: ROADMAP_SYSTEM_PROMPT,
@@ -801,22 +806,32 @@ ${fullPrompt}`,
           },
         ],
       })
+      for await (const event of stream) {
+        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+          fullText += event.delta.text
+        } else if (event.type === 'message_delta' && event.usage) {
+          outputTokens = event.usage.output_tokens
+        } else if (event.type === 'message_start' && event.message?.usage) {
+          inputTokens = event.message.usage.input_tokens
+          outputTokens = event.message.usage.output_tokens || 0
+        }
+      }
+      return { text: fullText, inputTokens, outputTokens }
+    }
 
-    let message
+    let streamResult
     try {
-      message = await callClaude()
+      streamResult = await callClaudeStreaming()
     } catch (e1: any) {
       const msg = String(e1?.message || '')
       if (msg.includes('Premature close') || msg.includes('ECONNRESET') || msg.includes('socket hang up')) {
-        console.warn(`Roadmap: first call failed (${msg.slice(0, 100)}), retrying once…`)
-        message = await callClaude()
+        console.warn(`Roadmap streaming failed (${msg.slice(0, 100)}), retrying once…`)
+        streamResult = await callClaudeStreaming()
       } else {
         throw e1
       }
     }
-
-    const firstBlock = message.content[0]
-    const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : ''
+    const { text, inputTokens, outputTokens } = streamResult
     let jsonText = text.trim()
     if (jsonText.startsWith('```')) {
       jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
@@ -838,8 +853,8 @@ ${fullPrompt}`,
       generatedAt: new Date().toISOString(),
       model: CLAUDE_MODEL,
       tokensUsed: {
-        input: message.usage?.input_tokens ?? 0,
-        output: message.usage?.output_tokens ?? 0,
+        input: inputTokens,
+        output: outputTokens,
       },
       callsConsidered: calls.length,
       timeline,
