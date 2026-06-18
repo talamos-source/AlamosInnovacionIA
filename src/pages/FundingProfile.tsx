@@ -11,6 +11,9 @@ import {
   Route as RouteIcon,
   History,
   Sparkles,
+  RefreshCw,
+  Briefcase,
+  FileText,
 } from 'lucide-react'
 import './Page.css'
 import './FundingProfile.css'
@@ -33,6 +36,8 @@ export interface FundingHistoryEntry {
   grantedAmount?: number    // Importe concedido € (si ganó)
   status: FundingHistoryStatus
   projectDescription: string // Descripción breve del proyecto
+  source?: 'manual' | 'project' | 'proposal' // origen — útil para badge UI + para no re-importar
+  sourceRefId?: string       // id del project/proposal de origen — evitar duplicados al re-importar
 }
 
 export interface FundingProfile {
@@ -66,6 +71,34 @@ interface CustomerContextData {
   technologyInnovation?: ContextField
   currentTRL?: ContextField
   rdiRoadmap?: ContextField
+}
+
+interface ProjectRow {
+  id: string
+  title: string
+  call?: string
+  callYear?: string
+  fundingBody?: string
+  budgetFunding?: string
+  fee?: string
+  status: string
+  startDate?: string
+  primaryClients: string[]
+  secondaryClients?: string[]
+  source: 'proposal' | 'service'
+}
+
+interface ProposalRow {
+  id: string
+  proposal: string
+  call: string
+  callId?: string
+  budgetFunding: string
+  fee: string
+  status: string  // In Progress / Pending / Granted / Dismissed
+  createdAt?: string
+  primaryClients: string[]
+  secondaryClients?: string[]
 }
 
 /* ============================================================
@@ -105,6 +138,90 @@ const loadContextForCustomer = (id: string): CustomerContextData | null => {
     return JSON.parse(raw) as CustomerContextData
   } catch {
     return null
+  }
+}
+
+const loadProjectsForCustomer = (id: string): ProjectRow[] => {
+  try {
+    const raw = localStorage.getItem('projects')
+    if (!raw) return []
+    const list = JSON.parse(raw) as ProjectRow[]
+    return list.filter(p =>
+      (p.primaryClients || []).includes(id) ||
+      (p.secondaryClients || []).includes(id)
+    )
+  } catch {
+    return []
+  }
+}
+
+const loadProposalsForCustomer = (id: string): ProposalRow[] => {
+  try {
+    const raw = localStorage.getItem('proposals')
+    if (!raw) return []
+    const list = JSON.parse(raw) as ProposalRow[]
+    return list.filter(p =>
+      (p.primaryClients || []).includes(id) ||
+      (p.secondaryClients || []).includes(id)
+    )
+  } catch {
+    return []
+  }
+}
+
+// Parsea importe en formato string (ej "€100,000" o "100k" o "100000") a número.
+const parseAmountToNumber = (raw?: string): number => {
+  if (!raw) return 0
+  const cleaned = String(raw).replace(/[€$,.\s]/g, '').toUpperCase()
+  if (cleaned.endsWith('K')) return Number(cleaned.replace('K', '')) * 1000
+  if (cleaned.endsWith('M')) return Number(cleaned.replace('M', '')) * 1_000_000
+  const n = Number(cleaned)
+  return Number.isNaN(n) ? 0 : n
+}
+
+// Convierte un Project del CRM en una entrada de funding history (status WON por defecto —
+// si el proyecto existe es porque la propuesta fue aceptada).
+const projectToHistoryEntry = (p: ProjectRow): FundingHistoryEntry => {
+  const year = p.callYear
+    ? Number(p.callYear)
+    : p.startDate ? new Date(p.startDate).getFullYear() : new Date().getFullYear()
+  const requested = parseAmountToNumber(p.budgetFunding)
+  return {
+    id: `fh-from-project-${p.id}`,
+    name: p.call || p.title || 'Project',
+    organism: p.fundingBody || '',
+    programme: p.call || '',
+    year,
+    requestedAmount: requested,
+    grantedAmount: requested > 0 ? requested : undefined,
+    status: 'won',
+    projectDescription: p.title,
+    source: 'project',
+    sourceRefId: p.id,
+  }
+}
+
+// Convierte una Proposal del CRM en entrada de funding history.
+// status: Granted → won, Dismissed → lost, otro (In Progress/Pending) → pending
+const proposalToHistoryEntry = (p: ProposalRow): FundingHistoryEntry => {
+  const year = p.createdAt ? new Date(p.createdAt).getFullYear() : new Date().getFullYear()
+  const requested = parseAmountToNumber(p.budgetFunding)
+  let status: FundingHistoryStatus = 'pending'
+  const st = (p.status || '').toLowerCase()
+  if (st === 'granted') status = 'won'
+  else if (st === 'dismissed') status = 'lost'
+  return {
+    id: `fh-from-proposal-${p.id}`,
+    name: p.call || p.proposal,
+    organism: '',
+    programme: p.call || '',
+    year,
+    requestedAmount: requested,
+    grantedAmount: status === 'won' && requested > 0 ? requested : undefined,
+    status,
+    projectDescription: p.proposal,
+    source: 'proposal',
+    sourceRefId: p.id,
   }
 }
 
@@ -150,7 +267,19 @@ const FundingProfilePage = () => {
   const [profile, setProfile] = useState<FundingProfile>(() => {
     if (!customerId) return blankProfile('')
     const all = loadAllProfiles()
-    return all[customerId] || blankProfile(customerId)
+    if (all[customerId]) return all[customerId]
+    // No hay perfil guardado → arrancamos con los proyectos/proposals del CRM como seed
+    const seed = blankProfile(customerId)
+    const projects = loadProjectsForCustomer(customerId)
+    const proposals = loadProposalsForCustomer(customerId)
+    seed.fundingHistory = [
+      ...projects.map(projectToHistoryEntry),
+      ...proposals
+        // Si la proposal generó un Project, ya lo tenemos. Evitamos duplicado.
+        .filter(p => !projects.some(pr => pr.source === 'proposal' && pr.id.includes(p.id)))
+        .map(proposalToHistoryEntry),
+    ]
+    return seed
   })
 
   const [savedMessage, setSavedMessage] = useState<string | null>(null)
@@ -185,6 +314,30 @@ const FundingProfilePage = () => {
 
   const addHistory = () => {
     persist({ ...profile, fundingHistory: [...profile.fundingHistory, newHistoryEntry()] })
+  }
+
+  const reimportFromCRM = () => {
+    if (!customerId) return
+    const projects = loadProjectsForCustomer(customerId)
+    const proposals = loadProposalsForCustomer(customerId)
+    const existingRefs = new Set(
+      profile.fundingHistory
+        .filter(e => e.sourceRefId)
+        .map(e => `${e.source}:${e.sourceRefId}`)
+    )
+    const newFromProjects = projects
+      .map(projectToHistoryEntry)
+      .filter(e => !existingRefs.has(`project:${e.sourceRefId}`))
+    const newFromProposals = proposals
+      .map(proposalToHistoryEntry)
+      .filter(e => !existingRefs.has(`proposal:${e.sourceRefId}`))
+    const added = [...newFromProjects, ...newFromProposals]
+    if (added.length === 0) {
+      setSavedMessage('Already in sync ✓')
+      return
+    }
+    persist({ ...profile, fundingHistory: [...profile.fundingHistory, ...added] })
+    setSavedMessage(`Imported ${added.length} from CRM ✓`)
   }
   const removeHistory = (entryId: string) => {
     persist({ ...profile, fundingHistory: profile.fundingHistory.filter(e => e.id !== entryId) })
@@ -346,12 +499,22 @@ const FundingProfilePage = () => {
 
       {/* ============== FUNDING HISTORY ============== */}
       <section className="fp-card">
-        <div className="fp-section-header">
-          <h2>
-            <History size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-            Funding history
-          </h2>
-          <p className="muted">Previous applications (won, lost, pending). Helps AI avoid overlaps and improve recommendations.</p>
+        <div className="fp-section-header fp-section-header--with-action">
+          <div>
+            <h2>
+              <History size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+              Funding history
+            </h2>
+            <p className="muted">Previous applications (won, lost, pending). Auto-imported from CRM Projects + Proposals. You can edit, remove or add manually.</p>
+          </div>
+          <button
+            type="button"
+            className="btn-secondary btn-secondary--sm"
+            onClick={reimportFromCRM}
+            title="Look for new Projects/Proposals in CRM and add them as funding history entries"
+          >
+            <RefreshCw size={14} /> Re-import from CRM
+          </button>
         </div>
 
         {profile.fundingHistory.length === 0 ? (
@@ -360,6 +523,15 @@ const FundingProfilePage = () => {
           <div className="fp-history-list">
             {profile.fundingHistory.map((entry) => (
               <div key={entry.id} className={`fp-history-entry fp-history-entry--${entry.status}`}>
+                {entry.source && entry.source !== 'manual' && (
+                  <div className="fp-history-source-badge">
+                    {entry.source === 'project' ? (
+                      <><Briefcase size={11} /> Imported from Project</>
+                    ) : (
+                      <><FileText size={11} /> Imported from Proposal</>
+                    )}
+                  </div>
+                )}
                 <div className="fp-history-row">
                   <div className="fp-history-field">
                     <label>Call name</label>

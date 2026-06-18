@@ -91,6 +91,36 @@
   color: var(--color-text-muted);
 }
 
+.fp-section-header--with-action {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.btn-secondary--sm {
+  padding: 6px 10px;
+  font-size: var(--font-size-xs);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fp-history-source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background-color: var(--color-brand-100);
+  color: var(--color-brand-700);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  width: fit-content;
+  letter-spacing: 0.02em;
+}
+
 /* ---------- AUTO-DATA CARD ---------- */
 
 .fp-auto-card {
