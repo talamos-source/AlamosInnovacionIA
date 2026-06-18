@@ -6,7 +6,6 @@ import {
   Loader2,
   Calendar,
   TrendingUp,
-  Target,
   AlertTriangle,
   History,
   ExternalLink,
@@ -222,6 +221,24 @@ const RoadmapPage = () => {
     })
   }, [])
 
+  // Top 40 que efectivamente se envían al agente (ordenadas por rdiScore desc, luego deadline asc)
+  const AGENT_INPUT_CAP = 40
+  const idiCallsForAgent = useMemo(() => {
+    return idiCalls
+      .slice()
+      .sort((a, b) => {
+        const sa = a.rdiScore ?? 0
+        const sb = b.rdiScore ?? 0
+        if (sb !== sa) return sb - sa
+        const da = a.closeDate ? new Date(a.closeDate).getTime() : Infinity
+        const db = b.closeDate ? new Date(b.closeDate).getTime() : Infinity
+        return da - db
+      })
+      .slice(0, AGENT_INPUT_CAP)
+  }, [idiCalls])
+
+  const [showPreview, setShowPreview] = useState(false)
+
   const handleGenerate = async () => {
     if (!customer || !customerId) return
     setGenerating(true)
@@ -237,19 +254,8 @@ const RoadmapPage = () => {
           customer,
           context: flattenContext(context),
           fundingProfile,
-          // Cap para evitar prompts gigantes y Premature close.
-          // Si tienes 300 I+D+i calls, mandamos las primeras 80 ordenadas por rdiScore desc + deadline asc.
-          calls: idiCalls
-            .slice()
-            .sort((a, b) => {
-              const sa = a.rdiScore ?? 0
-              const sb = b.rdiScore ?? 0
-              if (sb !== sa) return sb - sa
-              const da = a.closeDate ? new Date(a.closeDate).getTime() : Infinity
-              const db = b.closeDate ? new Date(b.closeDate).getTime() : Infinity
-              return da - db
-            })
-            .slice(0, 40),
+          // Top N pre-filtradas que ya tenemos calculadas
+          calls: idiCallsForAgent,
           timeline,
         }),
       })
@@ -348,14 +354,27 @@ const RoadmapPage = () => {
 
       {/* ==================== INPUT SUMMARY ==================== */}
       <section className="rm-input-card">
-        <div className="rm-input-stats">
-          <div className="rm-stat">
-            <div className="rm-stat-icon"><Target size={18} /></div>
-            <div>
-              <span className="rm-stat-label">R+D+i calls available</span>
-              <strong>{idiCalls.length}</strong>
-            </div>
+        <div className="rm-pipeline">
+          <div className="rm-pipeline-step">
+            <span className="rm-pipeline-num">{idiCalls.length}</span>
+            <span className="rm-pipeline-label">R+D+i in Discovery</span>
+            <span className="rm-pipeline-hint">score ≥ 50, deadline ≥ today</span>
           </div>
+          <span className="rm-pipeline-arrow">→</span>
+          <div className="rm-pipeline-step rm-pipeline-step--highlight">
+            <span className="rm-pipeline-num">{idiCallsForAgent.length}</span>
+            <span className="rm-pipeline-label">Sent to AI agent</span>
+            <span className="rm-pipeline-hint">top {AGENT_INPUT_CAP} by relevance + urgency</span>
+          </div>
+          <span className="rm-pipeline-arrow">→</span>
+          <div className="rm-pipeline-step">
+            <span className="rm-pipeline-num">~8-15</span>
+            <span className="rm-pipeline-label">AI recommends</span>
+            <span className="rm-pipeline-hint">best fit for this client</span>
+          </div>
+        </div>
+
+        <div className="rm-input-stats">
           <div className="rm-stat">
             <div className="rm-stat-icon"><Calendar size={18} /></div>
             <div>
@@ -377,7 +396,49 @@ const RoadmapPage = () => {
               <strong>{customerRoadmaps.length}</strong>
             </div>
           </div>
+          <div className="rm-stat">
+            <button
+              type="button"
+              className="rm-preview-toggle"
+              onClick={() => setShowPreview(!showPreview)}
+              disabled={idiCallsForAgent.length === 0}
+            >
+              {showPreview ? 'Hide' : 'Preview'} the {idiCallsForAgent.length} sent to AI
+            </button>
+          </div>
         </div>
+
+        {showPreview && idiCallsForAgent.length > 0 && (
+          <div className="rm-preview-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Source</th>
+                  <th>Title</th>
+                  <th>Program</th>
+                  <th>Region</th>
+                  <th>Deadline</th>
+                  <th>Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {idiCallsForAgent.map((c, i) => (
+                  <tr key={c.externalId}>
+                    <td>{i + 1}</td>
+                    <td><span className={`rm-source-badge rm-source-badge--${c.source.toLowerCase()}`}>{sourceLabel(c.source)}</span></td>
+                    <td className="rm-preview-title" title={c.title}>{c.title.slice(0, 80)}{c.title.length > 80 ? '…' : ''}</td>
+                    <td>{c.program || '—'}</td>
+                    <td>{c.region || '—'}</td>
+                    <td>{c.closeDate ? new Date(c.closeDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</td>
+                    <td><strong>{c.rdiScore ?? '—'}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {idiCalls.length === 0 && (
           <div className="rm-warning">
             <AlertTriangle size={16} /> No R+D+i calls found in Discovery. Go to Discovery and sync first.
@@ -453,7 +514,10 @@ const RoadmapPage = () => {
           <Sparkles size={32} />
           <h3>No roadmap yet</h3>
           <p>Set your horizon (1, 2 or 3 years) and click <strong>Generate Roadmap</strong>.</p>
-          <p className="muted">Will analyze {idiCalls.length} R+D+i opportunities and select the best fits for this client.</p>
+          <p className="muted">
+            From {idiCalls.length} I+D+i opportunities in Discovery, we'll send the top {idiCallsForAgent.length} (best scored + most urgent) to the AI agent.
+            The agent picks 8-15 that fit this client and builds the timeline.
+          </p>
         </section>
       )}
     </div>
