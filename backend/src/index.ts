@@ -613,6 +613,10 @@ interface NormalizedCall {
   aidType?: 'Grant' | 'Loan' | 'Mixed' | 'Tax Credit'
   actionable: boolean
   region?: string
+  /** Relevancia I+D+i score 0-100. EU automáticamente 100. BDNS calculado por keywords + organismos. */
+  rdiScore?: number
+  /** Razones del score (debug/transparencia para el agente del Roadmap). */
+  rdiReasons?: string[]
 }
 
 /* ----------------------------------------------------------
@@ -642,6 +646,140 @@ function isActionable(title: string, body: string): boolean {
   const hasExclude = RDI_KEYWORDS_EXCLUDE.some(k => text.includes(k))
   // Actionable si hay keyword positiva y NO hay negativa
   return hasInclude && !hasExclude
+}
+
+/* ============================================================
+   R+D+i RELEVANCE SCORER
+   Calcula un score 0-100 indicando cuán relevante es una call
+   para I+D+i. EU automáticamente 100 (todo el portal es I+D+i+E).
+   BDNS analiza keywords + organismos + programas conocidos.
+   Usado como input filter por el Roadmap module.
+   ============================================================ */
+
+const RDI_STRONG_ORGS = [
+  { kw: 'cdti', label: 'CDTI' },
+  { kw: 'agencia estatal de investigación', label: 'Agencia Estatal de Investigación' },
+  { kw: 'agencia estatal de investigacion', label: 'AEI' },
+  { kw: 'instituto de salud carlos iii', label: 'ISCIII' },
+  { kw: 'isciii', label: 'ISCIII' },
+  { kw: 'idae', label: 'IDAE' },
+  { kw: 'enisa', label: 'ENISA' },
+  { kw: 'incibe', label: 'INCIBE' },
+  { kw: 'red.es', label: 'RED.es' },
+  { kw: 'ministerio de ciencia', label: 'Ministerio Ciencia' },
+  { kw: 'ministerio de universidades', label: 'Ministerio Universidades' },
+  { kw: 'icex', label: 'ICEX' },
+  { kw: 'eoi', label: 'EOI' },
+]
+
+const RDI_STRONG_KEYWORDS = [
+  { kw: 'i+d+i', label: 'I+D+i' },
+  { kw: 'i+d', label: 'I+D' },
+  { kw: 'i+i', label: 'I+i' },
+  { kw: ' idi ', label: 'IDI' },
+  { kw: 'investigación', label: 'investigación' },
+  { kw: 'investigacion', label: 'investigación' },
+  { kw: 'desarrollo tecnológico', label: 'desarrollo tecnológico' },
+  { kw: 'desarrollo tecnologico', label: 'desarrollo tecnológico' },
+  { kw: 'innovación', label: 'innovación' },
+  { kw: 'innovacion', label: 'innovación' },
+  { kw: 'torres quevedo', label: 'Torres Quevedo' },
+  { kw: 'doctorado', label: 'doctorado' },
+  { kw: 'doctorando', label: 'doctorando' },
+  { kw: 'neotec', label: 'Neotec (CDTI)' },
+  { kw: 'innterconecta', label: 'Innterconecta (CDTI)' },
+  { kw: 'misiones cdti', label: 'Misiones CDTI' },
+  { kw: 'misiones de ciencia', label: 'Misiones Ciencia' },
+  { kw: 'cervera', label: 'Cervera (CDTI)' },
+  { kw: 'innodemanda', label: 'Innodemanda' },
+  { kw: 'línea directa', label: 'Línea Directa (CDTI)' },
+  { kw: 'linea directa', label: 'Línea Directa (CDTI)' },
+  { kw: 'transferencia tecnológica', label: 'transferencia tecnológica' },
+  { kw: 'transferencia tecnologica', label: 'transferencia tecnológica' },
+  { kw: 'transferencia de tecnología', label: 'transferencia de tecnología' },
+  { kw: 'prototipo', label: 'prototipo' },
+  { kw: 'demostrador', label: 'demostrador' },
+  { kw: 'piloto industrial', label: 'piloto industrial' },
+  { kw: ' trl ', label: 'TRL' },
+  { kw: 'consorcio i+d', label: 'consorcio I+D' },
+  { kw: 'patente', label: 'patente' },
+  { kw: 'patentes', label: 'patentes' },
+  { kw: 'deep tech', label: 'deep tech' },
+  { kw: 'spin-off', label: 'spin-off' },
+  { kw: 'spin off', label: 'spin-off' },
+  { kw: 'pyme innovadora', label: 'PYME Innovadora' },
+  { kw: 'empresa innovadora', label: 'empresa innovadora' },
+  { kw: 'plan estatal de investigación', label: 'Plan Estatal Investigación' },
+  { kw: 'plan estatal de investigacion', label: 'Plan Estatal Investigación' },
+  { kw: 'plan nacional i+d', label: 'Plan Nacional I+D' },
+  { kw: 'eureka', label: 'Eureka' },
+  { kw: 'eurostars', label: 'Eurostars' },
+  { kw: 'horizonte europa', label: 'Horizonte Europa' },
+  { kw: 'horizon europe', label: 'Horizon Europe' },
+  { kw: 'agrupación empresarial innovadora', label: 'AEI' },
+  { kw: 'centro tecnológico', label: 'Centro Tecnológico' },
+  { kw: 'valorización', label: 'valorización' },
+]
+
+const RDI_MEDIUM_KEYWORDS = [
+  { kw: 'modernización', label: 'modernización' },
+  { kw: 'modernizacion', label: 'modernización' },
+  { kw: 'digitalización', label: 'digitalización' },
+  { kw: 'digitalizacion', label: 'digitalización' },
+  { kw: 'transformación digital', label: 'transformación digital' },
+  { kw: 'transformacion digital', label: 'transformación digital' },
+  { kw: 'industrial', label: 'industrial' },
+  { kw: 'cooperación', label: 'cooperación' },
+  { kw: 'cooperacion', label: 'cooperación' },
+  { kw: 'colaboración', label: 'colaboración' },
+  { kw: 'colaboracion', label: 'colaboración' },
+  { kw: 'emprendimiento', label: 'emprendimiento' },
+  { kw: 'tecnológic', label: 'tecnológico' },
+  { kw: 'tecnologic', label: 'tecnológico' },
+  { kw: 'sostenibilidad', label: 'sostenibilidad' },
+  { kw: 'internacionalización', label: 'internacionalización' },
+  { kw: 'internacionalizacion', label: 'internacionalización' },
+]
+
+interface RdiScoreResult {
+  score: number       // 0-100
+  reasons: string[]   // qué matched (para debug + transparencia agente)
+}
+
+function calculateRdiScore(call: NormalizedCall): RdiScoreResult {
+  // EU portal: todo el portal es I+D+i + Emprendimiento + Innovación
+  if (call.source === 'EU_PORTAL') {
+    return { score: 100, reasons: ['EU funding portal (Horizon/Digital Europe/EIC/etc.)'] }
+  }
+
+  // BDNS: analizamos texto
+  const text = `${call.title} ${call.fundingBody} ${call.program} ${call.typeOfAction || ''} ${call.description || ''}`.toLowerCase()
+
+  let score = 0
+  const reasons: string[] = []
+
+  // Organismo fuerte → 80 (uno solo basta)
+  const orgMatch = RDI_STRONG_ORGS.find(o => text.includes(o.kw))
+  if (orgMatch) {
+    score = Math.max(score, 80)
+    reasons.push(`organismo: ${orgMatch.label}`)
+  }
+
+  // Keyword fuerte → 70 (cualquiera de la lista)
+  const kwMatch = RDI_STRONG_KEYWORDS.find(k => text.includes(k.kw))
+  if (kwMatch) {
+    score = Math.max(score, 70)
+    reasons.push(`keyword: ${kwMatch.label}`)
+  }
+
+  // Keywords medios → 20 cada uno, acumulativo, cap 100
+  const mediumHits = RDI_MEDIUM_KEYWORDS.filter(m => text.includes(m.kw))
+  if (mediumHits.length > 0) {
+    score += mediumHits.length * 20
+    for (const m of mediumHits) reasons.push(`tema: ${m.label}`)
+  }
+
+  return { score: Math.min(score, 100), reasons }
 }
 
 /* ----------------------------------------------------------
@@ -1411,6 +1549,7 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
       geographicScope: 'European',
       aidType: 'Grant',
       actionable: true, // EU portal ya es I+D+i por naturaleza
+      // rdiScore se añade fuera del builder para no duplicar lógica
     }
   } catch (err) {
     console.error('normalizeEUCall failed for raw:', JSON.stringify(raw).slice(0, 300))
@@ -1755,6 +1894,16 @@ app.post('/discovery/sync', requireAuth, async (req, res) => {
     }
   }
 
+  // Enriquecer cada call con rdiScore (0-100) — usado por el módulo Roadmap como filtro
+  for (const c of allCalls) {
+    const { score, reasons } = calculateRdiScore(c)
+    c.rdiScore = score
+    c.rdiReasons = reasons
+  }
+  const idiHigh = allCalls.filter(c => (c.rdiScore || 0) >= 80).length
+  const idiMid = allCalls.filter(c => (c.rdiScore || 0) >= 50 && (c.rdiScore || 0) < 80).length
+  console.log(`🎯 R+D+i scoring: ${idiHigh} high (≥80), ${idiMid} mid (50-79), ${allCalls.length - idiHigh - idiMid} low (<50)`)
+
   res.json({
     calls: allCalls,
     syncedAt: new Date().toISOString(),
@@ -1765,6 +1914,8 @@ app.post('/discovery/sync', requireAuth, async (req, res) => {
       eu: allCalls.filter(c => c.source === 'EU_PORTAL').length,
       bdns: allCalls.filter(c => c.source === 'BDNS').length,
       actionable: allCalls.filter(c => c.actionable).length,
+      idiHigh,
+      idiMid,
     },
   })
 })
