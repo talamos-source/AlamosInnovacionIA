@@ -468,6 +468,16 @@
   padding: 1px 6px;
   border-radius: var(--radius-full);
 }
+.rm-picker-analyzing {
+  background: var(--color-brand-100);
+  color: var(--color-brand-700);
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: var(--font-weight-medium);
+}
 
 /* ---------- SUMMARY CARD ---------- */
 

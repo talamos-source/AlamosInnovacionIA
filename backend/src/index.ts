@@ -766,18 +766,19 @@ Output a JSON object EXACTLY matching this schema:
 ═══════════════════════════════════════════════════════════════════════
 ELIGIBILITY RULES (HARD CONSTRAINTS — never break)
 ═══════════════════════════════════════════════════════════════════════
-- NEOTEC: ONLY for companies ≤3 years since incorporation. If client is older or already
-  has NEOTEC in funding history → DO NOT RECOMMEND.
-- CDTI grants (PID, Cervera, Línea Directa, Neotec, Misiones, Innterconecta): each project
-  type can be granted ONCE per project. If client has already WON a specific CDTI programme
-  for a specific project line, don't recommend the SAME programme for the same line again.
-- Torres Quevedo / Doctorados Industriales: 1 per company per year maximum.
+- NEOTEC: ONLY for companies ≤3 years since incorporation. ONCE-IN-LIFETIME per company.
+  If client is older than 3y OR already has NEOTEC in funding history → DO NOT RECOMMEND.
 - EIC Accelerator: ONLY for SMEs (PYME). If client is grande empresa → exclude.
 - EIC Pathfinder/Transition: requires consortium typically. Check preferredProjectType.
 - Eurostars: requires consortium with ≥2 Eureka countries. Solo-bid clients should consider
   it only if they have international partners.
 - LIFE: requires environment/climate angle. If client has NO sustainability dimension → skip.
-- Avoid double-funding: never recommend two grants overlapping in scope + time period.
+
+OTHER PROGRAMMES (CDTI PID, Cervera, Línea Directa, Misiones, Innterconecta, Torres Quevedo,
+Doctorados Industriales, EIC, Horizon, etc.) CAN BE REQUESTED MULTIPLE TIMES by the same
+company for DIFFERENT projects or technology lines. Past wins are informational context,
+NOT a blocker. Use them only to (a) calibrate the client's track record (b) avoid recommending
+the EXACT same project twice in overlapping periods.
 
 Rules:
 - Recommend 10-15 calls maximum. The consultant will filter further. Aim higher rather than lower.
@@ -905,10 +906,34 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
         ].filter(Boolean).join('\n')
       : ''
 
-    // Funding history (helps agent avoid overlaps and consider track record)
+    // Detección específica de NEOTEC en histórico — única regla de one-shot-lifetime.
+    // Otros programas (CDTI PID, Cervera, Línea Directa, etc.) SE PUEDEN volver a solicitar
+    // para un proyecto/línea tecnológica distinta. Solo NEOTEC es estricto.
+    const hasWonNeotec = (fundingProfile?.fundingHistory || []).some(h => {
+      if (h.status !== 'won') return false
+      const combined = `${h.name} ${h.programme} ${h.projectDescription}`.toUpperCase()
+      return combined.includes('NEOTEC') || combined.includes('EMPRESAS DE BASE TECNOLÓGICA')
+        || combined.includes('EMPRESAS DE BASE TECNOLOGICA')
+    })
+
+    const wonBlocklist = hasWonNeotec
+      ? [
+          '\n\n═══════════════════════════════════════════════════════════════════════',
+          '🚫 HARD BLOCK — CLIENT ALREADY WON NEOTEC',
+          '═══════════════════════════════════════════════════════════════════════',
+          'NEOTEC is once-in-lifetime per company. The client has WON NEOTEC in the past.',
+          'NEVER recommend NEOTEC, CDTI-NEOTEC-ANNUAL-2026, "Empresas de Base Tecnológica",',
+          'or any NEOTEC variant. Treat NEOTEC as IF IT DID NOT EXIST in the catalog.',
+          '',
+          'Other won programmes (CDTI PID, Cervera, Línea Directa, etc.) CAN be reapplied',
+          'for different projects or technology lines — the past win is just context.',
+        ].join('\n')
+      : ''
+
+    // Funding history (helps agent consider track record + amounts + tech themes)
     const historyLines = fundingProfile?.fundingHistory && fundingProfile.fundingHistory.length > 0
       ? [
-          '\n\n=== FUNDING HISTORY (past applications) ===',
+          '\n\n=== FUNDING HISTORY (past applications, for context — see blocklist above) ===',
           ...fundingProfile.fundingHistory.map((h, i) => {
             const statusStr = h.status === 'won'
               ? `WON${h.executionStatus ? ` (${h.executionStatus})` : ''}`
@@ -1071,7 +1096,7 @@ Return JSON { "candidateIds": [...] } with 30-60 callIds that plausibly fit this
       }),
     ].join('\n')
 
-    const pass2FullPrompt = clientLines + contextLines + fpLines + historyLines + pass2CallsLines
+    const pass2FullPrompt = clientLines + contextLines + fpLines + wonBlocklist + historyLines + pass2CallsLines
 
     console.log(`🎯 Pass 2 (deep matcher): ${candidates.length} candidates, promptChars=${pass2FullPrompt.length}`)
 
@@ -1127,6 +1152,125 @@ ${pass2FullPrompt}`,
     return res.status(500).json({
       error: err?.message || 'Roadmap generation failed',
     })
+  }
+})
+
+/* ============================================================
+   POST /ai/analyze-call-fit
+   Análisis del fit de UNA call específica para un cliente.
+   Usado cuando el consultor añade una call manualmente al roadmap.
+   ============================================================ */
+
+app.post('/ai/analyze-call-fit', requireAuth, async (req, res) => {
+  if (!anthropic) {
+    return res.status(503).json({ error: 'AI not configured.' })
+  }
+
+  const { customer, context, fundingProfile, call, timeline } = (req.body || {}) as RoadmapPayload & {
+    call: RoadmapPayload['calls'][0]
+  }
+
+  if (!customer || !call) {
+    return res.status(400).json({ error: 'customer and call are required.' })
+  }
+
+  try {
+    // Edad empresa para regla NEOTEC
+    let companyAgeYears: number | null = null
+    if (customer.incorporationDate) {
+      const inc = new Date(customer.incorporationDate)
+      if (!Number.isNaN(inc.getTime())) {
+        companyAgeYears = Math.floor((Date.now() - inc.getTime()) / (365.25 * 86400000))
+      }
+    }
+
+    const wonProgrammes = (fundingProfile?.fundingHistory || [])
+      .filter(h => h.status === 'won')
+      .map(h => `${h.name} (${h.organism || '?'} ${h.year})`)
+
+    const clientBlock = [
+      `Client: ${customer.name || ''} ${customer.company ? `(${customer.company})` : ''}`,
+      customer.country && `Country: ${customer.country} · Region: ${customer.region || ''}`,
+      customer.companySize && `Size: ${customer.companySize}`,
+      companyAgeYears !== null && `Age: ${companyAgeYears} years`,
+      customer.description && `Description: ${customer.description.slice(0, 400)}`,
+      context?.technologyInnovation && `Tech: ${context.technologyInnovation.slice(0, 300)}`,
+      context?.businessModel && `Business: ${context.businessModel.slice(0, 200)}`,
+      context?.rdiRoadmap && `R+D+i roadmap: ${context.rdiRoadmap.slice(0, 200)}`,
+      fundingProfile?.coFinancingCapacityPercent !== undefined &&
+        `Co-financing capacity: ${fundingProfile.coFinancingCapacityPercent}%`,
+      fundingProfile?.preferredProjectType && `Project type preference: ${fundingProfile.preferredProjectType}`,
+      fundingProfile?.desiredAmountRange && `Desired amount: ${fundingProfile.desiredAmountRange}`,
+      wonProgrammes.length > 0 && `\n🚫 ALREADY WON (do not propose again): ${wonProgrammes.join(', ')}`,
+    ].filter(Boolean).join('\n')
+
+    const callBlock = [
+      `Call: ${call.title}`,
+      `ID: ${call.externalId}  ·  Source: ${call.source}`,
+      `Programme: ${call.program || '?'}`,
+      call.typeOfAction && `Type of action: ${call.typeOfAction}`,
+      call.region && `Region: ${call.region}`,
+      call.budget && `Budget: ${call.budget}`,
+      call.closeDate && `Deadline: ${call.closeDate.split('T')[0]}`,
+      call.description && `Description: ${call.description.slice(0, 400)}`,
+    ].filter(Boolean).join('\n')
+
+    const userMsg = `Analyze the FIT of ONE specific funding call for this client.
+
+═══ CLIENT ═══
+${clientBlock}
+
+═══ CALL ═══
+${callBlock}
+
+Return a JSON object EXACTLY matching this schema:
+{
+  "fitScore": <integer 0-100>,
+  "reasoning": "2-3 sentences explaining why this call fits (or does not fit) this client.",
+  "recommendedMonth": "YYYY-MM (when to START preparing — within ${timeline || 2} years of today)",
+  "estimatedFundingRange": "human-readable € range (e.g. '€100K-€500K')",
+  "risks": "1 sentence about main risk or watchout.",
+  "eligibilityFlag": "OK" | "WARNING" | "BLOCKED" (BLOCKED only if hard rules clearly fail, e.g. NEOTEC for ${companyAgeYears && companyAgeYears > 3 ? 'NOT eligible — company exceeds 3y' : 'eligible'})
+}
+
+Apply ELIGIBILITY RULES (NEOTEC ≤3y company; if already won, never recommend again; EIC Accelerator SME-only; etc.).
+TRL is subjective — never reject solely on TRL.
+Return ONLY the JSON, no markdown fences, no surrounding text.`
+
+    const stream = anthropic.messages.stream({
+      model: CLAUDE_MODEL_FAST,
+      max_tokens: 800,
+      system: ROADMAP_SYSTEM_PROMPT, // reutilizamos las eligibility rules y conocimiento de programas
+      messages: [{ role: 'user', content: userMsg }],
+    })
+    const finalMessage = await stream.finalMessage()
+    const firstBlock = finalMessage.content[0]
+    const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : ''
+
+    let jsonText = text.trim()
+    if (jsonText.startsWith('```')) {
+      jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+    }
+    let parsed: any
+    try {
+      parsed = JSON.parse(jsonText)
+    } catch (parseErr) {
+      console.error('analyze-call-fit: invalid JSON:', text.slice(0, 300))
+      return res.status(502).json({ error: 'AI returned invalid JSON', raw: text.slice(0, 500) })
+    }
+
+    return res.json({
+      fit: parsed,
+      analyzedAt: new Date().toISOString(),
+      model: CLAUDE_MODEL_FAST,
+      tokensUsed: {
+        input: finalMessage.usage?.input_tokens ?? 0,
+        output: finalMessage.usage?.output_tokens ?? 0,
+      },
+    })
+  } catch (err: any) {
+    console.error('analyze-call-fit error:', err)
+    return res.status(500).json({ error: err?.message || 'analyze failed' })
   }
 })
 
