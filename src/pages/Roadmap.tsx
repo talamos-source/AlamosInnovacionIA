@@ -700,7 +700,13 @@ const RoadmapPage = () => {
           </section>
 
           <section className="rm-recommendations">
-            {activeRoadmap.result.recommendations.map((rec, i) => (
+            {[...activeRoadmap.result.recommendations]
+              .sort((a, b) => {
+                // Ordena por fit score DESC, desempate por priorityOrder ASC
+                if (b.fitScore !== a.fitScore) return b.fitScore - a.fitScore
+                return a.priorityOrder - b.priorityOrder
+              })
+              .map((rec, i) => (
               <RecommendationCard
                 key={rec.callId + i}
                 rec={rec}

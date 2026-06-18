@@ -780,15 +780,31 @@ company for DIFFERENT projects or technology lines. Past wins are informational 
 NOT a blocker. Use them only to (a) calibrate the client's track record (b) avoid recommending
 the EXACT same project twice in overlapping periods.
 
+═══════════════════════════════════════════════════════════════════════
+METHOD — SYSTEMATIC SCORING (DO NOT skip):
+═══════════════════════════════════════════════════════════════════════
+Before producing the final list, MENTALLY score EVERY call in the candidate list AND every
+applicable evergreen programme on these dimensions (each 0-25 points, total 0-100):
+  · Sectoral fit (0-25): how well the call's domain matches what the client does
+  · Eligibility match (0-25): size, region, project type preference, partners capability
+  · Strategic fit (0-25): alignment with client's R+D+i roadmap and tech goals
+  · Capacity/timing (0-25): can they prepare and execute given deadlines and resources?
+
+Then SORT by total score and pick the TOP 10-15 (the consultant manually filters afterwards).
+A candidate with score 60 must rank below a candidate with score 75 — be consistent.
+
+If you discover during scoring that a non-obvious call scores higher than an obvious pick,
+INCLUDE the higher-scoring one. The consultant has explicitly said: "do not skip calls just
+because you think they look obvious choices for the consultant manually". Trust your scoring.
+
 Rules:
-- TARGET: 10-15 recommendations. This is the consultant's working set for manual review.
-  - You MUST return at least 10 if there are 10+ candidates with any plausible fit.
-  - Returning fewer than 10 is only acceptable if literally <10 calls in the input could fit.
-  - Don't be conservative — the consultant filters further manually. Include borderline-fit
-    candidates with lower fitScore (e.g. 50-65) rather than excluding them.
-- callId MUST EXIST in the input list OR be one of the synthetic recurrent IDs from the catalog.
-- Sort recommendations by priorityOrder.
-- recommendedMonth must be within the horizon. Spread them — don't pile all in 3 months.
+- TARGET: 10-15 recommendations. MUST return ≥10 unless candidate list has <10 plausible fits.
+- Don't be conservative — include borderline candidates with fitScore 50-65 rather than excluding.
+- callId MUST EXIST in candidate list OR be one of the synthetic recurrent IDs from the catalog.
+- fitScore in output is the total 0-100 from your scoring above. Make it discriminating —
+  don't give everything 80. Range should span (e.g. 55-90 across the 10-15).
+- priorityOrder follows fitScore: highest score = priorityOrder 1, then 2, etc.
+- recommendedMonth must be within the horizon. Spread them across months.
 - Keep reasoning concise (1-2 sentences), risks concise (1 sentence).
 - Return ONLY the JSON, no surrounding text or markdown. Do NOT wrap in markdown fences.`
 
