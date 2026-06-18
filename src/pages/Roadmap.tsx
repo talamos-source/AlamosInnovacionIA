@@ -263,28 +263,99 @@ const RoadmapPage = () => {
     }))
   }
 
-  const handleAddFromDiscovery = (call: DiscoveryCall) => {
-    if (!activeRoadmap) return
+  const [analyzingCallId, setAnalyzingCallId] = useState<string | null>(null)
+
+  const handleAddFromDiscovery = async (call: DiscoveryCall) => {
+    if (!activeRoadmap || !customer || !customerId) return
     const exists = activeRoadmap.result.recommendations.some(rec => rec.callId === call.externalId)
     if (exists) {
       alert('This call is already in the roadmap.')
       return
     }
+
+    setAnalyzingCallId(call.externalId)
+    type FitResult = {
+      fitScore: number
+      reasoning: string
+      recommendedMonth: string
+      estimatedFundingRange: string
+      risks: string
+      eligibilityFlag?: 'OK' | 'WARNING' | 'BLOCKED'
+    }
+    let fit: FitResult | null = null
+
+    try {
+      const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) || 'https://alamosinnovacionia.onrender.com'
+      const token = localStorage.getItem('authToken') || ''
+      const r = await fetch(`${API_BASE}/ai/analyze-call-fit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          customer: {
+            name: customer.name,
+            company: customer.company,
+            country: customer.country,
+            region: customer.region,
+            companySize: customer.companySize,
+            category: customer.category,
+            description: customer.description,
+            incorporationDate: customer.incorporationDate,
+          },
+          context: flattenContext(context),
+          fundingProfile,
+          call: {
+            externalId: call.externalId,
+            source: call.source,
+            title: call.title,
+            fundingBody: call.fundingBody,
+            program: call.program,
+            typeOfAction: call.typeOfAction,
+            region: call.region,
+            budget: call.budget,
+            closeDate: call.closeDate,
+            openDate: call.openDate,
+            externalStatus: call.externalStatus,
+            rdiScore: call.rdiScore,
+            description: call.description,
+          },
+          timeline: activeRoadmap.timeline,
+        }),
+      })
+      if (r.ok) {
+        const data = await r.json() as { fit: FitResult }
+        fit = data.fit
+      } else {
+        console.warn('analyze-call-fit failed', await r.text())
+      }
+    } catch (e) {
+      console.warn('analyze-call-fit error', e)
+    } finally {
+      setAnalyzingCallId(null)
+    }
+
     const nextOrder = activeRoadmap.result.recommendations.length + 1
-    const recommendedMonth = call.closeDate
+    const fallbackMonth = call.closeDate
       ? call.closeDate.slice(0, 7)
       : new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 7)
+
     const newRec: RoadmapRecommendation = {
       callId: call.externalId,
       title: call.title,
       source: call.source,
-      fitScore: 0,
-      reasoning: 'Manually added by consultant.',
-      recommendedMonth,
-      estimatedFundingRange: call.budget || '—',
-      risks: '—',
+      fitScore: fit?.fitScore ?? 50,
+      reasoning: fit?.reasoning || 'Manually added by consultant. AI fit analysis unavailable.',
+      recommendedMonth: fit?.recommendedMonth || fallbackMonth,
+      estimatedFundingRange: fit?.estimatedFundingRange || call.budget || '—',
+      risks: fit?.risks || '—',
       priorityOrder: nextOrder,
     }
+
+    if (fit?.eligibilityFlag === 'BLOCKED') {
+      if (!confirm(`⚠️ AI flagged this call as BLOCKED for eligibility reasons:\n\n${fit.reasoning}\n\nAdd anyway?`)) {
+        return
+      }
+    }
+
     updateActiveRoadmap(r => ({
       ...r,
       result: {
@@ -472,7 +543,7 @@ const RoadmapPage = () => {
           </div>
           <span className="rm-pipeline-arrow">→</span>
           <div className="rm-pipeline-step">
-            <span className="rm-pipeline-num">~5-8</span>
+            <span className="rm-pipeline-num">~10-15</span>
             <span className="rm-pipeline-label">Final recommendations</span>
             <span className="rm-pipeline-hint">incl. evergreen CDTI/EIC if fit</span>
           </div>
@@ -670,13 +741,14 @@ const RoadmapPage = () => {
                 .slice(0, 200)
                 .map(c => {
                   const isAdded = activeRoadmap?.result.recommendations.some(rec => rec.callId === c.externalId)
+                  const isAnalyzing = analyzingCallId === c.externalId
                   return (
                     <button
                       key={c.externalId}
                       type="button"
                       className={`rm-picker-item ${isAdded ? 'added' : ''}`}
-                      onClick={() => !isAdded && handleAddFromDiscovery(c)}
-                      disabled={isAdded}
+                      onClick={() => !isAdded && !analyzingCallId && handleAddFromDiscovery(c)}
+                      disabled={isAdded || !!analyzingCallId}
                     >
                       <div className="rm-picker-item-main">
                         <span className={`rm-source-badge rm-source-badge--${c.source.toLowerCase()}`}>{sourceLabel(c.source)}</span>
@@ -687,6 +759,7 @@ const RoadmapPage = () => {
                         {c.region && <span>· {c.region}</span>}
                         {c.closeDate && <span>· closes {new Date(c.closeDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
                         {isAdded && <span className="rm-picker-added-tag">already added</span>}
+                        {isAnalyzing && <span className="rm-picker-analyzing"><Loader2 size={11} className="spin" /> analyzing fit…</span>}
                       </div>
                     </button>
                   )
@@ -704,7 +777,7 @@ const RoadmapPage = () => {
           <p>Set your horizon (1, 2 or 3 years) and click <strong>Generate Roadmap</strong>.</p>
           <p className="muted">
             From {idiCalls.length} I+D+i opportunities in Discovery, we'll send the top {idiCallsForAgent.length} (best scored + most urgent) to the AI agent.
-            The agent picks 8-15 that fit this client and builds the timeline.
+            The agent picks 10-15 that fit this client and builds the timeline.
           </p>
         </section>
       )}
