@@ -1109,6 +1109,7 @@ ${pass2FullPrompt}`,
       jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let parsed: any
     try {
       parsed = JSON.parse(jsonText)
@@ -1118,6 +1119,48 @@ ${pass2FullPrompt}`,
         error: 'AI returned invalid JSON',
         raw: text.slice(0, 1500),
       })
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // PASS 3: RE-SCORING — analiza cada recommendation individualmente para garantizar
+    // consistencia con el endpoint /ai/analyze-call-fit. El multi-pass agent a veces da
+    // scores conservadores por dividir atención entre 50 calls; aquí re-score cada una.
+    // ─────────────────────────────────────────────────────────
+    if (Array.isArray(parsed?.recommendations) && parsed.recommendations.length > 0) {
+      console.log(`🎯 Pass 3 (re-scoring): ${parsed.recommendations.length} recommendations…`)
+      const rescoreStart = Date.now()
+      const rescoredRecs = await Promise.all(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        parsed.recommendations.map(async (rec: any) => {
+          // Encuentra la call original en pool (candidates + evergreen)
+          const callObj = calls.find(c => c.externalId === rec.callId)
+          if (!callObj) {
+            console.warn(`   ↳ ${rec.callId}: not in pool, keeping original score`)
+            return rec
+          }
+          try {
+            const fitResult = await analyzeCallFitInternal(customer, context, fundingProfile, callObj, timeline)
+            return {
+              ...rec,
+              fitScore: typeof fitResult.parsed.fitScore === 'number' ? fitResult.parsed.fitScore : rec.fitScore,
+              reasoning: fitResult.parsed.reasoning || rec.reasoning,
+              recommendedMonth: fitResult.parsed.recommendedMonth || rec.recommendedMonth,
+              estimatedFundingRange: fitResult.parsed.estimatedFundingRange || rec.estimatedFundingRange,
+              risks: fitResult.parsed.risks || rec.risks,
+            }
+          } catch (e) {
+            console.warn(`   ↳ ${rec.callId}: re-score failed, keeping original`, e instanceof Error ? e.message : '')
+            return rec
+          }
+        })
+      )
+      // Re-sort por fitScore desc + recompute priorityOrder
+      rescoredRecs.sort((a, b) => (b.fitScore ?? 0) - (a.fitScore ?? 0))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rescoredRecs.forEach((r: any, i: number) => { r.priorityOrder = i + 1 })
+      parsed.recommendations = rescoredRecs
+      const rescoreElapsed = ((Date.now() - rescoreStart) / 1000).toFixed(1)
+      console.log(`   ↳ re-scored in ${rescoreElapsed}s`)
     }
 
     return res.json({
@@ -1146,61 +1189,61 @@ ${pass2FullPrompt}`,
    Usado cuando el consultor añade una call manualmente al roadmap.
    ============================================================ */
 
-app.post('/ai/analyze-call-fit', requireAuth, async (req, res) => {
-  if (!anthropic) {
-    return res.status(503).json({ error: 'AI not configured.' })
-  }
+/**
+ * Helper interno: analiza el fit de UNA call para un cliente.
+ * Usado tanto por el endpoint /ai/analyze-call-fit como por el roadmap (re-scoring pass)
+ * para garantizar consistencia entre análisis individuales y roadmap global.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function analyzeCallFitInternal(
+  customer: RoadmapPayload['customer'],
+  context: RoadmapPayload['context'],
+  fundingProfile: RoadmapPayload['fundingProfile'],
+  call: RoadmapPayload['calls'][0],
+  timeline: number,
+): Promise<any> {
+  if (!anthropic) throw new Error('Anthropic not configured')
 
-  const { customer, context, fundingProfile, call, timeline } = (req.body || {}) as RoadmapPayload & {
-    call: RoadmapPayload['calls'][0]
-  }
-
-  if (!customer || !call) {
-    return res.status(400).json({ error: 'customer and call are required.' })
-  }
-
-  try {
-    // Edad empresa para regla NEOTEC
-    let companyAgeYears: number | null = null
-    if (customer.incorporationDate) {
-      const inc = new Date(customer.incorporationDate)
-      if (!Number.isNaN(inc.getTime())) {
-        companyAgeYears = Math.floor((Date.now() - inc.getTime()) / (365.25 * 86400000))
-      }
+  let companyAgeYears: number | null = null
+  if (customer.incorporationDate) {
+    const inc = new Date(customer.incorporationDate)
+    if (!Number.isNaN(inc.getTime())) {
+      companyAgeYears = Math.floor((Date.now() - inc.getTime()) / (365.25 * 86400000))
     }
+  }
 
-    const wonProgrammes = (fundingProfile?.fundingHistory || [])
-      .filter(h => h.status === 'won')
-      .map(h => `${h.name} (${h.organism || '?'} ${h.year})`)
+  const wonProgrammes = (fundingProfile?.fundingHistory || [])
+    .filter(h => h.status === 'won')
+    .map(h => `${h.name} (${h.organism || '?'} ${h.year})`)
 
-    const clientBlock = [
-      `Client: ${customer.name || ''} ${customer.company ? `(${customer.company})` : ''}`,
-      customer.country && `Country: ${customer.country} · Region: ${customer.region || ''}`,
-      customer.companySize && `Size: ${customer.companySize}`,
-      companyAgeYears !== null && `Age: ${companyAgeYears} years`,
-      customer.description && `Description: ${customer.description.slice(0, 400)}`,
-      context?.technologyInnovation && `Tech: ${context.technologyInnovation.slice(0, 300)}`,
-      context?.businessModel && `Business: ${context.businessModel.slice(0, 200)}`,
-      context?.rdiRoadmap && `R+D+i roadmap: ${context.rdiRoadmap.slice(0, 200)}`,
-      fundingProfile?.coFinancingCapacityPercent !== undefined &&
-        `Co-financing capacity: ${fundingProfile.coFinancingCapacityPercent}%`,
-      fundingProfile?.preferredProjectType && `Project type preference: ${fundingProfile.preferredProjectType}`,
-      fundingProfile?.desiredAmountRange && `Desired amount: ${fundingProfile.desiredAmountRange}`,
-      wonProgrammes.length > 0 && `\n🚫 ALREADY WON (do not propose again): ${wonProgrammes.join(', ')}`,
-    ].filter(Boolean).join('\n')
+  const clientBlock = [
+    `Client: ${customer.name || ''} ${customer.company ? `(${customer.company})` : ''}`,
+    customer.country && `Country: ${customer.country} · Region: ${customer.region || ''}`,
+    customer.companySize && `Size: ${customer.companySize}`,
+    companyAgeYears !== null && `Age: ${companyAgeYears} years`,
+    customer.description && `Description: ${customer.description.slice(0, 400)}`,
+    context?.technologyInnovation && `Tech: ${context.technologyInnovation.slice(0, 300)}`,
+    context?.businessModel && `Business: ${context.businessModel.slice(0, 200)}`,
+    context?.rdiRoadmap && `R+D+i roadmap: ${context.rdiRoadmap.slice(0, 200)}`,
+    fundingProfile?.coFinancingCapacityPercent !== undefined &&
+      `Co-financing capacity: ${fundingProfile.coFinancingCapacityPercent}%`,
+    fundingProfile?.preferredProjectType && `Project type preference: ${fundingProfile.preferredProjectType}`,
+    fundingProfile?.desiredAmountRange && `Desired amount: ${fundingProfile.desiredAmountRange}`,
+    wonProgrammes.length > 0 && `\n🚫 ALREADY WON (do not propose again): ${wonProgrammes.join(', ')}`,
+  ].filter(Boolean).join('\n')
 
-    const callBlock = [
-      `Call: ${call.title}`,
-      `ID: ${call.externalId}  ·  Source: ${call.source}`,
-      `Programme: ${call.program || '?'}`,
-      call.typeOfAction && `Type of action: ${call.typeOfAction}`,
-      call.region && `Region: ${call.region}`,
-      call.budget && `Budget: ${call.budget}`,
-      call.closeDate && `Deadline: ${call.closeDate.split('T')[0]}`,
-      call.description && `Description: ${call.description.slice(0, 400)}`,
-    ].filter(Boolean).join('\n')
+  const callBlock = [
+    `Call: ${call.title}`,
+    `ID: ${call.externalId}  ·  Source: ${call.source}`,
+    `Programme: ${call.program || '?'}`,
+    call.typeOfAction && `Type of action: ${call.typeOfAction}`,
+    call.region && `Region: ${call.region}`,
+    call.budget && `Budget: ${call.budget}`,
+    call.closeDate && `Deadline: ${call.closeDate.split('T')[0]}`,
+    call.description && `Description: ${call.description.slice(0, 400)}`,
+  ].filter(Boolean).join('\n')
 
-    const userMsg = `Analyze the FIT of ONE specific funding call for this client.
+  const userMsg = `Analyze the FIT of ONE specific funding call for this client.
 
 ═══ CLIENT ═══
 ${clientBlock}
@@ -1222,36 +1265,47 @@ Apply ELIGIBILITY RULES (NEOTEC ≤3y company; if already won, never recommend a
 TRL is subjective — never reject solely on TRL.
 Return ONLY the JSON, no markdown fences, no surrounding text.`
 
-    const stream = anthropic.messages.stream({
-      model: CLAUDE_MODEL_FAST,
-      max_tokens: 800,
-      system: ROADMAP_SYSTEM_PROMPT, // reutilizamos las eligibility rules y conocimiento de programas
-      messages: [{ role: 'user', content: userMsg }],
-    })
-    const finalMessage = await stream.finalMessage()
-    const firstBlock = finalMessage.content[0]
-    const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : ''
+  const stream = anthropic.messages.stream({
+    model: CLAUDE_MODEL_FAST,
+    max_tokens: 800,
+    system: ROADMAP_SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: userMsg }],
+  })
+  const finalMessage = await stream.finalMessage()
+  const firstBlock = finalMessage.content[0]
+  const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : ''
 
-    let jsonText = text.trim()
-    if (jsonText.startsWith('```')) {
-      jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
-    }
-    let parsed: any
-    try {
-      parsed = JSON.parse(jsonText)
-    } catch (parseErr) {
-      console.error('analyze-call-fit: invalid JSON:', text.slice(0, 300))
-      return res.status(502).json({ error: 'AI returned invalid JSON', raw: text.slice(0, 500) })
-    }
+  let jsonText = text.trim()
+  if (jsonText.startsWith('```')) {
+    jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+  }
+  return {
+    parsed: JSON.parse(jsonText),
+    inputTokens: finalMessage.usage?.input_tokens ?? 0,
+    outputTokens: finalMessage.usage?.output_tokens ?? 0,
+  }
+}
 
+app.post('/ai/analyze-call-fit', requireAuth, async (req, res) => {
+  if (!anthropic) {
+    return res.status(503).json({ error: 'AI not configured.' })
+  }
+
+  const { customer, context, fundingProfile, call, timeline } = (req.body || {}) as RoadmapPayload & {
+    call: RoadmapPayload['calls'][0]
+  }
+
+  if (!customer || !call) {
+    return res.status(400).json({ error: 'customer and call are required.' })
+  }
+
+  try {
+    const result = await analyzeCallFitInternal(customer, context, fundingProfile, call, timeline)
     return res.json({
-      fit: parsed,
+      fit: result.parsed,
       analyzedAt: new Date().toISOString(),
       model: CLAUDE_MODEL_FAST,
-      tokensUsed: {
-        input: finalMessage.usage?.input_tokens ?? 0,
-        output: finalMessage.usage?.output_tokens ?? 0,
-      },
+      tokensUsed: { input: result.inputTokens, output: result.outputTokens },
     })
   } catch (err: any) {
     console.error('analyze-call-fit error:', err)

@@ -360,6 +360,42 @@
   border-color: var(--color-brand-500);
 }
 
+.rm-save-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background-color: var(--color-success-50);
+  border: 1px solid var(--color-success-200);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+}
+.rm-save-banner-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+.rm-save-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background-color: var(--color-success-600);
+  color: white;
+  border-radius: 50%;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+.rm-save-banner strong {
+  color: var(--color-success-800);
+}
+.rm-save-banner .muted {
+  color: var(--color-text-secondary);
+}
+
 /* Picker modal */
 .rm-picker-overlay {
   position: fixed;

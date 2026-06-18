@@ -211,6 +211,7 @@ const RoadmapPage = () => {
   const [roadmapsState, setRoadmapsState] = useState<SavedRoadmap[]>(allRoadmaps)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerSearch, setPickerSearch] = useState('')
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
 
   const customerRoadmapsFromState = useMemo(
     () =>
@@ -249,6 +250,7 @@ const RoadmapPage = () => {
     const next = roadmapsState.map(r => (r.id === updated.id ? updated : r))
     persistRoadmaps(next)
     setActiveRoadmap(updated)
+    setLastSavedAt(new Date().toISOString())
   }
 
   const handleUpdateRecommendationMonth = (callId: string, newMonth: string) => {
@@ -460,9 +462,12 @@ const RoadmapPage = () => {
         result: data.roadmap,
       }
 
-      const next = [saved, ...allRoadmaps]
-      saveAllRoadmaps(next)
+      // FIX: usar estado vivo (roadmapsState) NO el snapshot allRoadmaps que es stale.
+      // Sin esto, al generar el 2º roadmap se perdía el 1º guardado.
+      const next = [saved, ...roadmapsState]
+      persistRoadmaps(next)
       setActiveRoadmap(saved)
+      setLastSavedAt(new Date().toISOString())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unexpected error')
     } finally {
@@ -721,6 +726,31 @@ const RoadmapPage = () => {
               onClick={() => setPickerOpen(true)}
             >
               <Plus size={18} /> Add a call from Discovery
+            </button>
+          </section>
+
+          <section className="rm-save-banner">
+            <div className="rm-save-banner-info">
+              <span className="rm-save-icon">✓</span>
+              <div>
+                <strong>Auto-saved</strong>
+                <span className="muted">
+                  {' '}all changes (add/remove/edit/regenerate) persist automatically to local storage.
+                  {lastSavedAt && ` Last save: ${new Date(lastSavedAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}.`}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                if (activeRoadmap) {
+                  persistRoadmaps(roadmapsState) // force re-save
+                  setLastSavedAt(new Date().toISOString())
+                }
+              }}
+            >
+              Force save now
             </button>
           </section>
         </>
