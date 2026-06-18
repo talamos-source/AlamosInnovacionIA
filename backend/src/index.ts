@@ -606,17 +606,28 @@ app.post('/ai/analyze-client-context', requireAuth, async (req, res) => {
 
 const ROADMAP_SYSTEM_PROMPT = `You are an expert R+D+i public funding consultant in Spain and the EU.
 Your job: given a client profile (company data + tech + funding history + preferences) and a list of
-available public funding calls (Spanish BDNS + EU Horizon/Digital Europe/EIC/etc), select the BEST
+available public funding calls (Spanish BDNS + EU Horizon/Digital Europe/EIC/LIFE/etc), select the BEST
 calls that fit this client and build a strategic timeline.
 
+IMPORTANT — the input list is broad and includes ALL R+D+i calls. Many will NOT fit this client.
+Your value comes from RIGOROUSLY filtering by sector, technology, target sector, and innovation type.
+A call that mentions "innovation" but targets film distribution is NOT relevant for a logistics
+tech client. A call targeting environment/climate (LIFE) IS relevant if the client works on
+sustainability tech, even if "I+D" doesn't appear in the title.
+
 Decision criteria (in order of importance):
-1. ELIGIBILITY: Does the client's profile (sector, size, region, TRL, partners capability) match
+1. SECTORAL FIT: Does the call's target sector/theme match what the client does?
+   · Digital/AI/IoT calls → for digital/tech clients
+   · LIFE/Climate/Green calls → for sustainability/cleantech clients
+   · Health calls → for biotech/medical clients
+   · Cultural/Audiovisual → for cultural/media clients (REJECT for non-cultural clients)
+   · Industrial calls → for manufacturing/Industry 4.0 clients
+2. ELIGIBILITY: Does the client's profile (size, region, TRL, partners capability) match
    the call requirements?
-2. STRATEGIC FIT: Does the call align with the client's R+D+i roadmap, target TRL, and tech focus?
-3. CAPACITY: Can the client realistically prepare and execute (deadlines, co-financing, dedication)?
-4. RISK: Avoid overlaps with the client's funding history (no double-funding same project type same year).
-   Avoid calls that compete for the same resources.
-5. TIMELINE: Distribute applications across the horizon for steady funding flow, not all in one quarter.
+3. STRATEGIC FIT: Does the call align with the client's R+D+i roadmap, target TRL, and tech focus?
+4. CAPACITY: Can the client realistically prepare and execute (deadlines, co-financing, dedication)?
+5. RISK: Avoid overlaps with the client's funding history (no double-funding same project type same year).
+6. TIMELINE: Distribute applications across the horizon for steady funding flow, not all in one quarter.
 
 Output a JSON object EXACTLY matching this schema:
 {
@@ -767,23 +778,25 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
         ].join('\n')
       : ''
 
-    // Calls section — COMPACT format. Cada call en una línea para reducir tokens.
-    // Sin descripciones largas — el agente decide por título + organismo + programa.
+    // Calls section — SUPER COMPACT. Una línea por call, separador pipe.
+    // Permite enviar 400-600 calls sin saturar el contexto de Haiku.
+    // Formato: i|src|ID|title|program|action|region|budget|deadline
     const callsLines = [
       '\n\n=== AVAILABLE FUNDING CALLS (R+D+i pre-filtered, deadline ≥ today) ===',
       `Total: ${calls.length}`,
+      `Format: idx|source|externalId|title|program|typeOfAction|region|budget|deadline`,
       ...calls.map((c, i) => {
-        const parts = [
-          `[${i + 1}] ${c.externalId}`,
-          `(${c.source})`,
-          c.title.slice(0, 140),
-          c.program && `· ${c.program}`,
-          c.typeOfAction && `· ${c.typeOfAction.slice(0, 60)}`,
-          c.region && `· ${c.region}`,
-          c.budget && `· ${c.budget}`,
-          c.closeDate && `· closes ${c.closeDate.split('T')[0]}`,
-        ].filter(Boolean)
-        return parts.join(' ')
+        return [
+          i + 1,
+          c.source === 'EU_PORTAL' ? 'EU' : 'ES',
+          c.externalId,
+          (c.title || '').slice(0, 120).replace(/\|/g, ''),
+          (c.program || '').slice(0, 80).replace(/\|/g, ''),
+          (c.typeOfAction || '').slice(0, 50).replace(/\|/g, ''),
+          (c.region || '').slice(0, 30).replace(/\|/g, ''),
+          c.budget || '',
+          c.closeDate ? c.closeDate.split('T')[0] : '',
+        ].join('|')
       }),
     ].join('\n')
 

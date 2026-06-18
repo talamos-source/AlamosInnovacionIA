@@ -221,15 +221,16 @@ const RoadmapPage = () => {
     })
   }, [])
 
-  // Top 40 que efectivamente se envían al agente (ordenadas por rdiScore desc, luego deadline asc)
-  const AGENT_INPUT_CAP = 40
+  // Mandamos TODAS las I+D+i al agente (hasta un cap alto). Antes filtrábamos a 40 por
+  // rdiScore+deadline, pero todas las EU tienen score=100, así que el orden era arbitrario
+  // por deadline → calls relevantes (LIFE) quedaban fuera frente a no-relevantes (Film Sales)
+  // por unas semanas de diferencia. Mejor mandar todas y que Haiku decida con contexto cliente.
+  const AGENT_INPUT_CAP = 400
   const idiCallsForAgent = useMemo(() => {
     return idiCalls
       .slice()
       .sort((a, b) => {
-        const sa = a.rdiScore ?? 0
-        const sb = b.rdiScore ?? 0
-        if (sb !== sa) return sb - sa
+        // Solo ordenamos como secundario por deadline (más urgentes primero) si hay que cortar.
         const da = a.closeDate ? new Date(a.closeDate).getTime() : Infinity
         const db = b.closeDate ? new Date(b.closeDate).getTime() : Infinity
         return da - db
@@ -364,7 +365,11 @@ const RoadmapPage = () => {
           <div className="rm-pipeline-step rm-pipeline-step--highlight">
             <span className="rm-pipeline-num">{idiCallsForAgent.length}</span>
             <span className="rm-pipeline-label">Sent to AI agent</span>
-            <span className="rm-pipeline-hint">top {AGENT_INPUT_CAP} by relevance + urgency</span>
+            <span className="rm-pipeline-hint">
+              {idiCalls.length <= AGENT_INPUT_CAP
+                ? 'all I+D+i calls'
+                : `cap at ${AGENT_INPUT_CAP} (most urgent first)`}
+            </span>
           </div>
           <span className="rm-pipeline-arrow">→</span>
           <div className="rm-pipeline-step">
