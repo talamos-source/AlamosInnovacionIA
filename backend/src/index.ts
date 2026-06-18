@@ -806,15 +806,11 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
 
     console.log(`🗺️ Generating roadmap for ${customer.name} | timeline=${timeline}y | ${calls.length} calls input | promptChars=${fullPrompt.length} | model=${CLAUDE_MODEL_FAST}`)
 
-    // STREAMING + modelo HAIKU (rápido) — para evitar timeouts intermedios.
-    // Roadmap es matching + selección estructurada, no requiere reasoning profundo.
-    const callClaudeStreaming = async (): Promise<{ text: string; inputTokens: number; outputTokens: number }> => {
-      let fullText = ''
-      let inputTokens = 0
-      let outputTokens = 0
+    // Llamada con .finalMessage() (más estable que iterar el stream manualmente).
+    const callClaudeFinal = async (): Promise<{ text: string; inputTokens: number; outputTokens: number }> => {
       const stream = anthropic!.messages.stream({
         model: CLAUDE_MODEL_FAST,
-        max_tokens: 6000,
+        max_tokens: 5000,
         system: ROADMAP_SYSTEM_PROMPT,
         messages: [
           {
@@ -827,27 +823,25 @@ ${fullPrompt}`,
           },
         ],
       })
-      for await (const event of stream) {
-        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-          fullText += event.delta.text
-        } else if (event.type === 'message_delta' && event.usage) {
-          outputTokens = event.usage.output_tokens
-        } else if (event.type === 'message_start' && event.message?.usage) {
-          inputTokens = event.message.usage.input_tokens
-          outputTokens = event.message.usage.output_tokens || 0
-        }
+      const finalMessage = await stream.finalMessage()
+      const firstBlock = finalMessage.content[0]
+      const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : ''
+      return {
+        text,
+        inputTokens: finalMessage.usage?.input_tokens ?? 0,
+        outputTokens: finalMessage.usage?.output_tokens ?? 0,
       }
-      return { text: fullText, inputTokens, outputTokens }
     }
 
     let streamResult
     try {
-      streamResult = await callClaudeStreaming()
+      streamResult = await callClaudeFinal()
     } catch (e1: any) {
       const msg = String(e1?.message || '')
-      if (msg.includes('Premature close') || msg.includes('ECONNRESET') || msg.includes('socket hang up')) {
-        console.warn(`Roadmap streaming failed (${msg.slice(0, 100)}), retrying once…`)
-        streamResult = await callClaudeStreaming()
+      console.warn(`Roadmap call failed (${msg.slice(0, 200)}), retrying once…`)
+      if (msg.includes('Premature close') || msg.includes('ECONNRESET') || msg.includes('socket hang up') || msg.includes('terminated')) {
+        await new Promise(r => setTimeout(r, 1500)) // breve espera antes de retry
+        streamResult = await callClaudeFinal()
       } else {
         throw e1
       }

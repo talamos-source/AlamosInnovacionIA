@@ -225,7 +225,7 @@ const RoadmapPage = () => {
   // rdiScore+deadline, pero todas las EU tienen score=100, así que el orden era arbitrario
   // por deadline → calls relevantes (LIFE) quedaban fuera frente a no-relevantes (Film Sales)
   // por unas semanas de diferencia. Mejor mandar todas y que Haiku decida con contexto cliente.
-  const AGENT_INPUT_CAP = 400
+  const AGENT_INPUT_CAP = 100 // Reducido drásticamente mientras debuggeamos Premature close
   const idiCallsForAgent = useMemo(() => {
     return idiCalls
       .slice()
