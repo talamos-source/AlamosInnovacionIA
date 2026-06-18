@@ -763,12 +763,28 @@ Output a JSON object EXACTLY matching this schema:
   ]
 }
 
+═══════════════════════════════════════════════════════════════════════
+ELIGIBILITY RULES (HARD CONSTRAINTS — never break)
+═══════════════════════════════════════════════════════════════════════
+- NEOTEC: ONLY for companies ≤3 years since incorporation. If client is older or already
+  has NEOTEC in funding history → DO NOT RECOMMEND.
+- CDTI grants (PID, Cervera, Línea Directa, Neotec, Misiones, Innterconecta): each project
+  type can be granted ONCE per project. If client has already WON a specific CDTI programme
+  for a specific project line, don't recommend the SAME programme for the same line again.
+- Torres Quevedo / Doctorados Industriales: 1 per company per year maximum.
+- EIC Accelerator: ONLY for SMEs (PYME). If client is grande empresa → exclude.
+- EIC Pathfinder/Transition: requires consortium typically. Check preferredProjectType.
+- Eurostars: requires consortium with ≥2 Eureka countries. Solo-bid clients should consider
+  it only if they have international partners.
+- LIFE: requires environment/climate angle. If client has NO sustainability dimension → skip.
+- Avoid double-funding: never recommend two grants overlapping in scope + time period.
+
 Rules:
-- Recommend 5-8 calls maximum. Quality over quantity.
-- callId MUST EXIST in the input list (do not invent).
+- Recommend 10-15 calls maximum. The consultant will filter further. Aim higher rather than lower.
+- callId MUST EXIST in the input list OR be one of the synthetic recurrent IDs from the catalog.
 - Sort recommendations by priorityOrder.
 - recommendedMonth must be within the horizon. Spread them.
-- If no call clearly fits, return fewer recommendations (could be 2-4).
+- If no call clearly fits, return fewer recommendations (could be 4-6).
 - Keep reasoning concise (1-2 sentences), risks concise (1 sentence).
 - Return ONLY the JSON, no surrounding text or markdown. Do NOT wrap in markdown fences.`
 
@@ -781,6 +797,7 @@ interface RoadmapPayload {
     companySize?: string
     category?: string
     description?: string
+    incorporationDate?: string // YYYY-MM-DD — para calcular edad empresa (regla NEOTEC ≤3y)
   }
   context?: {
     businessModel?: string
@@ -842,6 +859,15 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
   }
 
   try {
+    // Edad de la empresa — clave para reglas tipo NEOTEC (solo ≤3 años)
+    let companyAgeYears: number | null = null
+    if (customer.incorporationDate) {
+      const inc = new Date(customer.incorporationDate)
+      if (!Number.isNaN(inc.getTime())) {
+        companyAgeYears = Math.floor((Date.now() - inc.getTime()) / (365.25 * 86400000))
+      }
+    }
+
     // Build client section
     const clientLines = [
       '=== CLIENT PROFILE ===',
@@ -851,6 +877,8 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
       customer.region && `Region (CCAA if Spain): ${customer.region}`,
       customer.companySize && `Size: ${customer.companySize}`,
       customer.category && `Category: ${customer.category}`,
+      customer.incorporationDate && `Incorporated: ${customer.incorporationDate}`,
+      companyAgeYears !== null && `Company age: ~${companyAgeYears} years (${companyAgeYears <= 3 ? 'ELIGIBLE for NEOTEC' : 'NOT eligible for NEOTEC, exceeds 3y'})`,
       customer.description && `\nDescription:\n${customer.description}`,
     ].filter(Boolean).join('\n')
 
@@ -1050,12 +1078,13 @@ Return JSON { "candidateIds": [...] } with 30-60 callIds that plausibly fit this
     const deepResult = await callClaude(
       ROADMAP_SYSTEM_PROMPT,
       `Build a strategic R+D+i funding roadmap for this client over the next ${horizonText}.
-Select 5-8 best-fitting calls from the CANDIDATE list (already pre-filtered) and distribute them strategically across the timeline.
-You may also include 1-3 recurrent programmes from the KNOWN RECURRENT R+D+i PROGRAMMES catalog if they fit (use synthetic callIds like CDTI-NEOTEC-ANNUAL-2026).
+Select 10-15 best-fitting calls from the CANDIDATE list (already pre-filtered) and distribute them strategically across the timeline.
+INCLUDE recurrent programmes from the KNOWN RECURRENT R+D+i PROGRAMMES catalog when they fit (use synthetic callIds like CDTI-NEOTEC-ANNUAL-2026). Always include CDTI-PID-PERMANENT and EIC-ACCELERATOR-2026 for tech clients unless already won, plus EUROSTARS-2026 for consortium-capable clients.
+Apply ELIGIBILITY RULES strictly (NEOTEC only ≤3y company, no NEOTEC if already won, etc.).
 Return ONLY the JSON object per the schema. No markdown fences, no surrounding text.
 
 ${pass2FullPrompt}`,
-      3000,
+      5000, // más espacio para 10-15 recs detalladas
       'deep-matcher',
     )
     const { text, inputTokens: deepInputTokens, outputTokens, stopReason } = deepResult

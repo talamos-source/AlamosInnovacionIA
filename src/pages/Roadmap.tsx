@@ -9,6 +9,10 @@ import {
   AlertTriangle,
   History,
   ExternalLink,
+  Trash2,
+  Plus,
+  X,
+  Search,
 } from 'lucide-react'
 import './Page.css'
 import './Roadmap.css'
@@ -55,6 +59,7 @@ interface CustomerRow {
   companySize?: string
   category?: string
   description?: string
+  incorporationDate?: string
 }
 
 interface ContextField { value: string; suggested?: boolean }
@@ -202,10 +207,95 @@ const RoadmapPage = () => {
   const [activeRoadmap, setActiveRoadmap] = useState<SavedRoadmap | null>(
     customerRoadmaps[0] || null
   )
+  // Estado local de roadmaps (para reflejar deletes/edits en UI sin recargar)
+  const [roadmapsState, setRoadmapsState] = useState<SavedRoadmap[]>(allRoadmaps)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerSearch, setPickerSearch] = useState('')
+
+  const customerRoadmapsFromState = useMemo(
+    () =>
+      customerId
+        ? roadmapsState
+            .filter(r => r.customerId === customerId)
+            .sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime())
+        : [],
+    [customerId, roadmapsState]
+  )
 
   useEffect(() => {
-    if (!activeRoadmap && customerRoadmaps[0]) setActiveRoadmap(customerRoadmaps[0])
-  }, [customerRoadmaps, activeRoadmap])
+    if (!activeRoadmap && customerRoadmapsFromState[0]) setActiveRoadmap(customerRoadmapsFromState[0])
+  }, [customerRoadmapsFromState, activeRoadmap])
+
+  // Persistencia helper
+  const persistRoadmaps = (next: SavedRoadmap[]) => {
+    setRoadmapsState(next)
+    saveAllRoadmaps(next)
+  }
+
+  // ── Acciones sobre roadmaps ───────────────────────────────────────────
+  const handleDeleteVersion = (rmId: string) => {
+    if (!confirm('Delete this roadmap version? This cannot be undone.')) return
+    const next = roadmapsState.filter(r => r.id !== rmId)
+    persistRoadmaps(next)
+    if (activeRoadmap?.id === rmId) {
+      const fallback = next.filter(r => r.customerId === customerId)[0]
+      setActiveRoadmap(fallback || null)
+    }
+  }
+
+  const updateActiveRoadmap = (mutator: (r: SavedRoadmap) => SavedRoadmap) => {
+    if (!activeRoadmap) return
+    const updated = mutator(activeRoadmap)
+    const next = roadmapsState.map(r => (r.id === updated.id ? updated : r))
+    persistRoadmaps(next)
+    setActiveRoadmap(updated)
+  }
+
+  const handleRemoveRecommendation = (callId: string) => {
+    if (!activeRoadmap) return
+    updateActiveRoadmap(r => ({
+      ...r,
+      result: {
+        ...r.result,
+        recommendations: r.result.recommendations.filter(rec => rec.callId !== callId),
+        totalCallsRecommended: r.result.recommendations.filter(rec => rec.callId !== callId).length,
+      },
+    }))
+  }
+
+  const handleAddFromDiscovery = (call: DiscoveryCall) => {
+    if (!activeRoadmap) return
+    const exists = activeRoadmap.result.recommendations.some(rec => rec.callId === call.externalId)
+    if (exists) {
+      alert('This call is already in the roadmap.')
+      return
+    }
+    const nextOrder = activeRoadmap.result.recommendations.length + 1
+    const recommendedMonth = call.closeDate
+      ? call.closeDate.slice(0, 7)
+      : new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 7)
+    const newRec: RoadmapRecommendation = {
+      callId: call.externalId,
+      title: call.title,
+      source: call.source,
+      fitScore: 0,
+      reasoning: 'Manually added by consultant.',
+      recommendedMonth,
+      estimatedFundingRange: call.budget || '—',
+      risks: '—',
+      priorityOrder: nextOrder,
+    }
+    updateActiveRoadmap(r => ({
+      ...r,
+      result: {
+        ...r.result,
+        recommendations: [...r.result.recommendations, newRec],
+        totalCallsRecommended: r.result.recommendations.length + 1,
+      },
+    }))
+    setPickerOpen(false)
+    setPickerSearch('')
+  }
 
   // Filtrar calls del discovery a I+D+i (score ≥ 50) y deadline futuro
   const idiCalls = useMemo(() => {
@@ -351,7 +441,7 @@ const RoadmapPage = () => {
             disabled={generating || idiCalls.length === 0}
           >
             {generating ? <><Loader2 size={16} className="spin" /> Generating…</>
-                       : <><Sparkles size={16} /> {customerRoadmaps.length === 0 ? 'Generate Roadmap' : 'Regenerate'}</>}
+                       : <><Sparkles size={16} /> {customerRoadmapsFromState.length === 0 ? 'Generate Roadmap' : 'Regenerate'}</>}
           </button>
         </div>
       </header>
@@ -407,7 +497,7 @@ const RoadmapPage = () => {
             <div className="rm-stat-icon"><TrendingUp size={18} /></div>
             <div>
               <span className="rm-stat-label">Saved roadmaps</span>
-              <strong>{customerRoadmaps.length}</strong>
+              <strong>{customerRoadmapsFromState.length}</strong>
             </div>
           </div>
           <div className="rm-stat">
@@ -472,19 +562,29 @@ const RoadmapPage = () => {
       )}
 
       {/* ==================== VERSION HISTORY ==================== */}
-      {customerRoadmaps.length > 0 && (
+      {customerRoadmapsFromState.length > 0 && (
         <section className="rm-history-card">
           <span className="rm-history-label">Versions:</span>
-          {customerRoadmaps.map(r => (
-            <button
-              key={r.id}
-              type="button"
-              className={`rm-version-chip ${activeRoadmap?.id === r.id ? 'active' : ''}`}
-              onClick={() => setActiveRoadmap(r)}
-            >
-              {new Date(r.generatedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
-              <span className="muted"> · {r.timeline}y</span>
-            </button>
+          {customerRoadmapsFromState.map(r => (
+            <span key={r.id} className={`rm-version-chip-wrap ${activeRoadmap?.id === r.id ? 'active' : ''}`}>
+              <button
+                type="button"
+                className="rm-version-chip"
+                onClick={() => setActiveRoadmap(r)}
+              >
+                {new Date(r.generatedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                <span className="muted"> · {r.timeline}y</span>
+              </button>
+              <button
+                type="button"
+                className="rm-version-chip-delete"
+                onClick={() => handleDeleteVersion(r.id)}
+                title="Delete this version"
+                aria-label="Delete version"
+              >
+                <X size={12} />
+              </button>
+            </span>
           ))}
         </section>
       )}
@@ -517,10 +617,84 @@ const RoadmapPage = () => {
 
           <section className="rm-recommendations">
             {activeRoadmap.result.recommendations.map((rec, i) => (
-              <RecommendationCard key={rec.callId + i} rec={rec} idiCalls={idiCalls} />
+              <RecommendationCard
+                key={rec.callId + i}
+                rec={rec}
+                idiCalls={idiCalls}
+                onRemove={() => handleRemoveRecommendation(rec.callId)}
+              />
             ))}
+            <button
+              type="button"
+              className="rm-add-from-discovery-btn"
+              onClick={() => setPickerOpen(true)}
+            >
+              <Plus size={18} /> Add a call from Discovery
+            </button>
           </section>
         </>
+      )}
+
+      {/* ==================== PICKER MODAL ==================== */}
+      {pickerOpen && (
+        <div className="rm-picker-overlay" onClick={() => setPickerOpen(false)}>
+          <div className="rm-picker-modal" onClick={e => e.stopPropagation()}>
+            <header className="rm-picker-header">
+              <h3>Add a call from Discovery</h3>
+              <button type="button" className="rm-picker-close" onClick={() => setPickerOpen(false)} aria-label="Close">
+                <X size={18} />
+              </button>
+            </header>
+            <div className="rm-picker-search">
+              <Search size={16} />
+              <input
+                type="text"
+                placeholder="Search by title, programme, region…"
+                value={pickerSearch}
+                onChange={e => setPickerSearch(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="rm-picker-list">
+              {idiCalls
+                .filter(c => {
+                  if (!pickerSearch.trim()) return true
+                  const q = pickerSearch.toLowerCase()
+                  return (
+                    c.title?.toLowerCase().includes(q) ||
+                    c.program?.toLowerCase().includes(q) ||
+                    c.region?.toLowerCase().includes(q) ||
+                    c.fundingBody?.toLowerCase().includes(q)
+                  )
+                })
+                .slice(0, 200)
+                .map(c => {
+                  const isAdded = activeRoadmap?.result.recommendations.some(rec => rec.callId === c.externalId)
+                  return (
+                    <button
+                      key={c.externalId}
+                      type="button"
+                      className={`rm-picker-item ${isAdded ? 'added' : ''}`}
+                      onClick={() => !isAdded && handleAddFromDiscovery(c)}
+                      disabled={isAdded}
+                    >
+                      <div className="rm-picker-item-main">
+                        <span className={`rm-source-badge rm-source-badge--${c.source.toLowerCase()}`}>{sourceLabel(c.source)}</span>
+                        <strong>{c.title}</strong>
+                      </div>
+                      <div className="rm-picker-item-meta">
+                        <span>{c.program || '—'}</span>
+                        {c.region && <span>· {c.region}</span>}
+                        {c.closeDate && <span>· closes {new Date(c.closeDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
+                        {isAdded && <span className="rm-picker-added-tag">already added</span>}
+                      </div>
+                    </button>
+                  )
+                })}
+              {idiCalls.length === 0 && <p className="muted">No I+D+i calls in Discovery yet.</p>}
+            </div>
+          </div>
+        </div>
       )}
 
       {!activeRoadmap && !generating && (
@@ -543,10 +717,11 @@ const RoadmapPage = () => {
    ============================================================ */
 
 const RecommendationCard = ({
-  rec, idiCalls,
+  rec, idiCalls, onRemove,
 }: {
   rec: RoadmapRecommendation
   idiCalls: DiscoveryCall[]
+  onRemove?: () => void
 }) => {
   const originalCall = idiCalls.find(c => c.externalId === rec.callId)
   const deadlineStr = originalCall?.closeDate ? new Date(originalCall.closeDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
@@ -571,6 +746,21 @@ const RecommendationCard = ({
           <span className="rm-fit-score-value">{rec.fitScore}</span>
           <span className="rm-fit-score-label">fit</span>
         </div>
+        {onRemove && (
+          <button
+            type="button"
+            className="rm-rec-remove-btn"
+            onClick={() => {
+              if (confirm(`Remove "${rec.title.slice(0, 60)}…" from this roadmap?`)) {
+                onRemove()
+              }
+            }}
+            title="Remove from roadmap"
+            aria-label="Remove"
+          >
+            <Trash2 size={16} />
+          </button>
+        )}
       </header>
 
       <div className="rm-rec-body">
