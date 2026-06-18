@@ -225,7 +225,10 @@ const RoadmapPage = () => {
   // rdiScore+deadline, pero todas las EU tienen score=100, así que el orden era arbitrario
   // por deadline → calls relevantes (LIFE) quedaban fuera frente a no-relevantes (Film Sales)
   // por unas semanas de diferencia. Mejor mandar todas y que Haiku decida con contexto cliente.
-  const AGENT_INPUT_CAP = 50 // Reducido al mínimo mientras debuggeamos respuesta truncada
+  // Cap alto — el backend hace multi-pass: pre-screener procesa todas las calls (formato
+  // ultra-compacto), luego deep matcher solo recibe las 30-60 candidates plausibles.
+  // Así no perdemos visibilidad de ninguna call.
+  const AGENT_INPUT_CAP = 400
   const idiCallsForAgent = useMemo(() => {
     return idiCalls
       .slice()
@@ -362,20 +365,26 @@ const RoadmapPage = () => {
             <span className="rm-pipeline-hint">score ≥ 50, deadline ≥ today</span>
           </div>
           <span className="rm-pipeline-arrow">→</span>
-          <div className="rm-pipeline-step rm-pipeline-step--highlight">
+          <div className="rm-pipeline-step">
             <span className="rm-pipeline-num">{idiCallsForAgent.length}</span>
-            <span className="rm-pipeline-label">Sent to AI agent</span>
+            <span className="rm-pipeline-label">Pre-screener (Pass 1)</span>
             <span className="rm-pipeline-hint">
               {idiCalls.length <= AGENT_INPUT_CAP
-                ? 'all I+D+i calls'
-                : `cap at ${AGENT_INPUT_CAP} (most urgent first)`}
+                ? 'analyzes ALL calls'
+                : `cap at ${AGENT_INPUT_CAP}`}
             </span>
           </div>
           <span className="rm-pipeline-arrow">→</span>
+          <div className="rm-pipeline-step rm-pipeline-step--highlight">
+            <span className="rm-pipeline-num">~30-60</span>
+            <span className="rm-pipeline-label">Deep matcher (Pass 2)</span>
+            <span className="rm-pipeline-hint">candidates + full client context</span>
+          </div>
+          <span className="rm-pipeline-arrow">→</span>
           <div className="rm-pipeline-step">
-            <span className="rm-pipeline-num">~8-15</span>
-            <span className="rm-pipeline-label">AI recommends</span>
-            <span className="rm-pipeline-hint">best fit for this client</span>
+            <span className="rm-pipeline-num">~5-8</span>
+            <span className="rm-pipeline-label">Final recommendations</span>
+            <span className="rm-pipeline-hint">incl. evergreen CDTI/EIC if fit</span>
           </div>
         </div>
 

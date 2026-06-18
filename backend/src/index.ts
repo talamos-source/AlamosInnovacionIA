@@ -604,6 +604,24 @@ app.post('/ai/analyze-client-context', requireAuth, async (req, res) => {
    para un cliente, sobre un horizonte temporal.
    ============================================================ */
 
+// ───── PRE-SCREENER PROMPT (Pass 1) ─────
+// Tarea rápida y barata: dada una lista grande de calls, devuelve los IDs que
+// SUPERFICIALMENTE puedan encajar con el cliente. Generoso, mejor incluir borderline.
+const SCREENER_SYSTEM_PROMPT = `You are a fast pre-screener for R+D+i funding opportunities.
+
+Given a SHORT client profile and a LARGE list of funding calls, return only the callIds
+that COULD potentially fit this client based on sector/theme alignment.
+
+Be LENIENT — your job is broad filtering, not deep ranking. The next pass will do detailed analysis.
+- Include any call where the sector/theme PLAUSIBLY connects to what the client does
+- Include all CDTI/AEI/EIC/Eurostars/EU mainstream R+D+i schemes
+- EXCLUDE only obvious mismatches (e.g. film distribution call for a logistics tech client,
+  cultural patrimony for a biotech, etc.)
+- Aim to return 30-60 callIds. If <30 fit, return all that do; if >60, pick most relevant.
+
+Return ONLY a JSON object: { "candidateIds": ["id1", "id2", ...] }
+No surrounding text, no markdown.`
+
 const ROADMAP_SYSTEM_PROMPT = `You are an expert R+D+i public funding consultant in Spain and the EU.
 Your job: given a client profile (company data + tech + funding history + preferences) and a list of
 available public funding calls (Spanish BDNS + EU Horizon/Digital Europe/EIC/LIFE/etc), select the BEST
@@ -878,53 +896,153 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
 
     const horizonText = `${timeline} year${timeline === 1 ? '' : 's'} starting today (${new Date().toISOString().split('T')[0]})`
 
-    console.log(`🗺️ Generating roadmap for ${customer.name} | timeline=${timeline}y | ${calls.length} calls input | promptChars=${fullPrompt.length} | model=${CLAUDE_MODEL_FAST}`)
+    console.log(`🗺️ Generating roadmap (multi-pass) for ${customer.name} | timeline=${timeline}y | ${calls.length} calls input | model=${CLAUDE_MODEL_FAST}`)
 
-    // Llamada con .finalMessage() (más estable que iterar el stream manualmente).
-    const callClaudeFinal = async (): Promise<{ text: string; inputTokens: number; outputTokens: number; stopReason: string | null }> => {
-      const stream = anthropic!.messages.stream({
+    // Helper genérico para llamar a Claude con streaming + retry
+    const callClaude = async (
+      systemPrompt: string,
+      userMessage: string,
+      maxTokens: number,
+      label: string,
+    ): Promise<{ text: string; inputTokens: number; outputTokens: number; stopReason: string | null }> => {
+      const attempt = async () => {
+        const stream = anthropic!.messages.stream({
+          model: CLAUDE_MODEL_FAST,
+          max_tokens: maxTokens,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userMessage }],
+        })
+        const finalMessage = await stream.finalMessage()
+        const firstBlock = finalMessage.content[0]
+        return {
+          text: firstBlock && firstBlock.type === 'text' ? firstBlock.text : '',
+          inputTokens: finalMessage.usage?.input_tokens ?? 0,
+          outputTokens: finalMessage.usage?.output_tokens ?? 0,
+          stopReason: finalMessage.stop_reason || null,
+        }
+      }
+      try {
+        return await attempt()
+      } catch (e: any) {
+        const m = String(e?.message || '')
+        if (m.includes('Premature close') || m.includes('ECONNRESET') || m.includes('socket hang up') || m.includes('terminated')) {
+          console.warn(`[${label}] retry after: ${m.slice(0, 150)}`)
+          await new Promise(r => setTimeout(r, 1500))
+          return await attempt()
+        }
+        throw e
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // PASS 1: SCREENER — recibe TODAS las calls en formato ultra-compacto,
+    // devuelve solo los IDs de las candidatas plausibles.
+    // ─────────────────────────────────────────────────────────
+    const screenerClientBrief = [
+      customer.name && `Client: ${customer.name}`,
+      customer.company && `Company: ${customer.company}`,
+      customer.country && `Country: ${customer.country}`,
+      customer.region && `Region: ${customer.region}`,
+      customer.companySize && `Size: ${customer.companySize}`,
+      customer.category && `Sector: ${customer.category}`,
+      customer.description && `What they do: ${customer.description.slice(0, 300)}`,
+      context?.technologyInnovation && `Tech: ${context.technologyInnovation.slice(0, 200)}`,
+      context?.businessModel && `Business: ${context.businessModel.slice(0, 150)}`,
+    ].filter(Boolean).join('\n')
+
+    const screenerCallsList = calls.map((c, i) => {
+      const src = c.source === 'EU_PORTAL' ? 'EU' : 'ES'
+      return `${i + 1}|${src}|${c.externalId}|${(c.title || '').slice(0, 100).replace(/\|/g, ' ')}|${(c.program || '').slice(0, 60).replace(/\|/g, ' ')}|${(c.typeOfAction || '').slice(0, 40).replace(/\|/g, ' ')}|${(c.region || '').slice(0, 25)}`
+    }).join('\n')
+
+    const screenerUserMsg = `CLIENT PROFILE (short):
+${screenerClientBrief}
+
+ALL R+D+i CALLS (idx|src|externalId|title|program|action|region):
+${screenerCallsList}
+
+Return JSON { "candidateIds": [...] } with 30-60 callIds that plausibly fit this client. JSON only.`
+
+    console.log(`🔍 Pass 1 (screener): ${calls.length} calls → asking for candidates...`)
+    const screenerResult = await callClaude(SCREENER_SYSTEM_PROMPT, screenerUserMsg, 2000, 'screener')
+    console.log(`   ↳ ${screenerResult.outputTokens} out tokens, stop=${screenerResult.stopReason}`)
+
+    let candidateIds: string[] = []
+    try {
+      let screenerJson = screenerResult.text.trim()
+      if (screenerJson.startsWith('```')) {
+        screenerJson = screenerJson.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+      }
+      const parsed = JSON.parse(screenerJson) as { candidateIds?: string[] }
+      candidateIds = Array.isArray(parsed.candidateIds) ? parsed.candidateIds : []
+    } catch (e) {
+      console.warn('Screener returned invalid JSON, falling back to all calls')
+      candidateIds = calls.slice(0, 50).map(c => c.externalId)
+    }
+
+    const candidates = calls.filter(c => candidateIds.includes(c.externalId)).slice(0, 60)
+    console.log(`   ↳ ${candidates.length} candidates selected for pass 2`)
+
+    if (candidates.length === 0) {
+      return res.status(200).json({
+        roadmap: {
+          executiveSummary: 'No suitable R+D+i calls found for this client profile.',
+          totalPotentialFunding: '€0',
+          totalCallsRecommended: 0,
+          recommendations: [],
+        },
+        generatedAt: new Date().toISOString(),
         model: CLAUDE_MODEL_FAST,
-        max_tokens: 3000, // Output más compacto para terminar antes
-        system: ROADMAP_SYSTEM_PROMPT,
-        messages: [
-          {
-            role: 'user',
-            content: `Build a strategic R+D+i funding roadmap for this client over the next ${horizonText}.
-Select 5-8 best-fitting calls from the input list and distribute them strategically across the timeline.
+        tokensUsed: { input: screenerResult.inputTokens, output: screenerResult.outputTokens },
+        callsConsidered: calls.length,
+        timeline,
+      })
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // PASS 2: DEEP MATCHER — recibe el contexto completo del cliente + las candidates,
+    // hace ranking detallado.
+    // ─────────────────────────────────────────────────────────
+    const pass2CallsLines = [
+      `\n\n=== CANDIDATE CALLS (pre-screened, deadline ≥ today) ===`,
+      `Total: ${candidates.length}`,
+      `Format: idx|source|externalId|title|program|typeOfAction|region|budget|deadline`,
+      ...candidates.map((c, i) => {
+        return [
+          i + 1,
+          c.source === 'EU_PORTAL' ? 'EU' : 'ES',
+          c.externalId,
+          (c.title || '').slice(0, 120).replace(/\|/g, ' '),
+          (c.program || '').slice(0, 80).replace(/\|/g, ' '),
+          (c.typeOfAction || '').slice(0, 50).replace(/\|/g, ' '),
+          (c.region || '').slice(0, 30).replace(/\|/g, ' '),
+          c.budget || '',
+          c.closeDate ? c.closeDate.split('T')[0] : '',
+        ].join('|')
+      }),
+    ].join('\n')
+
+    const pass2FullPrompt = clientLines + contextLines + fpLines + historyLines + pass2CallsLines
+
+    console.log(`🎯 Pass 2 (deep matcher): ${candidates.length} candidates, promptChars=${pass2FullPrompt.length}`)
+
+    const deepResult = await callClaude(
+      ROADMAP_SYSTEM_PROMPT,
+      `Build a strategic R+D+i funding roadmap for this client over the next ${horizonText}.
+Select 5-8 best-fitting calls from the CANDIDATE list (already pre-filtered) and distribute them strategically across the timeline.
+You may also include 1-3 recurrent programmes from the KNOWN RECURRENT R+D+i PROGRAMMES catalog if they fit (use synthetic callIds like CDTI-NEOTEC-ANNUAL-2026).
 Return ONLY the JSON object per the schema. No markdown fences, no surrounding text.
 
-${fullPrompt}`,
-          },
-        ],
-      })
-      const finalMessage = await stream.finalMessage()
-      const firstBlock = finalMessage.content[0]
-      const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : ''
-      return {
-        text,
-        inputTokens: finalMessage.usage?.input_tokens ?? 0,
-        outputTokens: finalMessage.usage?.output_tokens ?? 0,
-        stopReason: finalMessage.stop_reason || null,
-      }
-    }
-
-    let streamResult
-    try {
-      streamResult = await callClaudeFinal()
-    } catch (e1: any) {
-      const msg = String(e1?.message || '')
-      console.warn(`Roadmap call failed (${msg.slice(0, 200)}), retrying once…`)
-      if (msg.includes('Premature close') || msg.includes('ECONNRESET') || msg.includes('socket hang up') || msg.includes('terminated')) {
-        await new Promise(r => setTimeout(r, 1500)) // breve espera antes de retry
-        streamResult = await callClaudeFinal()
-      } else {
-        throw e1
-      }
-    }
-    const { text, inputTokens, outputTokens, stopReason } = streamResult
-    console.log(`🗺️ Claude responded: ${outputTokens} tokens, stop_reason=${stopReason}, textLen=${text.length}`)
+${pass2FullPrompt}`,
+      3000,
+      'deep-matcher',
+    )
+    const { text, inputTokens: deepInputTokens, outputTokens, stopReason } = deepResult
+    const inputTokens = screenerResult.inputTokens + deepInputTokens
+    const totalOutTokens = screenerResult.outputTokens + outputTokens
+    console.log(`   ↳ ${outputTokens} out tokens, stop=${stopReason}, total in=${inputTokens}, out=${totalOutTokens}`)
     if (stopReason && stopReason !== 'end_turn') {
-      console.warn(`⚠️ Claude stopped unexpectedly: ${stopReason}. Response may be truncated.`)
+      console.warn(`⚠️ Deep matcher stopped unexpectedly: ${stopReason}. Response may be truncated.`)
     }
     let jsonText = text.trim()
     if (jsonText.startsWith('```')) {
@@ -948,9 +1066,10 @@ ${fullPrompt}`,
       model: CLAUDE_MODEL_FAST,
       tokensUsed: {
         input: inputTokens,
-        output: outputTokens,
+        output: totalOutTokens,
       },
       callsConsidered: calls.length,
+      callsScreened: candidates.length,
       timeline,
     })
   } catch (err: any) {
