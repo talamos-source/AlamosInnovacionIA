@@ -607,20 +607,30 @@ app.post('/ai/analyze-client-context', requireAuth, async (req, res) => {
 // ───── PRE-SCREENER PROMPT (Pass 1) ─────
 // Tarea rápida y barata: dada una lista grande de calls, devuelve los IDs que
 // SUPERFICIALMENTE puedan encajar con el cliente. Generoso, mejor incluir borderline.
-const SCREENER_SYSTEM_PROMPT = `You are a fast pre-screener for R+D+i funding opportunities.
+const SCREENER_SYSTEM_PROMPT = `You are a VERY INCLUSIVE pre-screener for R+D+i funding opportunities.
 
-Given a SHORT client profile and a LARGE list of funding calls, return only the callIds
-that COULD potentially fit this client based on sector/theme alignment.
+Given a SHORT client profile and a LARGE list of funding calls, return as many callIds
+as PLAUSIBLY could fit this client. The NEXT pass does deep filtering.
 
-Be LENIENT — your job is broad filtering, not deep ranking. The next pass will do detailed analysis.
-- Include any call where the sector/theme PLAUSIBLY connects to what the client does
-- Include all CDTI/AEI/EIC/Eurostars/EU mainstream R+D+i schemes
-- EXCLUDE only obvious mismatches (e.g. film distribution call for a logistics tech client,
-  cultural patrimony for a biotech, etc.)
-- Aim to return 30-60 callIds. If <30 fit, return all that do; if >60, pick most relevant.
+YOUR DEFAULT IS TO INCLUDE, NOT EXCLUDE. Bias HEAVILY toward including.
+
+GUIDELINES:
+- For a TECH/DIGITAL/LOGISTICS/INDUSTRIAL client: INCLUDE all Horizon Europe, Digital Europe,
+  CEF Digital, EIC, EIT, Eurostars, CDTI (any program), Innterconecta, Misiones, Neotec,
+  Industria Conectada 4.0, Industria/Comercio/Turismo calls, sustainability/climate/LIFE calls,
+  modernización/transformación digital calls.
+- For a BIOTECH/HEALTH client: INCLUDE all Horizon Health, ISCIII, IHI, EIT Health calls.
+- For a CLEANTECH/SUSTAINABILITY client: INCLUDE all LIFE, IDAE, EIC, climate/green calls.
+- DO NOT exclude based on TRL alone — a client may have multiple technologies at different
+  TRLs (TRL is subjective and project-specific, NOT a company-wide attribute).
+- DO NOT exclude based on amount alone — the client decides what fits their budget.
+- ONLY exclude if topic is CLEARLY irrelevant (e.g. film distribution for logistics, beekeeping
+  subsidy for tech company).
+
+TARGET: 40-80 callIds minimum. If you cannot find 40, return as many as remotely connect.
 
 Return ONLY a JSON object: { "candidateIds": ["id1", "id2", ...] }
-No surrounding text, no markdown.`
+No markdown fences, no surrounding text.`
 
 const ROADMAP_SYSTEM_PROMPT = `You are an expert R+D+i public funding consultant in Spain and the EU.
 Your job: given a client profile (company data + tech + funding history + preferences) and a list of
@@ -713,12 +723,25 @@ DECISION CRITERIA (in order of importance):
    · Health calls → for biotech/medical clients
    · Cultural/Audiovisual → for cultural/media clients (REJECT for non-cultural clients)
    · Industrial calls → for manufacturing/Industry 4.0 clients
-2. ELIGIBILITY: Does the client's profile (size, region, TRL, partners capability) match
+2. ELIGIBILITY: Does the client's profile (size, region, partners capability) match
    the call requirements?
-3. STRATEGIC FIT: Does the call align with the client's R+D+i roadmap, target TRL, and tech focus?
+3. STRATEGIC FIT: Does the call align with the client's R+D+i roadmap and tech focus?
 4. CAPACITY: Can the client realistically prepare and execute (deadlines, co-financing, dedication)?
 5. RISK: Avoid overlaps with the client's funding history (no double-funding same project type same year).
 6. TIMELINE: Distribute applications across the horizon for steady funding flow, not all in one quarter.
+
+═══════════════════════════════════════════════════════════════════════
+IMPORTANT — TRL IS SUBJECTIVE AND MULTI-TECHNOLOGY:
+═══════════════════════════════════════════════════════════════════════
+A company is NOT defined by a single TRL. A company may have technology line A at TRL 7
+(market-ready) AND technology line B at TRL 4 (research stage) AND a roadmap for new TRL 1-3
+exploration. NEVER reject a call based solely on TRL fit — assume the client can position
+ANY existing or new technology line at whatever TRL the call requires.
+
+The 'currentTRL' field in client profile is a single snapshot for ONE of their technologies,
+not a hard constraint. Always include programmes spanning multiple TRLs (CDTI PID covers 4-9,
+CDTI Cervera 4-9, EIC Pathfinder 1-3, EIC Transition 3-6, EIC Accelerator 5-9, NEOTEC 4-7) —
+the client decides which tech line maps to which call.
 
 Output a JSON object EXACTLY matching this schema:
 {
@@ -976,28 +999,26 @@ Return JSON { "candidateIds": [...] } with 30-60 callIds that plausibly fit this
       const parsed = JSON.parse(screenerJson) as { candidateIds?: string[] }
       candidateIds = Array.isArray(parsed.candidateIds) ? parsed.candidateIds : []
     } catch (e) {
-      console.warn('Screener returned invalid JSON, falling back to all calls')
-      candidateIds = calls.slice(0, 50).map(c => c.externalId)
+      console.warn('Screener returned invalid JSON. Raw text:', screenerResult.text.slice(0, 300))
     }
 
-    const candidates = calls.filter(c => candidateIds.includes(c.externalId)).slice(0, 60)
+    let candidates = calls.filter(c => candidateIds.includes(c.externalId)).slice(0, 60)
+
+    // Fallback: si el screener devuelve 0 (o muy pocas) candidates, le pasamos las TOP 60 por
+    // urgencia (deadline más cercano) — más vale algo que nada.
+    if (candidates.length < 10) {
+      console.warn(`⚠️ Screener returned only ${candidates.length} candidates. Raw screener text:`, screenerResult.text.slice(0, 300))
+      console.warn(`   Falling back to TOP 60 calls by deadline urgency.`)
+      candidates = calls
+        .slice()
+        .sort((a, b) => {
+          const da = a.closeDate ? new Date(a.closeDate).getTime() : Infinity
+          const db = b.closeDate ? new Date(b.closeDate).getTime() : Infinity
+          return da - db
+        })
+        .slice(0, 60)
+    }
     console.log(`   ↳ ${candidates.length} candidates selected for pass 2`)
-
-    if (candidates.length === 0) {
-      return res.status(200).json({
-        roadmap: {
-          executiveSummary: 'No suitable R+D+i calls found for this client profile.',
-          totalPotentialFunding: '€0',
-          totalCallsRecommended: 0,
-          recommendations: [],
-        },
-        generatedAt: new Date().toISOString(),
-        model: CLAUDE_MODEL_FAST,
-        tokensUsed: { input: screenerResult.inputTokens, output: screenerResult.outputTokens },
-        callsConsidered: calls.length,
-        timeline,
-      })
-    }
 
     // ─────────────────────────────────────────────────────────
     // PASS 2: DEEP MATCHER — recibe el contexto completo del cliente + las candidates,
