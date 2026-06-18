@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { MoreVertical, Edit, Trash2, Eye, Wand2 } from 'lucide-react'
+import { MoreVertical, Edit, Trash2, Eye, Wand2, Route } from 'lucide-react'
 import './ActionsMenu.css'
 
 interface ActionsMenuProps {
   onView?: () => void
   onEdit: () => void
   onEditContext?: () => void
+  onGenerateRoadmap?: () => void
   onDelete?: () => void
 }
 
@@ -17,10 +18,10 @@ interface MenuPosition {
 }
 
 const MENU_WIDTH = 200
-const MENU_HEIGHT_ESTIMATE = 184 // ~ 4 items * 40px + padding
+const MENU_HEIGHT_ESTIMATE = 224 // ~ 5 items * 40px + padding
 const VIEWPORT_PADDING = 8
 
-const ActionsMenu = ({ onView, onEdit, onEditContext, onDelete }: ActionsMenuProps) => {
+const ActionsMenu = ({ onView, onEdit, onEditContext, onGenerateRoadmap, onDelete }: ActionsMenuProps) => {
   const [isOpen, setIsOpen] = useState(false)
   const [position, setPosition] = useState<MenuPosition>({ top: 0, left: 0, openUp: false })
 
@@ -145,6 +146,16 @@ const ActionsMenu = ({ onView, onEdit, onEditContext, onDelete }: ActionsMenuPro
             >
               <Wand2 size={16} />
               <span>Edit context</span>
+            </button>
+          )}
+          {onGenerateRoadmap && (
+            <button
+              type="button"
+              className="actions-menu-item actions-menu-item--ai"
+              onClick={() => { onGenerateRoadmap(); setIsOpen(false) }}
+            >
+              <Route size={16} />
+              <span>Generate roadmap</span>
             </button>
           )}
           {onDelete && (

@@ -1085,6 +1085,7 @@ const Customers = () => {
                         onView={() => handleView(customer.id)}
                         onEdit={() => handleEdit(customer.id)}
                         onEditContext={() => navigate(`/customers/${customer.id}/context`)}
+                        onGenerateRoadmap={() => navigate(`/customers/${customer.id}/funding-profile`)}
                         onDelete={isWorker ? undefined : () => handleDelete(customer.id)}
                       />
                     </td>

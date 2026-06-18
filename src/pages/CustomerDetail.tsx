@@ -10,6 +10,7 @@ import {
   Euro,
   Building2,
   Wand2,
+  Route,
 } from 'lucide-react'
 import { formatCurrency, parseEuropeanNumber } from '../utils/formatCurrency'
 import './Page.css'
@@ -209,6 +210,13 @@ const CustomerDetail = () => {
           >
             <Wand2 size={16} />
             <span>Edit context</span>
+          </button>
+          <button
+            className="btn-secondary btn-secondary--ai"
+            onClick={() => navigate(`/customers/${customer.id}/funding-profile`)}
+          >
+            <Route size={16} />
+            <span>Generate roadmap</span>
           </button>
           <button className="btn-secondary" onClick={handleEdit}>
             <Edit size={16} />
