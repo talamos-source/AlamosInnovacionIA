@@ -26,6 +26,8 @@ export interface PptRecommendation {
   estimatedFundingRange: string
   risks: string
   priorityOrder: number
+  /** Orientación estratégica concreta para enfocar la propuesta. Opcional. */
+  applicationGuidance?: string
 }
 
 export interface PptCallDetail {
@@ -192,8 +194,8 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
 
   const sorted = [...recommendations].sort((a, b) => b.fitScore - a.fitScore)
 
-  // Calculamos antes el total de páginas para los footers
-  const CARDS_PER_SLIDE = 3
+  // 2 cards por slide → mucho aire por card, nada desborda
+  const CARDS_PER_SLIDE = 2
   const cardsSlides = Math.ceil(sorted.length / CARDS_PER_SLIDE)
   const totalPages = 1 /*cover*/ + 1 /*about*/ + (timelineImageDataUrl ? 1 : 0) + 1 /*summary table*/ + cardsSlides + 1 /*next steps*/
   let page = 0
@@ -436,10 +438,13 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
       fontSize: 11, color: COLOR.muted, fontFace: FONT.body, align: 'right',
     })
 
-    const cardH = 1.85
+    // 2 cards por slide con bloque de guidance. Vertical budget:
+    //   slide útil = 7.5 - top(1.45) - bottom(0.5) = 5.55"
+    //   2 cards * 2.65 + 1 gap * 0.25 = 5.55 ✓
+    const cardH = 2.65
     const cardW = 12.1
     const startY = 1.45
-    const gapY = 0.15
+    const gapY = 0.25
 
     chunk.forEach((rec, idx) => {
       const cy = startY + idx * (cardH + gapY)
@@ -451,42 +456,44 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
       })
       // Border-left morado
       slide.addShape('rect' as any, {
-        x: 0.6, y: cy, w: 0.08, h: cardH,
+        x: 0.6, y: cy, w: 0.1, h: cardH,
         fill: { color: COLOR.brand }, line: { color: COLOR.brand },
       })
-      // Priority badge
+      // Priority badge (más grande)
       slide.addShape('ellipse' as any, {
-        x: 0.85, y: cy + 0.2, w: 0.55, h: 0.55,
+        x: 0.9, y: cy + 0.25, w: 0.7, h: 0.7,
         fill: { color: COLOR.brand }, line: { color: COLOR.brand },
       })
       slide.addText(`${rec.priorityOrder}`, {
-        x: 0.85, y: cy + 0.2, w: 0.55, h: 0.55,
-        fontSize: 14, bold: true, color: COLOR.white, fontFace: FONT.heading,
+        x: 0.9, y: cy + 0.25, w: 0.7, h: 0.7,
+        fontSize: 18, bold: true, color: COLOR.white, fontFace: FONT.heading,
         align: 'center', valign: 'middle',
       })
 
-      // Fit chip a la derecha (lo declaro antes que el título para reservar su ancho)
+      // Fit chip a la derecha (reservamos su ancho antes del title)
       const fitColor = rec.fitScore >= 80 ? COLOR.success : rec.fitScore >= 60 ? COLOR.brand : COLOR.warning
-      const fitChipW = 0.95
-      const fitChipX = 0.6 + cardW - fitChipW - 0.2
+      const fitChipW = 1.1
+      const fitChipX = 0.6 + cardW - fitChipW - 0.25
       slide.addShape('roundRect' as any, {
-        x: fitChipX, y: cy + 0.2, w: fitChipW, h: 0.35,
+        x: fitChipX, y: cy + 0.3, w: fitChipW, h: 0.42,
         fill: { color: fitColor }, line: { color: fitColor },
-        rectRadius: 0.05,
+        rectRadius: 0.06,
       })
       slide.addText(`Fit ${rec.fitScore}`, {
-        x: fitChipX, y: cy + 0.2, w: fitChipW, h: 0.35,
-        fontSize: 10, bold: true, color: COLOR.white, fontFace: FONT.heading,
+        x: fitChipX, y: cy + 0.3, w: fitChipW, h: 0.42,
+        fontSize: 12, bold: true, color: COLOR.white, fontFace: FONT.heading,
         align: 'center', valign: 'middle',
       })
 
-      // Title — ancho calculado: hasta el fit chip menos margen
-      const titleW = fitChipX - 1.55 - 0.15
-      slide.addText(truncate(stripAgentTags(rec.title), 85), {
-        x: 1.55, y: cy + 0.15, w: titleW, h: 0.4,
-        fontSize: 12.5, bold: true, color: COLOR.ink, fontFace: FONT.heading,
+      // Title — hasta el fit chip menos margen. Más espacio vertical para
+      // permitir wrap a 2 líneas sin desbordar.
+      const titleW = fitChipX - 1.8 - 0.15
+      slide.addText(truncate(stripAgentTags(rec.title), 130), {
+        x: 1.8, y: cy + 0.22, w: titleW, h: 0.75,
+        fontSize: 14, bold: true, color: COLOR.ink, fontFace: FONT.heading,
         valign: 'top',
-        shrinkText: true,        // si no cabe se reduce el font automáticamente
+        lineSpacingMultiple: 1.15,
+        shrinkText: true,
       })
 
       // Meta (source + apply + budget)
@@ -498,30 +505,72 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
         `Apply: ${formatApply(rec.recommendedMonth)}`,
         rec.estimatedFundingRange && rec.estimatedFundingRange !== '—' ? rec.estimatedFundingRange : null,
       ].filter(Boolean).join('  ·  ')
-      slide.addText(truncate(metaParts, 130), {
-        x: 1.55, y: cy + 0.58, w: cardW - 0.6, h: 0.28,
-        fontSize: 9, color: COLOR.muted, fontFace: FONT.body,
+      slide.addText(truncate(metaParts, 160), {
+        x: 1.8, y: cy + 1.05, w: cardW - 1.4, h: 0.32,
+        fontSize: 10, color: COLOR.muted, fontFace: FONT.body,
         valign: 'top',
         shrinkText: true,
       })
 
-      // Reasoning — truncado más conservador para evitar desbordes
-      slide.addText(truncate(stripAgentTags(rec.reasoning), 220), {
-        x: 1.55, y: cy + 0.88, w: cardW - 0.6, h: 0.65,
-        fontSize: 9.5, color: COLOR.text, fontFace: FONT.body,
+      // Separador sutil
+      slide.addShape('rect' as any, {
+        x: 1.8, y: cy + 1.4, w: cardW - 1.4, h: 0.01,
+        fill: { color: COLOR.border }, line: { color: COLOR.border },
+      })
+
+      // Reasoning — compacto
+      slide.addText(truncate(stripAgentTags(rec.reasoning), 320), {
+        x: 1.8, y: cy + 1.48, w: cardW - 1.4, h: 0.55,
+        fontSize: 10.5, color: COLOR.text, fontFace: FONT.body,
         lineSpacingMultiple: 1.2,
         valign: 'top',
         shrinkText: true,
       })
 
-      // Risk (si hay) — pegado al borde inferior del card
-      if (rec.risks && rec.risks !== '—' && rec.risks.trim()) {
-        slide.addText(`⚠ ${truncate(stripAgentTags(rec.risks), 90)}`, {
-          x: 1.55, y: cy + 1.55, w: cardW - 0.6, h: 0.24,
-          fontSize: 8.5, italic: true, color: COLOR.warning, fontFace: FONT.body,
+      // Bloque "Cómo orientar la solicitud" — destacado morado claro
+      const guidance = rec.applicationGuidance && rec.applicationGuidance.trim()
+        ? stripAgentTags(rec.applicationGuidance) : ''
+      if (guidance) {
+        const gY = cy + 2.05
+        const gH = 0.55
+        // Fondo morado muy claro
+        slide.addShape('rect' as any, {
+          x: 1.8, y: gY, w: cardW - 1.4, h: gH,
+          fill: { color: COLOR.brand50 }, line: { color: COLOR.brand50 },
+        })
+        // Border-left morado
+        slide.addShape('rect' as any, {
+          x: 1.8, y: gY, w: 0.04, h: gH,
+          fill: { color: COLOR.brand }, line: { color: COLOR.brand },
+        })
+        // Label
+        slide.addText('CÓMO ORIENTAR', {
+          x: 1.93, y: gY + 0.04, w: 1.6, h: 0.2,
+          fontSize: 7.5, bold: true, color: COLOR.brand, fontFace: FONT.heading,
+          charSpacing: 1.5,
+          valign: 'top',
+        })
+        // Texto
+        slide.addText(truncate(guidance, 280), {
+          x: 3.55, y: gY + 0.05, w: cardW - 1.4 - 1.75 - 0.1, h: gH - 0.1,
+          fontSize: 10, italic: true, color: COLOR.text, fontFace: FONT.body,
+          lineSpacingMultiple: 1.2,
           valign: 'top',
           shrinkText: true,
         })
+      }
+      // Risk pegado al pie (si hay)
+      if (rec.risks && rec.risks !== '—' && rec.risks.trim()) {
+        // Solo si NO hay guidance ponemos el risk con más espacio.
+        // Si HAY guidance, el risk va por encima o se omite por falta de espacio.
+        if (!guidance) {
+          slide.addText(`⚠ ${truncate(stripAgentTags(rec.risks), 160)}`, {
+            x: 1.8, y: cy + 2.1, w: cardW - 1.4, h: 0.45,
+            fontSize: 10, italic: true, color: COLOR.warning, fontFace: FONT.body,
+            valign: 'top',
+            shrinkText: true,
+          })
+        }
       }
     })
   }

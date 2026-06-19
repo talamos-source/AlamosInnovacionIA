@@ -701,9 +701,10 @@ Output a JSON object EXACTLY matching this schema:
       "source": "EU_PORTAL" or "BDNS",
       "fitScore": <integer 0-100>,
       "reasoning": "2-3 sentences explaining WHY this call fits this client.",
-      "recommendedMonth": "YYYY-MM (when to START preparing)",
+      "recommendedMonth": "YYYY-MM (when to START preparing — MUST BE STRICTLY IN THE FUTURE, i.e. ≥ next month)",
       "estimatedFundingRange": "human-readable € range",
       "risks": "1 sentence about main risk or watchout.",
+      "applicationGuidance": "2-3 sentences of CONCRETE strategic advice on how to ORIENT the proposal for THIS client: which tech line to position, which angle to emphasize, which partner type to seek, what to NOT mention. Practical, actionable, specific to this client+call combo.",
       "priorityOrder": <integer, 1=highest>
     }
   ]
@@ -743,6 +744,65 @@ If you discover during scoring that a non-obvious call scores higher than an obv
 INCLUDE the higher-scoring one. The consultant has explicitly said: "do not skip calls just
 because you think they look obvious choices for the consultant manually". Trust your scoring.
 
+═══════════════════════════════════════════════════════════════════════
+TEMPORAL DISTRIBUTION (CRITICAL — DO NOT CONDENSE)
+═══════════════════════════════════════════════════════════════════════
+The horizon is given to you in the user message. USE THE FULL HORIZON.
+A 3-year roadmap MUST spread applications across the full 36 months — NOT cluster
+all of them in the first 8-11 months. A 2-year roadmap spans 24 months. A 1-year
+roadmap spans 12 months.
+
+DISTRIBUTION RULES (HARD):
+- recommendedMonth MUST be STRICTLY IN THE FUTURE (≥ next calendar month after today).
+  NEVER output a recommendedMonth in the past or current month. EVEN evergreen calls
+  must have a future apply month — it's "when to START preparing", which is always future.
+- Distribute the 10-15 recommendations evenly across the horizon:
+  · 1-year roadmap: ~1 rec/month, no more than 3 in any single month
+  · 2-year roadmap: ~5-7 in year 1, ~5-7 in year 2 (no more than 2 in any single month)
+  · 3-year roadmap: ~4-5 in year 1, ~4-5 in year 2, ~3-5 in year 3
+- For OPEN calls with concrete deadlines (closeDate in the call data), use a recommendedMonth
+  that is 3-4 months BEFORE the actual deadline (typical preparation time).
+- For EVERGREEN calls (no fixed deadline), spread them later in the horizon — they act
+  as "filler" between the timed opens. Don't bunch evergreens in month 1-3.
+- The TIMELINE field of the schema tells you the horizon length. RESPECT IT.
+
+═══════════════════════════════════════════════════════════════════════
+TRL-AWARE SEQUENCING (R → D → i over time)
+═══════════════════════════════════════════════════════════════════════
+The client's funding profile contains TRL information per technology line. Use it
+to sequence recommendations strategically:
+
+- If the client has technology lines in LOW TRL (1-3, research/exploratory),
+  schedule RESEARCH-type calls FIRST (early months): EIC Pathfinder, Doctorados
+  Industriales, Misiones-investigación, AEI proyectos básicos. These mature the tech.
+- Then in the MIDDLE of the horizon, schedule DEVELOPMENT calls (TRL 4-6):
+  CDTI PID, CDTI Cervera, NEOTEC, EIC Transition, Innterconecta.
+- Towards the END of the horizon, schedule INNOVATION/SCALE calls (TRL 7-9):
+  EIC Accelerator, Línea Directa, ENISA, market-deployment grants.
+- If the client's tech is ALREADY in HIGH TRL (7-9), invert — start with
+  innovation/scale-up calls (faster impact) and use mid-horizon for new tech
+  lines starting from research.
+- This R→D→i pacing is the strategic backbone. Don't just sort by deadline.
+
+═══════════════════════════════════════════════════════════════════════
+APPLICATION GUIDANCE FIELD (NEW — important for the consultant)
+═══════════════════════════════════════════════════════════════════════
+For EACH recommendation, the schema requires "applicationGuidance" — a SHORT,
+CONCRETE strategic note about how to position THIS proposal for THIS client.
+Examples of good guidance:
+- "Posicionar la línea de optimización IA como tecnología tractora, no como pieza
+  auxiliar. Buscar partner académico (centro tecnológico) para reforzar la dimensión
+  investigadora. Evitar enfatizar el componente SaaS comercial — restará en evaluación
+  EIC Pathfinder."
+- "Apalancarse en la actividad de sostenibilidad ya consolidada para alinear la
+  propuesta con el cluster LIFE — Climate Action. Cuantificar reducción CO2 con
+  baseline numérica. NO mencionar logística como vertical principal."
+- "Aprovechar el track record de CDTI ganados para sustentar la solvencia técnica.
+  Estructurar el proyecto en 24 meses con WP de validación TRL 6→7. Marcar como
+  cooperative bid con un partner industrial complementario."
+Guidance must be ACTIONABLE, SPECIFIC to this client, and tell the consultant
+WHAT to do — not just describe the call.
+
 Rules:
 - TARGET: 10-15 recommendations. MUST return ≥10 unless candidate list has <10 plausible fits.
 - Don't be conservative — include borderline candidates with fitScore 50-65 rather than excluding.
@@ -750,8 +810,9 @@ Rules:
 - fitScore in output is the total 0-100 from your scoring above. Make it discriminating —
   don't give everything 80. Range should span (e.g. 55-90 across the 10-15).
 - priorityOrder follows fitScore: highest score = priorityOrder 1, then 2, etc.
-- recommendedMonth must be within the horizon. Spread them across months.
+- recommendedMonth must be STRICTLY FUTURE (≥ next month) and SPREAD across the full horizon.
 - Keep reasoning concise (1-2 sentences), risks concise (1 sentence).
+- applicationGuidance: 2-3 sentences, concrete and actionable, specific to this client+call.
 - Return ONLY the JSON, no surrounding text or markdown. Do NOT wrap in markdown fences.`
 
 interface RoadmapPayload {
@@ -1118,7 +1179,7 @@ Apply ELIGIBILITY RULES strictly. If client has WON NEOTEC, NEVER recommend NEOT
 Return ONLY the JSON object per the schema. No markdown fences, no surrounding text.
 
 ${pass2FullPrompt}`,
-      5000, // más espacio para 10-15 recs detalladas
+      7000, // +2000 para acomodar applicationGuidance en 10-15 recs
       'deep-matcher',
     )
     const { text, inputTokens: deepInputTokens, outputTokens, stopReason } = deepResult
@@ -1171,6 +1232,9 @@ ${pass2FullPrompt}`,
               recommendedMonth: fitResult.parsed.recommendedMonth || rec.recommendedMonth,
               estimatedFundingRange: fitResult.parsed.estimatedFundingRange || rec.estimatedFundingRange,
               risks: fitResult.parsed.risks || rec.risks,
+              // Si Pass 3 produce applicationGuidance más detallada la preferimos,
+              // si no caemos a la del Pass 2 deep matcher
+              applicationGuidance: fitResult.parsed.applicationGuidance || rec.applicationGuidance,
             }
           } catch (e) {
             console.warn(`   ↳ ${rec.callId}: re-score failed, keeping original`, e instanceof Error ? e.message : '')
@@ -1182,6 +1246,35 @@ ${pass2FullPrompt}`,
       rescoredRecs.sort((a, b) => (b.fitScore ?? 0) - (a.fitScore ?? 0))
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       rescoredRecs.forEach((r: any, i: number) => { r.priorityOrder = i + 1 })
+
+      // ── SANITIZATION: garantizar fechas SIEMPRE futuras dentro del horizonte ──
+      // Defensa frente a agente que devuelve "2025-XX" o fechas pasadas.
+      const today = new Date()
+      const minMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1)  // próximo mes
+      const maxMonth = new Date(today.getFullYear() + timeline, today.getMonth(), 1)
+      const horizonMonths = timeline * 12
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rescoredRecs.forEach((r: any, idx: number) => {
+        const m = r.recommendedMonth as string | undefined
+        let valid = false
+        let recDate: Date | null = null
+        if (m && /^\d{4}-\d{2}$/.test(m)) {
+          const [y, mm] = m.split('-').map(Number)
+          recDate = new Date(y, mm - 1, 1)
+          if (recDate >= minMonth && recDate <= maxMonth) valid = true
+        }
+        if (!valid) {
+          // Distribuir uniformemente: rec idx N de M cae en mes proporcional al horizonte
+          const monthOffset = 1 + Math.floor(((idx + 1) * horizonMonths) / (rescoredRecs.length + 1))
+          const fallback = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1)
+          const y = fallback.getFullYear()
+          const mm = String(fallback.getMonth() + 1).padStart(2, '0')
+          console.warn(`   ↳ Sanitized recommendedMonth for ${r.callId}: "${m}" → "${y}-${mm}"`)
+          r.recommendedMonth = `${y}-${mm}`
+        }
+      })
+
       parsed.recommendations = rescoredRecs
       const rescoreElapsed = ((Date.now() - rescoreStart) / 1000).toFixed(1)
       console.log(`   ↳ re-scored in ${rescoreElapsed}s`)
@@ -1281,23 +1374,28 @@ ${clientBlock}
 ═══ CALL ═══
 ${callBlock}
 
+TODAY is ${new Date().toISOString().split('T')[0]}. The HORIZON is ${timeline || 2} years.
+recommendedMonth MUST be STRICTLY in the FUTURE (≥ next month from today) AND within the horizon.
+
 Return a JSON object EXACTLY matching this schema:
 {
   "fitScore": <integer 0-100>,
   "reasoning": "2-3 sentences explaining why this call fits (or does not fit) this client.",
-  "recommendedMonth": "YYYY-MM (when to START preparing — within ${timeline || 2} years of today)",
+  "recommendedMonth": "YYYY-MM (when to START preparing — STRICTLY FUTURE month, within ${timeline || 2} years of today)",
   "estimatedFundingRange": "human-readable € range (e.g. '€100K-€500K')",
   "risks": "1 sentence about main risk or watchout.",
+  "applicationGuidance": "2-3 sentences of CONCRETE strategic advice on how to ORIENT this proposal for THIS client: which tech line to lead with, which angle to emphasize, partner type to seek, what NOT to mention. Specific and actionable.",
   "eligibilityFlag": "OK" | "WARNING" | "BLOCKED" (BLOCKED only if hard rules clearly fail, e.g. NEOTEC for ${companyAgeYears && companyAgeYears > 3 ? 'NOT eligible — company exceeds 3y' : 'eligible'})
 }
 
 Apply ELIGIBILITY RULES (NEOTEC ≤3y company; if already won, never recommend again; EIC Accelerator SME-only; etc.).
 TRL is subjective — never reject solely on TRL.
+For TRL-aware sequencing: if call is research-type (Pathfinder, Doctorados, AEI) and client's tech is low TRL → recommend earlier; if call is innovation/scale (Accelerator, Línea Directa) → later in horizon.
 Return ONLY the JSON, no markdown fences, no surrounding text.`
 
   const stream = anthropic.messages.stream({
     model: CLAUDE_MODEL_FAST,
-    max_tokens: 800,
+    max_tokens: 1100,    // +300 para applicationGuidance
     system: ROADMAP_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userMsg }],
   })

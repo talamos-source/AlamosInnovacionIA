@@ -35,6 +35,8 @@ interface RoadmapRecommendation {
   estimatedFundingRange: string
   risks: string
   priorityOrder: number
+  /** Orientación estratégica para enfocar la propuesta (nuevo). Opcional para back-compat. */
+  applicationGuidance?: string
 }
 
 interface RoadmapResult {
@@ -1050,6 +1052,16 @@ const RecommendationCard = ({
 
       <div className="rm-rec-body">
         <p className="rm-rec-reasoning">{stripAgentTags(rec.reasoning)}</p>
+
+        {rec.applicationGuidance && rec.applicationGuidance.trim() && (
+          <div className="rm-rec-guidance">
+            <div className="rm-rec-guidance-label">
+              <Sparkles size={13} /> CÓMO ORIENTAR LA SOLICITUD
+            </div>
+            <p className="rm-rec-guidance-text">{stripAgentTags(rec.applicationGuidance)}</p>
+          </div>
+        )}
+
         <div className="rm-rec-grid">
           <div className="rm-rec-cell">
             <span className="rm-cell-label">Apply by {onUpdateMonth && !editingMonth && <button type="button" className="rm-cell-edit-btn" onClick={() => { setDraftMonth(rec.recommendedMonth); setEditingMonth(true) }} title="Edit month">✎</button>}</span>
