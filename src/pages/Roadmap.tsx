@@ -743,6 +743,18 @@ const RoadmapPage = () => {
               timeline={activeRoadmap.timeline}
               customerName={customer.name}
               idiCalls={idiCalls}
+              onOpenInList={(callId) => {
+                setView('list')
+                // Dejamos que React pinte la lista, luego scrolleamos
+                setTimeout(() => {
+                  const el = document.getElementById(`rec-card-${callId}`)
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                    el.classList.add('rm-rec-card--highlight')
+                    setTimeout(() => el.classList.remove('rm-rec-card--highlight'), 2500)
+                  }
+                }, 80)
+              }}
             />
           )}
 
@@ -906,7 +918,7 @@ const RecommendationCard = ({
   const scoreClass = rec.fitScore >= 80 ? 'high' : rec.fitScore >= 60 ? 'mid' : 'low'
 
   return (
-    <article className="rm-rec-card">
+    <article className="rm-rec-card" id={`rec-card-${rec.callId}`}>
       <header className="rm-rec-header">
         <div className="rm-rec-priority">#{rec.priorityOrder}</div>
         <div className="rm-rec-title-wrap">

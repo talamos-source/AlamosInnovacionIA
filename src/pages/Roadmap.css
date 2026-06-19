@@ -563,6 +563,17 @@
 
 /* ---------- RECOMMENDATIONS ---------- */
 
+/* Highlight cuando se navega desde el timeline */
+@keyframes rmCardHighlight {
+  0%   { box-shadow: 0 0 0 0 rgba(92, 53, 143, 0.6); }
+  50%  { box-shadow: 0 0 0 8px rgba(92, 53, 143, 0.15); }
+  100% { box-shadow: 0 0 0 0 rgba(92, 53, 143, 0); }
+}
+.rm-rec-card--highlight {
+  animation: rmCardHighlight 2.4s ease-out;
+  border-color: var(--color-brand-500) !important;
+}
+
 .rm-view-toggle {
   display: inline-flex;
   background-color: var(--color-bg-muted);
