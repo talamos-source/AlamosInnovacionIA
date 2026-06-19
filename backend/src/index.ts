@@ -3,6 +3,7 @@ import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import { getEvergreenAsNormalizedList } from './evergreenCalls.js'
+import { loadAllFichas, buildFichaPromptBlock, getFichasIndex } from './agentFichasLoader.js'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { google } from 'googleapis'
@@ -1366,6 +1367,15 @@ async function analyzeCallFitInternal(
     call.description && `Description: ${call.description.slice(0, 400)}`,
   ].filter(Boolean).join('\n')
 
+  // Si esta call matchea con alguna ficha de programa, inyectamos su contenido
+  // como knowledge base autorizativa. Eso da scoring más fino + guidance grounded.
+  const fichaBlock = buildFichaPromptBlock({
+    title: call.title,
+    organism: call.program,
+    callId: call.externalId,
+    description: call.description,
+  })
+
   const userMsg = `Analyze the FIT of ONE specific funding call for this client.
 
 ═══ CLIENT ═══
@@ -1373,6 +1383,7 @@ ${clientBlock}
 
 ═══ CALL ═══
 ${callBlock}
+${fichaBlock}
 
 TODAY is ${new Date().toISOString().split('T')[0]}. The HORIZON is ${timeline || 2} years.
 recommendedMonth MUST be STRICTLY in the FUTURE (≥ next month from today) AND within the horizon.
@@ -1395,7 +1406,7 @@ Return ONLY the JSON, no markdown fences, no surrounding text.`
 
   const stream = anthropic.messages.stream({
     model: CLAUDE_MODEL_FAST,
-    max_tokens: 1100,    // +300 para applicationGuidance
+    max_tokens: 1500,    // +400 extra: ahora puede usar tips de la ficha para guidance más densa
     system: ROADMAP_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userMsg }],
   })
@@ -2772,8 +2783,12 @@ app.post('/discovery/sync', requireAuth, async (req, res) => {
   })
 })
 
+// Carga fichas del agente al arrancar
+loadAllFichas()
+
 app.listen(PORT, () => {
   console.log(`Backend running on port ${PORT}`)
+  console.log(`📚 Agent fichas indexed: ${getFichasIndex().length}`)
   if (!anthropic) {
     console.warn('⚠️  ANTHROPIC_API_KEY not configured — /ai/analyze-client-context will return 503')
   } else {
