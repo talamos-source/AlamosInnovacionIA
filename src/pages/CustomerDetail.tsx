@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -11,6 +11,8 @@ import {
   Building2,
   Wand2,
   Route,
+  Upload,
+  X,
 } from 'lucide-react'
 import { formatCurrency, parseEuropeanNumber } from '../utils/formatCurrency'
 import './Page.css'
@@ -45,6 +47,8 @@ interface Customer {
   notes?: string
   createdAt?: string
   updatedAt?: string
+  /** Logo opcional del cliente en data URL (base64) — aparece en exports PPT. */
+  logoBase64?: string
 }
 
 interface Proposal {
@@ -111,6 +115,73 @@ const CustomerDetail = () => {
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [projects, setProjects] = useState<Project[]>([])
+  const logoInputRef = useRef<HTMLInputElement | null>(null)
+
+  /**
+   * Carga un logo de cliente, lo redimensiona a max 400px de lado para
+   * mantener el localStorage compacto, y lo guarda como dataURL.
+   */
+  const handleLogoUpload = (file: File) => {
+    if (!customer) return
+    if (!file.type.startsWith('image/')) {
+      alert('Por favor sube una imagen (PNG, JPG, SVG…).')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => {
+        const MAX = 400
+        let { width, height } = img
+        if (width > MAX || height > MAX) {
+          const r = Math.min(MAX / width, MAX / height)
+          width = Math.round(width * r)
+          height = Math.round(height * r)
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        ctx.drawImage(img, 0, 0, width, height)
+        // Si era PNG mantenemos transparencia, si no lo convertimos a JPEG
+        const isPng = file.type === 'image/png' || file.type === 'image/svg+xml'
+        const dataUrl = isPng
+          ? canvas.toDataURL('image/png')
+          : canvas.toDataURL('image/jpeg', 0.88)
+
+        const updated: Customer = { ...customer, logoBase64: dataUrl, updatedAt: new Date().toISOString() }
+        setCustomer(updated)
+        try {
+          const saved = localStorage.getItem('customers')
+          const customers: Customer[] = saved ? JSON.parse(saved) : []
+          const next = customers.map(c => c.id === updated.id ? updated : c)
+          localStorage.setItem('customers', JSON.stringify(next))
+        } catch (err) {
+          console.error('Error saving logo:', err)
+        }
+      }
+      img.src = reader.result as string
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleLogoRemove = () => {
+    if (!customer) return
+    if (!confirm('Remove client logo?')) return
+    const { logoBase64: _, ...rest } = customer
+    void _
+    const updated: Customer = { ...rest, updatedAt: new Date().toISOString() }
+    setCustomer(updated)
+    try {
+      const saved = localStorage.getItem('customers')
+      const customers: Customer[] = saved ? JSON.parse(saved) : []
+      const next = customers.map(c => c.id === updated.id ? updated : c)
+      localStorage.setItem('customers', JSON.stringify(next))
+    } catch (err) {
+      console.error('Error removing logo:', err)
+    }
+  }
 
   useEffect(() => {
     try {
@@ -183,8 +254,49 @@ const CustomerDetail = () => {
           ============================================================ */}
       <section className="customer-detail-header">
         <div className="customer-detail-header-left">
-          <div className="customer-logo-placeholder" aria-hidden>
-            <Building2 size={28} strokeWidth={1.5} />
+          <div className="customer-logo-wrap">
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={e => {
+                const f = e.target.files?.[0]
+                if (f) handleLogoUpload(f)
+                if (logoInputRef.current) logoInputRef.current.value = ''
+              }}
+            />
+            {customer.logoBase64 ? (
+              <button
+                type="button"
+                className="customer-logo-img-btn"
+                onClick={() => logoInputRef.current?.click()}
+                title="Click to replace logo"
+              >
+                <img src={customer.logoBase64} alt={`${customer.name} logo`} className="customer-logo-img" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="customer-logo-placeholder customer-logo-placeholder--upload"
+                onClick={() => logoInputRef.current?.click()}
+                title="Upload client logo (will appear in PPT exports)"
+              >
+                <Building2 size={26} strokeWidth={1.5} />
+                <span className="customer-logo-upload-hint"><Upload size={11} /> Logo</span>
+              </button>
+            )}
+            {customer.logoBase64 && (
+              <button
+                type="button"
+                className="customer-logo-remove"
+                onClick={handleLogoRemove}
+                title="Remove logo"
+                aria-label="Remove logo"
+              >
+                <X size={12} />
+              </button>
+            )}
           </div>
           <div className="customer-detail-identity">
             <h1 className="customer-detail-name">{customer.name}</h1>

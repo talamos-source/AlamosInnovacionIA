@@ -574,14 +574,47 @@
   border-color: var(--color-brand-500) !important;
 }
 
+.rm-view-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
 .rm-view-toggle {
   display: inline-flex;
   background-color: var(--color-bg-muted);
   border-radius: var(--radius-md);
   padding: 3px;
   width: fit-content;
-  margin-bottom: var(--space-3);
 }
+.rm-export-ppt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--color-brand-700);
+  color: white;
+  border: none;
+  padding: 10px 18px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  transition: all var(--transition-fast);
+  box-shadow: var(--shadow-sm);
+}
+.rm-export-ppt-btn:hover:not(:disabled) {
+  background-color: var(--color-brand-800);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+.rm-export-ppt-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+@keyframes rmSpinner { to { transform: rotate(360deg); } }
+.rm-spin { animation: rmSpinner 1s linear infinite; }
 .rm-view-btn {
   background: transparent;
   border: none;

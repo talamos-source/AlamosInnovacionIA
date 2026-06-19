@@ -1,6 +1,12 @@
-import { useMemo, useRef, useState } from 'react'
+import { useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react'
 import { ExternalLink, AlertTriangle, Download } from 'lucide-react'
 import './RoadmapTimeline.css'
+
+/** Handle expuesto al padre para poder pedir el PNG desde fuera (ej. para el export PPT). */
+export interface RoadmapTimelineHandle {
+  /** Devuelve el dataURL PNG SOLO del timeline (sin el resumen de cards). */
+  getTimelinePngDataUrl: () => Promise<string>
+}
 
 /* ============================================================
    Tipos (espejados del Roadmap.tsx para no acoplar)
@@ -71,7 +77,7 @@ const stripAgentTags = (s: string | undefined): string => {
    Componente
    ============================================================ */
 
-const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, onOpenInList }: Props) => {
+const RoadmapTimeline = forwardRef<RoadmapTimelineHandle, Props>(({ recommendations, timeline, customerName, idiCalls, onOpenInList }, ref) => {
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<Category | 'all'>('all')
   const svgRef = useRef<SVGSVGElement | null>(null)
@@ -130,9 +136,11 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
    *  - cap    = horizonte máximo del roadmap (no excedemos)
    *  - floor  = mínimo 6 meses visible (para no ser ridículamente corto)
    */
-  // El span empieza 20 días antes de hoy para que las bubbles del mes
-  // actual queden a la derecha de TODAY y no superpuestas con la línea.
-  const startMs = useMemo(() => today.getTime() - 1000 * 60 * 60 * 24 * 20, [today])
+  // TODAY siempre anclado al borde izquierdo del plot.
+  const startMs = today.getTime()
+  // Pequeño offset (en días) para que las bubbles del mes en curso o anteriores
+  // queden justo a la DERECHA de la línea TODAY (no encima, no a la izquierda).
+  const PRESENT_OFFSET_DAYS = 8
 
   const { totalMs, spanMonths } = useMemo(() => {
     const recDates = recommendations
@@ -152,27 +160,29 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
     return { totalMs: total, spanMonths: months }
   }, [recommendations, today, startMs, maxHorizonDate])
 
-  // x coord del marker TODAY (no es PADDING_LEFT, porque hemos shiftado el start)
-  const todayX = useMemo(() => {
-    const t = (today.getTime() - startMs) / totalMs
-    return PADDING_LEFT + t * PLOT_W
-  }, [today, startMs, totalMs])
+  // TODAY pegado al margen izquierdo del plot
+  const todayX = PADDING_LEFT
 
   /* ---- positioned recs ---- */
   const positioned = useMemo(() => {
+    const minPresentMs = today.getTime() + 1000 * 60 * 60 * 24 * PRESENT_OFFSET_DAYS
     return recommendations.map(rec => {
-      const date = monthTo(rec.recommendedMonth)
-      const t = Math.max(0, Math.min(1, (date.getTime() - startMs) / totalMs))
+      const realDate = monthTo(rec.recommendedMonth)
+      // Si la fecha de aplicación ya pasó o es esta misma semana,
+      // la "anclamos" a +8 días desde hoy para que la bubble se
+      // muestre claramente a la derecha de TODAY (no encima ni detrás).
+      const effectiveMs = Math.max(realDate.getTime(), minPresentMs)
+      const t = Math.max(0, Math.min(1, (effectiveMs - startMs) / totalMs))
       const category = categorize(rec)
       return {
         ...rec,
-        date,
+        date: realDate,         // fecha real para mostrar en tooltip
         category,
         x: PADDING_LEFT + t * PLOT_W,
         y: Y_BANDS[category],
       }
     })
-  }, [recommendations, startMs, totalMs, Y_BANDS])
+  }, [recommendations, today, startMs, totalMs, Y_BANDS])
 
   const filtered = selectedCategory === 'all'
     ? positioned
@@ -198,7 +208,6 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
   /* ---- X-axis ticks (adaptados al span real, no al timeline máximo) ---- */
   const xTicks = useMemo(() => {
     const totalMonths = Math.max(1, Math.ceil(spanMonths))
-    // step adaptativo
     let stepMonths: number
     if (totalMonths <= 6) stepMonths = 1
     else if (totalMonths <= 12) stepMonths = 1
@@ -206,14 +215,13 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
     else if (totalMonths <= 24) stepMonths = 2
     else stepMonths = 3
     const ticks: Array<{ x: number; label: string; year?: number }> = []
-    const start = new Date(startMs)
-    // Empezamos en el primer día del mes después de startMs
-    const firstTick = new Date(start.getFullYear(), start.getMonth(), 1)
+    // Primer tick = inicio del PRÓXIMO mes (para no superponer con TODAY)
+    const firstTick = new Date(today.getFullYear(), today.getMonth() + 1, 1)
     for (let m = 0; m <= totalMonths + 1; m += stepMonths) {
       const d = new Date(firstTick)
       d.setMonth(d.getMonth() + m)
       const t = (d.getTime() - startMs) / totalMs
-      if (t < 0 || t > 1) continue
+      if (t < 0.04 || t > 1) continue  // skip lo que cae demasiado pegado a TODAY
       ticks.push({
         x: PADDING_LEFT + t * PLOT_W,
         label: d.toLocaleString('en-US', { month: 'short' }),
@@ -221,13 +229,53 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
       })
     }
     return ticks
-  }, [startMs, totalMs, spanMonths])
+  }, [today, startMs, totalMs, spanMonths])
 
   /* ---- bubble radius por fitScore ---- */
   const bubbleRadius = (fitScore: number) => {
     const norm = Math.max(0, Math.min(1, (fitScore - 50) / 50))
     return 16 + norm * 14   // 16 → 30 px (más generoso)
   }
+
+  /**
+   * Renderiza SOLO el SVG del timeline a PNG dataURL (sin la lista resumen abajo).
+   * Útil para incrustar en el PPT, donde la lista va aparte.
+   */
+  const getTimelinePngDataUrl = (): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const svg = svgRef.current
+      if (!svg) return reject(new Error('SVG not mounted'))
+      const clone = svg.cloneNode(true) as SVGSVGElement
+      const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style')
+      styleEl.textContent = `
+        text {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+        }
+      `
+      clone.insertBefore(styleEl, clone.firstChild)
+      const svgStr = new XMLSerializer().serializeToString(clone)
+      const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const img = new Image()
+      img.onload = () => {
+        const scale = 2
+        const canvas = document.createElement('canvas')
+        canvas.width = VIEWBOX_W * scale
+        canvas.height = VIEWBOX_H * scale
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { URL.revokeObjectURL(url); return reject(new Error('No canvas ctx')) }
+        ctx.fillStyle = '#FAF8F4'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        URL.revokeObjectURL(url)
+        resolve(canvas.toDataURL('image/png'))
+      }
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('SVG image load failed')) }
+      img.src = url
+    })
+  }
+
+  useImperativeHandle(ref, () => ({ getTimelinePngDataUrl }))
 
   /* ---- PNG export con resumen de cards y fonts robustas ---- */
   const handleDownloadPNG = () => {
@@ -712,6 +760,8 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
       </footer>
     </div>
   )
-}
+})
+
+RoadmapTimeline.displayName = 'RoadmapTimeline'
 
 export default RoadmapTimeline

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -13,10 +13,12 @@ import {
   Plus,
   X,
   Search,
+  FileDown,
 } from 'lucide-react'
 import './Page.css'
 import './Roadmap.css'
-import RoadmapTimeline from './RoadmapTimeline'
+import RoadmapTimeline, { type RoadmapTimelineHandle } from './RoadmapTimeline'
+import { generateRoadmapPpt, type PptCallDetail } from '../utils/roadmapPpt'
 
 /* ============================================================
    Tipos
@@ -227,6 +229,8 @@ const RoadmapPage = () => {
   const [pickerSearch, setPickerSearch] = useState('')
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
   const [view, setView] = useState<'timeline' | 'list'>('timeline')
+  const [exportingPpt, setExportingPpt] = useState(false)
+  const timelineRef = useRef<RoadmapTimelineHandle | null>(null)
 
   const customerRoadmapsFromState = useMemo(
     () =>
@@ -249,6 +253,64 @@ const RoadmapPage = () => {
   }
 
   // ── Acciones sobre roadmaps ───────────────────────────────────────────
+  /**
+   * Export del roadmap activo a PowerPoint con branding Álamos.
+   * Si está en vista List cambia temporalmente a Timeline para capturar el PNG,
+   * y luego restaura.
+   */
+  const handleExportPpt = async () => {
+    if (!activeRoadmap || !customer) return
+    setExportingPpt(true)
+    const previousView = view
+    try {
+      // Necesitamos el timeline montado para capturar el PNG
+      if (view !== 'timeline') {
+        setView('timeline')
+        // Esperamos a que React monte el componente
+        await new Promise(r => setTimeout(r, 250))
+      }
+
+      let timelinePng: string | undefined
+      try {
+        timelinePng = await timelineRef.current?.getTimelinePngDataUrl()
+      } catch (err) {
+        console.warn('Timeline PNG capture failed, generating PPT without timeline image:', err)
+      }
+
+      // Detalles enriquecidos por callId desde idiCalls (programa, región, deadline)
+      const callDetails: Record<string, PptCallDetail> = {}
+      idiCalls.forEach(c => {
+        callDetails[c.externalId] = {
+          externalId: c.externalId,
+          url: c.url,
+          program: c.program,
+          region: c.region,
+          closeDate: c.closeDate,
+        }
+      })
+
+      // logoBase64 puede estar guardado en customer si CustomerDetail lo subió
+      const logo = (customer as unknown as { logoBase64?: string }).logoBase64
+      const sector = (customer as unknown as { category?: string }).category
+
+      await generateRoadmapPpt({
+        customerName: customer.name,
+        customerLogoBase64: logo,
+        customerSector: sector,
+        timeline: activeRoadmap.timeline,
+        recommendations: activeRoadmap.result.recommendations,
+        timelineImageDataUrl: timelinePng,
+        callDetails,
+      })
+    } catch (err) {
+      console.error('PPT export failed:', err)
+      alert('No se pudo generar el PPT. Revisa la consola para detalles.')
+    } finally {
+      setExportingPpt(false)
+      if (view !== previousView) setView(previousView)
+    }
+  }
+
   const handleDeleteVersion = (rmId: string) => {
     if (!confirm('Delete this roadmap version? This cannot be undone.')) return
     const next = roadmapsState.filter(r => r.id !== rmId)
@@ -719,26 +781,42 @@ const RoadmapPage = () => {
             </div>
           </section>
 
-          {/* Toggle de vista */}
-          <div className="rm-view-toggle">
+          {/* Toggle de vista + export PPT */}
+          <div className="rm-view-bar">
+            <div className="rm-view-toggle">
+              <button
+                type="button"
+                className={`rm-view-btn ${view === 'timeline' ? 'active' : ''}`}
+                onClick={() => setView('timeline')}
+              >
+                Timeline
+              </button>
+              <button
+                type="button"
+                className={`rm-view-btn ${view === 'list' ? 'active' : ''}`}
+                onClick={() => setView('list')}
+              >
+                List
+              </button>
+            </div>
             <button
               type="button"
-              className={`rm-view-btn ${view === 'timeline' ? 'active' : ''}`}
-              onClick={() => setView('timeline')}
+              className="rm-export-ppt-btn"
+              onClick={handleExportPpt}
+              disabled={exportingPpt}
+              title="Export to PowerPoint with Álamos branding"
             >
-              Timeline
-            </button>
-            <button
-              type="button"
-              className={`rm-view-btn ${view === 'list' ? 'active' : ''}`}
-              onClick={() => setView('list')}
-            >
-              List
+              {exportingPpt ? (
+                <><Loader2 size={15} className="rm-spin" /> Generating PPT…</>
+              ) : (
+                <><FileDown size={15} /> Export PPT</>
+              )}
             </button>
           </div>
 
           {view === 'timeline' && (
             <RoadmapTimeline
+              ref={timelineRef}
               recommendations={activeRoadmap.result.recommendations}
               timeline={activeRoadmap.timeline}
               customerName={customer.name}

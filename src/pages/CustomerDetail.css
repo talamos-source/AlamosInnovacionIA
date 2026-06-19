@@ -78,6 +78,12 @@
   flex: 1;
 }
 
+.customer-logo-wrap {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+}
 .customer-logo-placeholder {
   width: 64px;
   height: 64px;
@@ -88,6 +94,70 @@
   justify-content: center;
   color: var(--color-text-muted);
   flex-shrink: 0;
+}
+.customer-logo-placeholder--upload {
+  border: 1px dashed var(--color-border-default);
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  padding: 0;
+}
+.customer-logo-placeholder--upload:hover {
+  border-color: var(--color-brand-500);
+  background-color: var(--color-brand-50);
+  color: var(--color-brand-700);
+}
+.customer-logo-upload-hint {
+  font-size: 9px;
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.customer-logo-img-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  padding: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: all var(--transition-fast);
+}
+.customer-logo-img-btn:hover {
+  border-color: var(--color-brand-500);
+}
+.customer-logo-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.customer-logo-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--color-text-primary);
+  color: white;
+  border: 2px solid var(--color-bg-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background var(--transition-fast);
+}
+.customer-logo-remove:hover {
+  background-color: var(--color-danger-700);
 }
 
 .customer-detail-identity {
