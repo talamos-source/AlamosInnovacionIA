@@ -295,7 +295,8 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls }: 
           {filtered.map((rec) => {
             const r = bubbleRadius(rec.fitScore)
             const isHovered = hoveredId === rec.callId
-            const fill = rec.source === 'EU_PORTAL' ? '#1a4998' : '#c8102e'
+            // EU = lavanda claro · ES (BDNS) = morado oscuro profundo. Todo en familia Álamos.
+            const fill = rec.source === 'EU_PORTAL' ? '#A78BC9' : '#3D1E66'
             return (
               <g
                 key={rec.callId}
@@ -376,8 +377,8 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls }: 
       <footer className="rt-legend">
         <div className="rt-legend-group">
           <span className="rt-legend-label">Source:</span>
-          <span className="rt-legend-chip"><span className="rt-legend-dot" style={{ background: '#1a4998' }} /> EU Portal</span>
-          <span className="rt-legend-chip"><span className="rt-legend-dot" style={{ background: '#c8102e' }} /> BDNS (Spain)</span>
+          <span className="rt-legend-chip"><span className="rt-legend-dot" style={{ background: '#A78BC9' }} /> EU Portal</span>
+          <span className="rt-legend-chip"><span className="rt-legend-dot" style={{ background: '#3D1E66' }} /> BDNS (Spain)</span>
         </div>
         <div className="rt-legend-group">
           <span className="rt-legend-label">Bubble size:</span>

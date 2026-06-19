@@ -168,8 +168,8 @@
   font-weight: 700;
   color: white;
 }
-.rt-tooltip-source--eu_portal { background: #1a4998; }
-.rt-tooltip-source--bdns { background: #c8102e; }
+.rt-tooltip-source--eu_portal { background: #A78BC9; }
+.rt-tooltip-source--bdns { background: #3D1E66; }
 .rt-tooltip-fit {
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
