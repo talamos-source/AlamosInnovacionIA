@@ -178,6 +178,19 @@ const formatRecommendedMonth = (m: string): string => {
 
 const sourceLabel = (s: 'EU_PORTAL' | 'BDNS') => (s === 'EU_PORTAL' ? 'EU Portal' : 'BDNS Spain')
 
+/**
+ * Limpia bracket-tags que el agente a veces añade (heredados de prompts/descripciones).
+ * Pilla: [Evergreen], [Evergreen permanent], [Permanent], [Recurrent annual], etc.
+ * Aplica strip global (en cualquier posición), case-insensitive.
+ */
+const stripAgentTags = (s: string | undefined): string => {
+  if (!s) return ''
+  return s
+    .replace(/\[\s*(Evergreen|Permanent|Annual|Biannual|Recurrent|Forthcoming|Open)\b[^\]]*\]\s*/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
 /* ============================================================
    Componente
    ============================================================ */
@@ -866,11 +879,7 @@ const RecommendationCard = ({
       <header className="rm-rec-header">
         <div className="rm-rec-priority">#{rec.priorityOrder}</div>
         <div className="rm-rec-title-wrap">
-          <h3>{
-            // Limpia prefijos tipo "[Evergreen permanent]" o "[Evergreen annual]" si llegan
-            // desde un roadmap viejo guardado o si el agente se confunde y los pone en title.
-            (rec.title || '').replace(/^\[Evergreen[^\]]*\]\s*/i, '').trim() || rec.callId
-          }</h3>
+          <h3>{stripAgentTags(rec.title) || rec.callId}</h3>
           <div className="rm-rec-meta">
             <span className={`rm-source-badge rm-source-badge--${rec.source.toLowerCase()}`}>
               {sourceLabel(rec.source)}
@@ -901,7 +910,7 @@ const RecommendationCard = ({
       </header>
 
       <div className="rm-rec-body">
-        <p className="rm-rec-reasoning">{rec.reasoning}</p>
+        <p className="rm-rec-reasoning">{stripAgentTags(rec.reasoning)}</p>
         <div className="rm-rec-grid">
           <div className="rm-rec-cell">
             <span className="rm-cell-label">Apply by {onUpdateMonth && !editingMonth && <button type="button" className="rm-cell-edit-btn" onClick={() => { setDraftMonth(rec.recommendedMonth); setEditingMonth(true) }} title="Edit month">✎</button>}</span>
