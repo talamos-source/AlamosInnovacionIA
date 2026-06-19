@@ -238,17 +238,21 @@ export function matchFichasForCall(args: {
   if (!hay) return []
 
   return FICHAS_INDEX.filter(f => {
-    // Match por alias (substring)
-    const aliasHit = f.aliasesLower.some(alias => {
-      // Buscamos como palabra completa o substring relevante
-      // Si el alias es muy corto (≤4 chars), exigimos límites de palabra
-      if (alias.length <= 4) {
-        const re = new RegExp(`(^|[\\s\\-_/.,;])${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([\\s\\-_/.,;]|$)`, 'i')
-        return re.test(hay)
-      }
-      return hay.includes(alias)
+    // Match por alias con BOUNDARIES en TODOS los casos.
+    //
+    // Una versión anterior usaba substring sin boundaries para aliases largos,
+    // pero eso provocaba falsos positivos como "Ayuda LIC" matcheando dentro
+    // de "Ayuda LICA Andalucía". Aplicando boundary check siempre:
+    //  - "LIC" no matchea en "LICA" (sin separador después)
+    //  - "Línea Directa de Innovación" sigue matcheando en
+    //    "Convocatoria Línea Directa de Innovación 2026" (separadores OK)
+    // Trade-off: más estricto, más preciso, menos ambigüedades.
+    return f.aliasesLower.some(alias => {
+      const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      // Boundary = inicio/fin de cadena o cualquier separador típico
+      const re = new RegExp(`(^|[\\s\\-_/.,;:()])${escaped}([\\s\\-_/.,;:()]|$)`, 'i')
+      return re.test(hay)
     })
-    return aliasHit
   })
 }
 
