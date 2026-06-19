@@ -563,6 +563,31 @@
 
 /* ---------- RECOMMENDATIONS ---------- */
 
+.rm-view-toggle {
+  display: inline-flex;
+  background-color: var(--color-bg-muted);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  width: fit-content;
+  margin-bottom: var(--space-3);
+}
+.rm-view-btn {
+  background: transparent;
+  border: none;
+  padding: 8px 20px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-medium);
+  transition: all var(--transition-fast);
+}
+.rm-view-btn.active {
+  background-color: var(--color-bg-surface);
+  color: var(--color-brand-700);
+  box-shadow: var(--shadow-sm);
+}
+
 .rm-recommendations {
   display: flex;
   flex-direction: column;

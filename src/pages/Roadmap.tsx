@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import './Page.css'
 import './Roadmap.css'
+import RoadmapTimeline from './RoadmapTimeline'
 
 /* ============================================================
    Tipos
@@ -225,6 +226,7 @@ const RoadmapPage = () => {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerSearch, setPickerSearch] = useState('')
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
+  const [view, setView] = useState<'timeline' | 'list'>('timeline')
 
   const customerRoadmapsFromState = useMemo(
     () =>
@@ -717,6 +719,34 @@ const RoadmapPage = () => {
             </div>
           </section>
 
+          {/* Toggle de vista */}
+          <div className="rm-view-toggle">
+            <button
+              type="button"
+              className={`rm-view-btn ${view === 'timeline' ? 'active' : ''}`}
+              onClick={() => setView('timeline')}
+            >
+              Timeline
+            </button>
+            <button
+              type="button"
+              className={`rm-view-btn ${view === 'list' ? 'active' : ''}`}
+              onClick={() => setView('list')}
+            >
+              List
+            </button>
+          </div>
+
+          {view === 'timeline' && (
+            <RoadmapTimeline
+              recommendations={activeRoadmap.result.recommendations}
+              timeline={activeRoadmap.timeline}
+              customerName={customer.name}
+              idiCalls={idiCalls}
+            />
+          )}
+
+          {view === 'list' && (
           <section className="rm-recommendations">
             {[...activeRoadmap.result.recommendations]
               .sort((a, b) => {
@@ -741,6 +771,7 @@ const RoadmapPage = () => {
               <Plus size={18} /> Add a call from Discovery
             </button>
           </section>
+          )}
 
           <section className="rm-save-banner">
             <div className="rm-save-banner-info">
