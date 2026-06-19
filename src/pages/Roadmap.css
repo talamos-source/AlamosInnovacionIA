@@ -589,6 +589,29 @@
   padding: 3px;
   width: fit-content;
 }
+.rm-export-group {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.rm-export-png-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--color-bg-surface);
+  color: var(--color-brand-700);
+  border: 1px solid var(--color-brand-300);
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  transition: all var(--transition-fast);
+}
+.rm-export-png-btn:hover {
+  background-color: var(--color-brand-50);
+  border-color: var(--color-brand-500);
+}
 .rm-export-ppt-btn {
   display: inline-flex;
   align-items: center;

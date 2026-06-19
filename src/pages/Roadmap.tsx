@@ -14,6 +14,7 @@ import {
   X,
   Search,
   FileDown,
+  Download,
 } from 'lucide-react'
 import './Page.css'
 import './Roadmap.css'
@@ -799,19 +800,36 @@ const RoadmapPage = () => {
                 List
               </button>
             </div>
-            <button
-              type="button"
-              className="rm-export-ppt-btn"
-              onClick={handleExportPpt}
-              disabled={exportingPpt}
-              title="Export to PowerPoint with Álamos branding"
-            >
-              {exportingPpt ? (
-                <><Loader2 size={15} className="rm-spin" /> Generating PPT…</>
-              ) : (
-                <><FileDown size={15} /> Export PPT</>
-              )}
-            </button>
+            <div className="rm-export-group">
+              <button
+                type="button"
+                className="rm-export-png-btn"
+                onClick={() => {
+                  if (view !== 'timeline') {
+                    setView('timeline')
+                    setTimeout(() => timelineRef.current?.downloadFullPng(), 200)
+                  } else {
+                    timelineRef.current?.downloadFullPng()
+                  }
+                }}
+                title="Download as PNG (timeline + summary)"
+              >
+                <Download size={15} /> Export PNG
+              </button>
+              <button
+                type="button"
+                className="rm-export-ppt-btn"
+                onClick={handleExportPpt}
+                disabled={exportingPpt}
+                title="Export to PowerPoint with Álamos branding"
+              >
+                {exportingPpt ? (
+                  <><Loader2 size={15} className="rm-spin" /> Generating PPT…</>
+                ) : (
+                  <><FileDown size={15} /> Export PPT</>
+                )}
+              </button>
+            </div>
           </div>
 
           {view === 'timeline' && (

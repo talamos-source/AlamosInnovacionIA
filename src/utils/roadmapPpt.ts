@@ -340,10 +340,13 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
       fontSize: 28, bold: true, color: COLOR.ink, fontFace: FONT.heading,
     })
 
+    // El SVG del timeline es 1140x500 (ratio 2.28). Para 12.1" de ancho
+    // necesitamos ~5.31" de alto para preservar proporción. Usamos un
+    // poco menos por margen + footer (5.0" deja espacio claro).
     slide.addImage({
       data: timelineImageDataUrl,
-      x: 0.6, y: 2.3, w: 12.1, h: 4.5,
-      sizing: { type: 'contain', w: 12.1, h: 4.5 },
+      x: 0.6, y: 2.3, w: 12.1, h: 5.0,
+      sizing: { type: 'contain', w: 12.1, h: 5.0 },
     })
   }
 
@@ -451,7 +454,7 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
         x: 0.6, y: cy, w: 0.08, h: cardH,
         fill: { color: COLOR.brand }, line: { color: COLOR.brand },
       })
-      // Priority badge (círculo morado pequeño)
+      // Priority badge
       slide.addShape('ellipse' as any, {
         x: 0.85, y: cy + 0.2, w: 0.55, h: 0.55,
         fill: { color: COLOR.brand }, line: { color: COLOR.brand },
@@ -462,23 +465,28 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
         align: 'center', valign: 'middle',
       })
 
-      // Title
-      slide.addText(truncate(stripAgentTags(rec.title), 110), {
-        x: 1.55, y: cy + 0.18, w: cardW - 2.4, h: 0.45,
-        fontSize: 13, bold: true, color: COLOR.ink, fontFace: FONT.heading,
-      })
-
-      // Fit chip (esquina derecha)
+      // Fit chip a la derecha (lo declaro antes que el título para reservar su ancho)
       const fitColor = rec.fitScore >= 80 ? COLOR.success : rec.fitScore >= 60 ? COLOR.brand : COLOR.warning
+      const fitChipW = 0.95
+      const fitChipX = 0.6 + cardW - fitChipW - 0.2
       slide.addShape('roundRect' as any, {
-        x: cardW - 0.95 + 0.6, y: cy + 0.2, w: 0.95, h: 0.35,
+        x: fitChipX, y: cy + 0.2, w: fitChipW, h: 0.35,
         fill: { color: fitColor }, line: { color: fitColor },
         rectRadius: 0.05,
       })
       slide.addText(`Fit ${rec.fitScore}`, {
-        x: cardW - 0.95 + 0.6, y: cy + 0.2, w: 0.95, h: 0.35,
+        x: fitChipX, y: cy + 0.2, w: fitChipW, h: 0.35,
         fontSize: 10, bold: true, color: COLOR.white, fontFace: FONT.heading,
         align: 'center', valign: 'middle',
+      })
+
+      // Title — ancho calculado: hasta el fit chip menos margen
+      const titleW = fitChipX - 1.55 - 0.15
+      slide.addText(truncate(stripAgentTags(rec.title), 85), {
+        x: 1.55, y: cy + 0.15, w: titleW, h: 0.4,
+        fontSize: 12.5, bold: true, color: COLOR.ink, fontFace: FONT.heading,
+        valign: 'top',
+        shrinkText: true,        // si no cabe se reduce el font automáticamente
       })
 
       // Meta (source + apply + budget)
@@ -490,23 +498,29 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
         `Apply: ${formatApply(rec.recommendedMonth)}`,
         rec.estimatedFundingRange && rec.estimatedFundingRange !== '—' ? rec.estimatedFundingRange : null,
       ].filter(Boolean).join('  ·  ')
-      slide.addText(metaParts, {
-        x: 1.55, y: cy + 0.6, w: cardW - 0.6, h: 0.3,
-        fontSize: 9.5, color: COLOR.muted, fontFace: FONT.body,
+      slide.addText(truncate(metaParts, 130), {
+        x: 1.55, y: cy + 0.58, w: cardW - 0.6, h: 0.28,
+        fontSize: 9, color: COLOR.muted, fontFace: FONT.body,
+        valign: 'top',
+        shrinkText: true,
       })
 
-      // Reasoning
-      slide.addText(truncate(stripAgentTags(rec.reasoning), 320), {
-        x: 1.55, y: cy + 0.9, w: cardW - 0.6, h: 0.7,
-        fontSize: 10, color: COLOR.text, fontFace: FONT.body,
-        lineSpacingMultiple: 1.3,
+      // Reasoning — truncado más conservador para evitar desbordes
+      slide.addText(truncate(stripAgentTags(rec.reasoning), 220), {
+        x: 1.55, y: cy + 0.88, w: cardW - 0.6, h: 0.65,
+        fontSize: 9.5, color: COLOR.text, fontFace: FONT.body,
+        lineSpacingMultiple: 1.2,
+        valign: 'top',
+        shrinkText: true,
       })
 
-      // Risk (si hay)
+      // Risk (si hay) — pegado al borde inferior del card
       if (rec.risks && rec.risks !== '—' && rec.risks.trim()) {
-        slide.addText(`⚠ ${truncate(stripAgentTags(rec.risks), 140)}`, {
-          x: 1.55, y: cy + 1.55, w: cardW - 0.6, h: 0.25,
-          fontSize: 9, italic: true, color: COLOR.warning, fontFace: FONT.body,
+        slide.addText(`⚠ ${truncate(stripAgentTags(rec.risks), 90)}`, {
+          x: 1.55, y: cy + 1.55, w: cardW - 0.6, h: 0.24,
+          fontSize: 8.5, italic: true, color: COLOR.warning, fontFace: FONT.body,
+          valign: 'top',
+          shrinkText: true,
         })
       }
     })

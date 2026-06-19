@@ -1,11 +1,13 @@
 import { useImperativeHandle, useMemo, useRef, useState, forwardRef } from 'react'
-import { ExternalLink, AlertTriangle, Download } from 'lucide-react'
+import { ExternalLink, AlertTriangle } from 'lucide-react'
 import './RoadmapTimeline.css'
 
-/** Handle expuesto al padre para poder pedir el PNG desde fuera (ej. para el export PPT). */
+/** Handle expuesto al padre para que la página principal controle export. */
 export interface RoadmapTimelineHandle {
-  /** Devuelve el dataURL PNG SOLO del timeline (sin el resumen de cards). */
+  /** Devuelve el dataURL PNG SOLO del timeline (sin el resumen de cards). Útil para PPT. */
   getTimelinePngDataUrl: () => Promise<string>
+  /** Descarga el PNG completo (timeline + lista resumen abajo). */
+  downloadFullPng: () => void
 }
 
 /* ============================================================
@@ -275,7 +277,10 @@ const RoadmapTimeline = forwardRef<RoadmapTimelineHandle, Props>(({ recommendati
     })
   }
 
-  useImperativeHandle(ref, () => ({ getTimelinePngDataUrl }))
+  useImperativeHandle(ref, () => ({
+    getTimelinePngDataUrl,
+    downloadFullPng: () => handleDownloadPNG(),
+  }))
 
   /* ---- PNG export con resumen de cards y fonts robustas ---- */
   const handleDownloadPNG = () => {
@@ -447,27 +452,17 @@ const RoadmapTimeline = forwardRef<RoadmapTimelineHandle, Props>(({ recommendati
             <span className="rt-hint"> · double-click any bubble to open the full card</span>
           </p>
         </div>
-        <div className="rt-header-actions">
-          <div className="rt-category-filter">
-            {(['all', 'research', 'development', 'innovation'] as const).map(cat => (
-              <button
-                key={cat}
-                type="button"
-                className={`rt-filter-btn ${selectedCategory === cat ? 'active' : ''} ${cat !== 'all' ? `rt-filter-btn--${cat}` : ''}`}
-                onClick={() => setSelectedCategory(cat)}
-              >
-                {cat === 'all' ? 'All' : CATEGORY_LABELS[cat]}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            className="rt-export-btn"
-            onClick={handleDownloadPNG}
-            title="Download as PNG"
-          >
-            <Download size={14} /> PNG
-          </button>
+        <div className="rt-category-filter">
+          {(['all', 'research', 'development', 'innovation'] as const).map(cat => (
+            <button
+              key={cat}
+              type="button"
+              className={`rt-filter-btn ${selectedCategory === cat ? 'active' : ''} ${cat !== 'all' ? `rt-filter-btn--${cat}` : ''}`}
+              onClick={() => setSelectedCategory(cat)}
+            >
+              {cat === 'all' ? 'All' : CATEGORY_LABELS[cat]}
+            </button>
+          ))}
         </div>
       </header>
 
@@ -610,7 +605,15 @@ const RoadmapTimeline = forwardRef<RoadmapTimelineHandle, Props>(({ recommendati
               width={56} height={18} rx={9}
               fill="#5C358F"
             />
-            <text x={todayX} y={PADDING_TOP - 39} textAnchor="middle" className="rt-today-label">
+            <text
+              x={todayX} y={PADDING_TOP - 39}
+              textAnchor="middle"
+              className="rt-today-label"
+              fill="#FFFFFF"
+              fontSize={10}
+              fontWeight={700}
+              letterSpacing={1}
+            >
               TODAY
             </text>
           </g>
