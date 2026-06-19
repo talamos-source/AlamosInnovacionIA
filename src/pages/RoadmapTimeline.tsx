@@ -75,11 +75,24 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<Category | 'all'>('all')
   const svgRef = useRef<SVGSVGElement | null>(null)
+  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /** Programa cerrar el tooltip con delay (cancelable si entras al tooltip) */
+  const scheduleHoverClose = () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
+    hoverTimeoutRef.current = setTimeout(() => setHoveredId(null), 220)
+  }
+  const cancelHoverClose = () => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current)
+      hoverTimeoutRef.current = null
+    }
+  }
 
   /* ---- coords ---- */
-  const VIEWBOX_W = 1100
+  const VIEWBOX_W = 1140
   const VIEWBOX_H = 500
-  const PADDING_LEFT = 150   // más espacio para labels Y
+  const PADDING_LEFT = 180   // más espacio para labels Y y respiración
   const PADDING_RIGHT = 60
   const PADDING_TOP = 80
   const PADDING_BOTTOM = 80
@@ -117,6 +130,10 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
    *  - cap    = horizonte máximo del roadmap (no excedemos)
    *  - floor  = mínimo 6 meses visible (para no ser ridículamente corto)
    */
+  // El span empieza 20 días antes de hoy para que las bubbles del mes
+  // actual queden a la derecha de TODAY y no superpuestas con la línea.
+  const startMs = useMemo(() => today.getTime() - 1000 * 60 * 60 * 24 * 20, [today])
+
   const { totalMs, spanMonths } = useMemo(() => {
     const recDates = recommendations
       .map(r => monthTo(r.recommendedMonth).getTime())
@@ -130,16 +147,22 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
       const buffered = lastRec + 1000 * 60 * 60 * 24 * 45 // ~1.5 meses de buffer
       endMs = Math.min(maxHorizonDate.getTime(), Math.max(buffered, sixMonths))
     }
-    const total = endMs - today.getTime()
+    const total = endMs - startMs
     const months = total / (1000 * 60 * 60 * 24 * 30.4)
     return { totalMs: total, spanMonths: months }
-  }, [recommendations, today, maxHorizonDate])
+  }, [recommendations, today, startMs, maxHorizonDate])
+
+  // x coord del marker TODAY (no es PADDING_LEFT, porque hemos shiftado el start)
+  const todayX = useMemo(() => {
+    const t = (today.getTime() - startMs) / totalMs
+    return PADDING_LEFT + t * PLOT_W
+  }, [today, startMs, totalMs])
 
   /* ---- positioned recs ---- */
   const positioned = useMemo(() => {
     return recommendations.map(rec => {
       const date = monthTo(rec.recommendedMonth)
-      const t = Math.max(0, Math.min(1, (date.getTime() - today.getTime()) / totalMs))
+      const t = Math.max(0, Math.min(1, (date.getTime() - startMs) / totalMs))
       const category = categorize(rec)
       return {
         ...rec,
@@ -149,7 +172,7 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
         y: Y_BANDS[category],
       }
     })
-  }, [recommendations, today, totalMs, Y_BANDS])
+  }, [recommendations, startMs, totalMs, Y_BANDS])
 
   const filtered = selectedCategory === 'all'
     ? positioned
@@ -175,7 +198,7 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
   /* ---- X-axis ticks (adaptados al span real, no al timeline máximo) ---- */
   const xTicks = useMemo(() => {
     const totalMonths = Math.max(1, Math.ceil(spanMonths))
-    // step adaptativo: queremos ~6-10 ticks visibles, nunca densificar
+    // step adaptativo
     let stepMonths: number
     if (totalMonths <= 6) stepMonths = 1
     else if (totalMonths <= 12) stepMonths = 1
@@ -183,10 +206,14 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
     else if (totalMonths <= 24) stepMonths = 2
     else stepMonths = 3
     const ticks: Array<{ x: number; label: string; year?: number }> = []
-    for (let m = 0; m <= totalMonths; m += stepMonths) {
-      const d = new Date(today)
+    const start = new Date(startMs)
+    // Empezamos en el primer día del mes después de startMs
+    const firstTick = new Date(start.getFullYear(), start.getMonth(), 1)
+    for (let m = 0; m <= totalMonths + 1; m += stepMonths) {
+      const d = new Date(firstTick)
       d.setMonth(d.getMonth() + m)
-      const t = m / totalMonths
+      const t = (d.getTime() - startMs) / totalMs
+      if (t < 0 || t > 1) continue
       ticks.push({
         x: PADDING_LEFT + t * PLOT_W,
         label: d.toLocaleString('en-US', { month: 'short' }),
@@ -194,7 +221,7 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
       })
     }
     return ticks
-  }, [today, spanMonths])
+  }, [startMs, totalMs, spanMonths])
 
   /* ---- bubble radius por fitScore ---- */
   const bubbleRadius = (fitScore: number) => {
@@ -202,26 +229,141 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
     return 16 + norm * 14   // 16 → 30 px (más generoso)
   }
 
-  /* ---- PNG export ---- */
+  /* ---- PNG export con resumen de cards y fonts robustas ---- */
   const handleDownloadPNG = () => {
     const svg = svgRef.current
     if (!svg) return
+
+    // Clonamos el SVG para inyectar un <style> con font-family de sistema
+    // (Inter no se carga dentro de un data: SVG renderizado en canvas).
+    const clone = svg.cloneNode(true) as SVGSVGElement
+    const styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style')
+    styleEl.textContent = `
+      text {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+      }
+    `
+    clone.insertBefore(styleEl, clone.firstChild)
+
     const serializer = new XMLSerializer()
-    const svgStr = serializer.serializeToString(svg)
+    const svgStr = serializer.serializeToString(clone)
     const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' })
     const url = URL.createObjectURL(svgBlob)
     const img = new Image()
     img.onload = () => {
-      const scale = 2 // export @2x para nitidez
+      const scale = 2 // export @2x para nitidez retina
+      const FONT_STACK = '-apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif'
+
+      // Resumen abajo del timeline
+      const sortedRecs = [...positioned].sort((a, b) => b.fitScore - a.fitScore)
+      const cardH = 56
+      const summaryHeader = 80
+      const summaryFooter = 40
+      const summaryHeight = summaryHeader + sortedRecs.length * cardH + summaryFooter
+
       const canvas = document.createElement('canvas')
       canvas.width = VIEWBOX_W * scale
-      canvas.height = VIEWBOX_H * scale
+      canvas.height = (VIEWBOX_H + summaryHeight) * scale
       const ctx = canvas.getContext('2d')
       if (!ctx) return
+
+      // Background off-white
       ctx.fillStyle = '#FAF8F4'
       ctx.fillRect(0, 0, canvas.width, canvas.height)
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+
+      // Timeline arriba
+      ctx.drawImage(img, 0, 0, VIEWBOX_W * scale, VIEWBOX_H * scale)
       URL.revokeObjectURL(url)
+
+      // ───── Resumen abajo ─────
+      const sy = VIEWBOX_H * scale
+      const padX = 40 * scale
+
+      // Separador
+      ctx.strokeStyle = '#D5C9E6'
+      ctx.lineWidth = 1 * scale
+      ctx.beginPath()
+      ctx.moveTo(padX, sy + 10 * scale)
+      ctx.lineTo(canvas.width - padX, sy + 10 * scale)
+      ctx.stroke()
+
+      // Título resumen
+      ctx.fillStyle = '#5C358F'
+      ctx.font = `bold ${20 * scale}px ${FONT_STACK}`
+      ctx.textBaseline = 'top'
+      ctx.fillText(
+        `Recommendations summary — ${customerName || 'Client'}`,
+        padX,
+        sy + 30 * scale,
+      )
+
+      // Subtítulo (count + timeline + fecha)
+      ctx.fillStyle = '#6B6076'
+      ctx.font = `${12 * scale}px ${FONT_STACK}`
+      const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      ctx.fillText(
+        `${sortedRecs.length} recommendations · ${timeline} ${timeline === 1 ? 'year' : 'years'} horizon · Generated ${dateStr}`,
+        padX,
+        sy + 58 * scale,
+      )
+
+      // Cards
+      sortedRecs.forEach((rec, i) => {
+        const cy = sy + (summaryHeader + i * cardH) * scale
+        const cardX = padX
+        const cardW = canvas.width - 2 * padX
+        const innerH = (cardH - 8) * scale
+
+        // Card background
+        ctx.fillStyle = '#FFFFFF'
+        ctx.fillRect(cardX, cy, cardW, innerH)
+        // Border-left morado
+        ctx.fillStyle = '#5C358F'
+        ctx.fillRect(cardX, cy, 4 * scale, innerH)
+        // Sutil border
+        ctx.strokeStyle = '#EDE6F5'
+        ctx.lineWidth = 1 * scale
+        ctx.strokeRect(cardX, cy, cardW, innerH)
+
+        // Priority badge
+        ctx.fillStyle = '#5C358F'
+        ctx.font = `bold ${15 * scale}px ${FONT_STACK}`
+        ctx.fillText(`#${rec.priorityOrder}`, cardX + 18 * scale, cy + 8 * scale)
+
+        // Title
+        const title = stripAgentTags(rec.title) || rec.callId
+        const titleTrim = title.length > 95 ? title.slice(0, 92) + '…' : title
+        ctx.fillStyle = '#1A1325'
+        ctx.font = `600 ${14 * scale}px ${FONT_STACK}`
+        ctx.fillText(titleTrim, cardX + 60 * scale, cy + 8 * scale)
+
+        // Meta line: source badge + fit + apply + budget
+        const sourceLabel = rec.source === 'EU_PORTAL' ? 'EU Portal' : 'BDNS Spain'
+        const sourceColor = rec.source === 'EU_PORTAL' ? '#A78BC9' : '#3D1E66'
+        const applyStr = rec.date.toLocaleString('en-US', { month: 'short', year: 'numeric' })
+        const budget = rec.estimatedFundingRange && rec.estimatedFundingRange !== '—'
+          ? rec.estimatedFundingRange : 'Budget n/a'
+
+        const metaY = cy + 30 * scale
+
+        // Source chip
+        ctx.fillStyle = sourceColor
+        const chipW = ctx.measureText(sourceLabel).width
+        ctx.font = `bold ${10 * scale}px ${FONT_STACK}`
+        const realChipW = ctx.measureText(sourceLabel).width + 12 * scale
+        ctx.fillRect(cardX + 60 * scale, metaY - 2 * scale, realChipW, 16 * scale)
+        ctx.fillStyle = '#FFFFFF'
+        ctx.fillText(sourceLabel, cardX + 66 * scale, metaY + 1 * scale)
+
+        // Fit + apply + budget
+        ctx.fillStyle = '#6B6076'
+        ctx.font = `${11 * scale}px ${FONT_STACK}`
+        const metaText = `Fit ${rec.fitScore}  ·  Apply ${applyStr}  ·  ${budget}`
+        ctx.fillText(metaText, cardX + 70 * scale + realChipW, metaY + 1 * scale)
+        // dummy use to silence ts noUnusedLocals on chipW
+        void chipW
+      })
+
       canvas.toBlob(blob => {
         if (!blob) return
         const a = document.createElement('a')
@@ -291,6 +433,12 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
           xmlns="http://www.w3.org/2000/svg"
         >
           <defs>
+            {/* Font stack del SVG — usamos system fonts para que el export PNG coincida */}
+            <style>{`
+              .rt-svg text {
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+              }
+            `}</style>
             {/* gradient principal de la curve */}
             <linearGradient id="rt-curve-gradient" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor="#5C358F" stopOpacity={0.2} />
@@ -355,15 +503,15 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
                   stroke="#D5C9E6" strokeWidth={1} strokeDasharray="2 8"
                   opacity={0.55}
                 />
-                {/* Label a la izquierda — ahora con espacio suficiente */}
+                {/* Label a la izquierda — en su propio gutter con aire */}
                 <text
-                  x={PADDING_LEFT - 18} y={cy - 3}
+                  x={PADDING_LEFT - 22} y={cy - 8}
                   textAnchor="end" className="rt-band-label"
                 >
                   {CATEGORY_LABELS[cat]}
                 </text>
                 <text
-                  x={PADDING_LEFT - 18} y={cy + 14}
+                  x={PADDING_LEFT - 22} y={cy + 12}
                   textAnchor="end" className="rt-band-hint"
                 >
                   {CATEGORY_TRL[cat]}
@@ -405,16 +553,16 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
           {/* ─ Today marker ─ */}
           <g>
             <line
-              x1={PADDING_LEFT} y1={PADDING_TOP - 35}
-              x2={PADDING_LEFT} y2={VIEWBOX_H - PADDING_BOTTOM}
+              x1={todayX} y1={PADDING_TOP - 35}
+              x2={todayX} y2={VIEWBOX_H - PADDING_BOTTOM}
               stroke="#5C358F" strokeWidth={1.5} strokeDasharray="4 5" opacity={0.55}
             />
             <rect
-              x={PADDING_LEFT - 28} y={PADDING_TOP - 52}
+              x={todayX - 28} y={PADDING_TOP - 52}
               width={56} height={18} rx={9}
               fill="#5C358F"
             />
-            <text x={PADDING_LEFT} y={PADDING_TOP - 39} textAnchor="middle" className="rt-today-label">
+            <text x={todayX} y={PADDING_TOP - 39} textAnchor="middle" className="rt-today-label">
               TODAY
             </text>
           </g>
@@ -452,8 +600,8 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
               <g
                 key={rec.callId}
                 className="rt-bubble-group"
-                onMouseEnter={() => setHoveredId(rec.callId)}
-                onMouseLeave={() => setHoveredId(null)}
+                onMouseEnter={() => { cancelHoverClose(); setHoveredId(rec.callId) }}
+                onMouseLeave={scheduleHoverClose}
                 onDoubleClick={() => onOpenInList?.(rec.callId)}
                 style={{ cursor: 'pointer' }}
               >
@@ -500,6 +648,8 @@ const RoadmapTimeline = ({ recommendations, timeline, customerName, idiCalls, on
           return (
             <div
               className="rt-tooltip"
+              onMouseEnter={cancelHoverClose}
+              onMouseLeave={scheduleHoverClose}
               style={{
                 left: `${leftPct}%`,
                 top: `${topPct}%`,
