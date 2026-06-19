@@ -50,16 +50,27 @@ export interface FundingHistoryEntry {
   sourceRefId?: string       // id del project/proposal de origen — evitar duplicados al re-importar
 }
 
+/** Línea tecnológica con TRL actual y objetivo. Permite reflejar que una empresa
+ * puede tener varias tecnologías en distintos estados de madurez simultáneamente. */
+export interface TRLLine {
+  id: string
+  technology: string  // ej. "IA logística", "Blockchain trazabilidad"
+  currentTRL: number  // 1-9
+  targetTRL: number   // 1-9 — TRL objetivo en el horizonte del roadmap
+  notes?: string
+}
+
 export interface FundingProfile {
   customerId: string
   // Campos NUEVOS (no en Customer ni en Context)
   coFinancingCapacityPercent: number       // 0-100
   preferredProjectType: ProjectTypePreference
   desiredAmountRange: AmountRange
-  targetTRL: number                         // 1-9 — TRL objetivo en 2 años (Q2 de Teresa)
-  fundingHistory: FundingHistoryEntry[]    // Histórico (rich 8 fields × N entradas)
-  // Campos auto-rellenados leídos de Customer / CustomerContext (no editables aquí, solo display)
-  // No los almacenamos aquí, los leemos en runtime al cargar la página.
+  /** @deprecated mantener por compat — usar trlProfile */
+  targetTRL?: number
+  /** Multi-tecnología: una empresa puede tener varias líneas con distintos TRL */
+  trlProfile: TRLLine[]
+  fundingHistory: FundingHistoryEntry[]
   updatedAt: string
 }
 
@@ -254,9 +265,17 @@ const blankProfile = (customerId: string): FundingProfile => ({
   coFinancingCapacityPercent: 25,
   preferredProjectType: 'ambos',
   desiredAmountRange: '100k-500k',
-  targetTRL: 7,
+  trlProfile: [], // empieza vacío — usuario añade líneas
   fundingHistory: [],
   updatedAt: new Date().toISOString(),
+})
+
+const newTRLLine = (): TRLLine => ({
+  id: `trl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  technology: '',
+  currentTRL: 5,
+  targetTRL: 7,
+  notes: '',
 })
 
 const newHistoryEntry = (): FundingHistoryEntry => ({
@@ -291,7 +310,23 @@ const FundingProfilePage = () => {
   const [profile, setProfile] = useState<FundingProfile>(() => {
     if (!customerId) return blankProfile('')
     const all = loadAllProfiles()
-    if (all[customerId]) return all[customerId]
+    if (all[customerId]) {
+      const existing = all[customerId]
+      // Migración: si el profile viejo solo tiene targetTRL (single) y no trlProfile,
+      // creamos una línea por defecto para no perder el dato.
+      if (!Array.isArray(existing.trlProfile)) {
+        existing.trlProfile = existing.targetTRL
+          ? [{
+              id: `trl-migrated-${Date.now()}`,
+              technology: 'General R+D+i',
+              currentTRL: 5,
+              targetTRL: existing.targetTRL,
+              notes: 'Migrated from legacy single-TRL profile',
+            }]
+          : []
+      }
+      return existing
+    }
     // No hay perfil guardado → arrancamos con los proyectos/proposals del CRM como seed
     const seed = blankProfile(customerId)
     const projects = loadProjectsForCustomer(customerId)
@@ -334,6 +369,19 @@ const FundingProfilePage = () => {
 
   const updateField = <K extends keyof FundingProfile>(key: K, value: FundingProfile[K]) => {
     persist({ ...profile, [key]: value })
+  }
+
+  const addTRLLine = () => {
+    persist({ ...profile, trlProfile: [...(profile.trlProfile || []), newTRLLine()] })
+  }
+  const removeTRLLine = (id: string) => {
+    persist({ ...profile, trlProfile: (profile.trlProfile || []).filter(l => l.id !== id) })
+  }
+  const updateTRLLine = (id: string, patch: Partial<TRLLine>) => {
+    persist({
+      ...profile,
+      trlProfile: (profile.trlProfile || []).map(l => (l.id === id ? { ...l, ...patch } : l)),
+    })
   }
 
   const addHistory = () => {
@@ -474,23 +522,6 @@ const FundingProfilePage = () => {
           </div>
 
           <div className="fp-field">
-            <label htmlFor="trl-target">Target TRL (in 2 years)</label>
-            <div className="fp-slider-wrap">
-              <input
-                id="trl-target"
-                type="range"
-                min={1}
-                max={9}
-                step={1}
-                value={profile.targetTRL}
-                onChange={(e) => updateField('targetTRL', Number(e.target.value))}
-              />
-              <span className="fp-slider-value">TRL {profile.targetTRL}</span>
-            </div>
-            <small className="fp-hint">Where they want their tech to be in 2 years</small>
-          </div>
-
-          <div className="fp-field">
             <label htmlFor="proj-type">Preferred project type</label>
             <select
               id="proj-type"
@@ -519,6 +550,96 @@ const FundingProfilePage = () => {
             <small className="fp-hint">Orientative grant size per project</small>
           </div>
         </div>
+      </section>
+
+      {/* ============== TRL PROFILE (multi-tecnología) ============== */}
+      <section className="fp-card">
+        <div className="fp-section-header fp-section-header--with-action">
+          <div>
+            <h2>Technology lines &amp; TRL</h2>
+            <p className="muted">
+              A company often has multiple technology lines at different TRLs simultaneously
+              (e.g. AI logistics at TRL 7, blockchain trazabilidad at TRL 4, IoT pilots at TRL 3).
+              Add each separately so the AI matches calls to the right TRL band per line.
+            </p>
+          </div>
+          <button type="button" className="btn-secondary btn-secondary--sm" onClick={addTRLLine}>
+            <Plus size={14} /> Add technology line
+          </button>
+        </div>
+
+        {(profile.trlProfile || []).length === 0 ? (
+          <div className="fp-empty">
+            No technology lines defined yet. Add at least one to help the AI match calls accurately by TRL.
+          </div>
+        ) : (
+          <div className="fp-trl-list">
+            {(profile.trlProfile || []).map((line) => (
+              <div key={line.id} className="fp-trl-entry">
+                <div className="fp-trl-row">
+                  <div className="fp-trl-field fp-trl-field--name">
+                    <label>Technology / line name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. AI for last-mile logistics"
+                      value={line.technology}
+                      onChange={(e) => updateTRLLine(line.id, { technology: e.target.value })}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-link-danger"
+                    onClick={() => removeTRLLine(line.id)}
+                    title="Remove this line"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                <div className="fp-trl-row fp-trl-sliders">
+                  <div className="fp-trl-field">
+                    <label>Current TRL</label>
+                    <div className="fp-slider-wrap">
+                      <input
+                        type="range"
+                        min={1}
+                        max={9}
+                        step={1}
+                        value={line.currentTRL}
+                        onChange={(e) => updateTRLLine(line.id, { currentTRL: Number(e.target.value) })}
+                      />
+                      <span className="fp-slider-value">TRL {line.currentTRL}</span>
+                    </div>
+                  </div>
+                  <div className="fp-trl-field">
+                    <label>Target TRL (in horizon)</label>
+                    <div className="fp-slider-wrap">
+                      <input
+                        type="range"
+                        min={1}
+                        max={9}
+                        step={1}
+                        value={line.targetTRL}
+                        onChange={(e) => updateTRLLine(line.id, { targetTRL: Number(e.target.value) })}
+                      />
+                      <span className="fp-slider-value">TRL {line.targetTRL}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="fp-trl-row">
+                  <div className="fp-trl-field fp-trl-field--full">
+                    <label>Notes (optional)</label>
+                    <input
+                      type="text"
+                      placeholder="Brief context about this tech line"
+                      value={line.notes || ''}
+                      onChange={(e) => updateTRLLine(line.id, { notes: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* ============== FUNDING HISTORY ============== */}

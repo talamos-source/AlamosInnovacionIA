@@ -776,7 +776,15 @@ interface RoadmapPayload {
     coFinancingCapacityPercent?: number
     preferredProjectType?: string
     desiredAmountRange?: string
-    targetTRL?: number
+    targetTRL?: number  // deprecated single TRL
+    /** Multi-tecnología: cada línea con TRL current + target */
+    trlProfile?: Array<{
+      id: string
+      technology: string
+      currentTRL: number
+      targetTRL: number
+      notes?: string
+    }>
     fundingHistory?: Array<{
       name: string
       organism: string
@@ -869,6 +877,14 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
       : ''
 
     // Build funding profile section
+    // TRL profile multi-tecnología — IMPORTANTE para que el agente entienda que el cliente
+    // puede tener varias líneas técnicas a distintos TRL simultáneamente.
+    const trlLines = (fundingProfile?.trlProfile || []).filter(l => l.technology?.trim())
+    const trlSection = trlLines.length > 0
+      ? '\nTechnology lines (current → target TRL):\n' +
+        trlLines.map(l => `  · ${l.technology}: TRL ${l.currentTRL} → ${l.targetTRL}${l.notes ? ` (${l.notes})` : ''}`).join('\n')
+      : ''
+
     const fpLines = fundingProfile
       ? [
           '\n\n=== FUNDING PROFILE ===',
@@ -876,7 +892,10 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
             `Co-financing capacity: ${fundingProfile.coFinancingCapacityPercent}%`,
           fundingProfile.preferredProjectType && `Preferred project type: ${fundingProfile.preferredProjectType}`,
           fundingProfile.desiredAmountRange && `Desired amount range: ${fundingProfile.desiredAmountRange}`,
-          fundingProfile.targetTRL !== undefined && `Target TRL (in 2y): ${fundingProfile.targetTRL}`,
+          // Legacy single TRL solo si no hay trlProfile y existe
+          trlLines.length === 0 && fundingProfile.targetTRL !== undefined &&
+            `Target TRL (single — legacy): ${fundingProfile.targetTRL}`,
+          trlSection,
         ].filter(Boolean).join('\n')
       : ''
 
@@ -1221,6 +1240,11 @@ async function analyzeCallFitInternal(
     .filter(h => h.status === 'won')
     .map(h => `${h.name} (${h.organism || '?'} ${h.year})`)
 
+  const trlLines = (fundingProfile?.trlProfile || []).filter(l => l.technology?.trim())
+  const trlSummary = trlLines.length > 0
+    ? trlLines.map(l => `${l.technology} (TRL ${l.currentTRL}→${l.targetTRL})`).join(', ')
+    : ''
+
   const clientBlock = [
     `Client: ${customer.name || ''} ${customer.company ? `(${customer.company})` : ''}`,
     customer.country && `Country: ${customer.country} · Region: ${customer.region || ''}`,
@@ -1230,6 +1254,7 @@ async function analyzeCallFitInternal(
     context?.technologyInnovation && `Tech: ${context.technologyInnovation.slice(0, 300)}`,
     context?.businessModel && `Business: ${context.businessModel.slice(0, 200)}`,
     context?.rdiRoadmap && `R+D+i roadmap: ${context.rdiRoadmap.slice(0, 200)}`,
+    trlSummary && `Technology lines (current→target TRL): ${trlSummary}`,
     fundingProfile?.coFinancingCapacityPercent !== undefined &&
       `Co-financing capacity: ${fundingProfile.coFinancingCapacityPercent}%`,
     fundingProfile?.preferredProjectType && `Project type preference: ${fundingProfile.preferredProjectType}`,
