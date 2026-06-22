@@ -492,12 +492,20 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
       fontSize: 11, color: COLOR.muted, fontFace: FONT.body, align: 'right',
     })
 
-    // Layout: 'big' = 1 card de 5.55" alto (ocupa todo el espacio útil)
-    //         'normal' = 1-2 cards de 2.65" cada una
+    // Layout: 'big' = 1 card de 5.40" (margen seguro al footer)
+    //         'normal' = 1-2 cards de 2.55" cada una
+    // Budget vertical big:
+    //   header (title+meta+trl+sep) hasta cy+1.74 = 1.74
+    //   reasoning 1.20 + gap 0.20 + guidance 1.55 + gap 0.10 + risk 0.40 + margen 0.15 = 3.60
+    //   total = 5.34 ≤ 5.40 ✓ con margen
+    // Budget vertical normal:
+    //   header hasta cy+1.74 = 1.74
+    //   reasoning 0.35 + gap 0.06 + guidance 0.32 + margen 0.08 = 0.81
+    //   total = 2.55 ✓
     const cardW = 12.1
     const startY = 1.45
-    const gapY = 0.25
-    const cardH = group.mode === 'big' ? 5.55 : 2.65
+    const gapY = 0.20
+    const cardH = group.mode === 'big' ? 5.40 : 2.55
 
     chunk.forEach((rec, idx) => {
       const cy = startY + idx * (cardH + gapY)
@@ -586,12 +594,13 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
       })
 
       // ── Layout interno por bloque (reasoning + guidance + risk) ──
-      // En cards 'normal' (cardH=2.65) las dimensiones son apretadas → texto completo
-      //   con shrinkText. Si no cabe, el agente partía la rec en grupo 'big'.
-      // En cards 'big' (cardH=5.55) hay mucho más espacio → bloques generosos
-      //   con todo el contenido visible cómodamente.
+      // Big card cardH=5.40, presupuesto vertical desde cy+1.74:
+      //   reasoning 1.20 + gap 0.20 + guidance 1.55 + gap 0.10 + risk 0.40 = 3.45 ≤ 3.51 ✓
+      // Normal card cardH=2.55, presupuesto:
+      //   reasoning 0.35 + gap 0.06 + guidance 0.32 = 0.73 ≤ 0.81 ✓
       const isBig = group.mode === 'big'
-      const reasonH = isBig ? 1.5 : 0.42
+      const reasonH = isBig ? 1.2 : 0.35
+      const gapAfterReason = isBig ? 0.2 : 0.06
       const reasoningFontSize = isBig ? 12 : 10.5
 
       slide.addText(stripAgentTags(rec.reasoning), {
@@ -602,11 +611,11 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
         shrinkText: true,
       })
 
-      // Bloque "Cómo orientar la solicitud" — sin truncar
+      // Bloque "Cómo orientar la solicitud" — sin truncar, con shrinkText
       const guidance = rec.applicationGuidance && rec.applicationGuidance.trim()
         ? stripAgentTags(rec.applicationGuidance) : ''
-      const guidanceY = cy + 1.74 + reasonH + (isBig ? 0.25 : 0.1)
-      const guidanceH = isBig ? 2.4 : 0.45
+      const guidanceY = cy + 1.74 + reasonH + gapAfterReason
+      const guidanceH = isBig ? 1.55 : 0.32
 
       if (guidance) {
         slide.addShape('rect' as any, {
@@ -620,16 +629,16 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
         if (isBig) {
           // Card grande: label completo arriba, texto debajo (más legible)
           slide.addText('CÓMO ORIENTAR LA SOLICITUD', {
-            x: 1.93, y: guidanceY + 0.08, w: 4.5, h: 0.22,
+            x: 1.93, y: guidanceY + 0.06, w: 4.5, h: 0.20,
             fontSize: 9, bold: true, color: COLOR.brand, fontFace: FONT.heading,
             charSpacing: 1.5,
             valign: 'top',
           })
           slide.addText(guidance, {
-            x: 1.93, y: guidanceY + 0.4,
-            w: cardW - 1.5, h: guidanceH - 0.5,
-            fontSize: 12, italic: true, color: COLOR.text, fontFace: FONT.body,
-            lineSpacingMultiple: 1.3,
+            x: 1.93, y: guidanceY + 0.30,
+            w: cardW - 1.5, h: guidanceH - 0.36,
+            fontSize: 11.5, italic: true, color: COLOR.text, fontFace: FONT.body,
+            lineSpacingMultiple: 1.25,
             valign: 'top',
             shrinkText: true,
           })
@@ -652,17 +661,18 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
         }
       }
 
-      // Risk al pie de la card (siempre, si existe)
+      // Risk al pie de la card — solo si cabe estrictamente dentro del cardBottom
       if (rec.risks && rec.risks !== '—' && rec.risks.trim()) {
         const riskY = guidance
-          ? guidanceY + guidanceH + 0.1
-          : cy + 1.74 + reasonH + 0.15
-        // Solo lo pintamos si cabe dentro del card
-        const cardBottom = cy + cardH - 0.15
-        if (riskY + 0.28 <= cardBottom) {
+          ? guidanceY + guidanceH + 0.10
+          : cy + 1.74 + reasonH + 0.12
+        const cardBottom = cy + cardH - 0.12
+        const availableH = cardBottom - riskY
+        // Mínimo 0.25" para que entre al menos una línea de 9pt
+        if (availableH >= 0.25) {
           slide.addText(`⚠ ${stripAgentTags(rec.risks)}`, {
-            x: 1.8, y: riskY, w: cardW - 1.4, h: Math.min(0.45, cardBottom - riskY),
-            fontSize: isBig ? 11 : 9, italic: true, color: COLOR.warning, fontFace: FONT.body,
+            x: 1.8, y: riskY, w: cardW - 1.4, h: Math.min(0.40, availableH),
+            fontSize: isBig ? 10.5 : 9, italic: true, color: COLOR.warning, fontFace: FONT.body,
             valign: 'top',
             shrinkText: true,
           })
