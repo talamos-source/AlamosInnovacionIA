@@ -748,6 +748,36 @@ techLineId to the line this call BEST serves. If the call is generic
 or serves multiple lines, set techLineId to null.
 
 ═══════════════════════════════════════════════════════════════════════
+AID TYPE PREFERENCE FILTER (HARD CONSTRAINT when set)
+═══════════════════════════════════════════════════════════════════════
+The client's FundingProfile may include preferredAidTypes — an array
+of instrument types the client is willing to accept (grant, loan,
+participative, equity, mixed). When this array is PRESENT and NON-EMPTY:
+
+  · You MUST classify each call by its primary instrument type using
+    the program knowledge base ficha (if present) or the call description.
+  · If the call's PRIMARY instrument type is NOT in preferredAidTypes:
+      → fitScore MUST drop by AT LEAST 35 points (cap at 50 max)
+      → reasoning MUST start with "⚠ INSTRUMENTO NO PREFERIDO:" and
+        explain that the client only accepts the listed types
+      → DO NOT recommend it among the TOP recommendations — it should
+        appear only at the bottom of the list, or omit entirely if
+        you have 10+ recs of preferred types
+  · Examples:
+      preferredAidTypes = ['grant']:
+        - LIFE Programme (grant) → OK, full score
+        - CDTI PID (loan) → drop ≥35 points (only grant accepted)
+        - EIC Accelerator (mixed grant+equity) → grant component present,
+          allowed but mention the equity caveat
+      preferredAidTypes = ['grant', 'participative']:
+        - NEOTEC (grant) → OK
+        - ENISA (participative) → OK
+        - CDTI Cervera (loan) → drop ≥35 points
+        - EIC STEP ScaleUp (equity-only) → drop ≥35 points
+
+When preferredAidTypes is MISSING or empty array → no filter applies.
+
+═══════════════════════════════════════════════════════════════════════
 ELIGIBILITY RULES (HARD CONSTRAINTS — never break)
 ═══════════════════════════════════════════════════════════════════════
 - NEOTEC: ONLY for companies ≤3 years since incorporation. ONCE-IN-LIFETIME per company.
@@ -1320,6 +1350,58 @@ ${pass2FullPrompt}`,
       rescoredRecs.sort((a, b) => (b.fitScore ?? 0) - (a.fitScore ?? 0))
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       rescoredRecs.forEach((r: any, i: number) => { r.priorityOrder = i + 1 })
+
+      // ── AID TYPE PREFERENCE — POST-FILTER en código ──
+      // Defensa en profundidad: si el agente no respetó la preferencia del
+      // cliente, aplicamos un cap duro al fitScore para que estas recs no
+      // dominen la lista.
+      const prefs = (fundingProfile?.preferredAidTypes || [])
+        .map(p => p.toLowerCase().trim())
+        .filter(Boolean)
+      if (prefs.length > 0) {
+        const classifyInstrument = (rec: typeof rescoredRecs[number]): string => {
+          // Heurística por title/program/callId/reasoning
+          const callObj = calls.find(c => c.externalId === rec.callId)
+          const txt = [
+            rec.title, rec.callId, rec.reasoning,
+            callObj?.title, callObj?.program, callObj?.description,
+            callObj?.typeOfAction,
+          ].filter(Boolean).join(' ').toLowerCase()
+          // 'mixed' (blended) prevalece sobre 'grant' o 'equity'
+          if (/blended\s*finance|grant\s*\+\s*equity|grant\s*and\s*equity/.test(txt)) return 'mixed'
+          if (/eic\s*accelerator/.test(txt)) return 'mixed'
+          if (/step\s*scale[- ]?up|eic\s*fund|equity[- ]only|investment\s*only|inversion\s*equity/.test(txt)) return 'equity'
+          if (/préstamo\s*participativo|prestamo\s*participativo|enisa/.test(txt)) return 'participative'
+          if (/préstamo|prestamo|reembolsable|loan|tramo\s*reembolsable|cdti.*lic|cdti.*lica|cdti.*pid|cdti.*cervera|cdti.*liee/.test(txt)) return 'loan'
+          // Default: si no detecta otra cosa, asumimos subvención
+          return 'grant'
+        }
+
+        let penalized = 0
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        rescoredRecs.forEach((r: any) => {
+          const inst = classifyInstrument(r)
+          if (!prefs.includes(inst)) {
+            // No es el tipo preferido → drop hard
+            const dropped = Math.min(r.fitScore ?? 100, 50)
+            if (r.fitScore > dropped) {
+              r.fitScore = dropped
+              const tag = '⚠ INSTRUMENTO NO PREFERIDO:'
+              if (!r.reasoning?.startsWith(tag)) {
+                r.reasoning = `${tag} el cliente prefiere ${prefs.join('/')}, esta convocatoria es de tipo ${inst}. ${r.reasoning || ''}`.trim()
+              }
+              penalized++
+            }
+          }
+        })
+        if (penalized > 0) {
+          console.log(`💰 Aid type filter: penalized ${penalized} recs (preferred: ${prefs.join(', ')})`)
+          // Re-sort tras penalización
+          rescoredRecs.sort((a, b) => (b.fitScore ?? 0) - (a.fitScore ?? 0))
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          rescoredRecs.forEach((r: any, i: number) => { r.priorityOrder = i + 1 })
+        }
+      }
 
       // ── SANITIZATION: TRL ranges en cada rec (1-9) ──
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
