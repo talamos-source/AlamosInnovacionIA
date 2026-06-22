@@ -549,8 +549,60 @@ const RoadmapPage = () => {
 
   const [showPreview, setShowPreview] = useState(false)
 
+  /**
+   * Comprueba si el cliente tiene los campos críticos rellenos para que
+   * el agente pueda generar un roadmap de calidad. Devuelve la lista de
+   * gaps detectados (vacía si todo OK).
+   */
+  const checkClientReadiness = (): { critical: string[]; warnings: string[] } => {
+    const critical: string[] = []
+    const warnings: string[] = []
+    // Contexto AI — sin esto el agente no puede generar guidance específica
+    if (!context?.technologyInnovation && !context?.rdiRoadmap) {
+      critical.push('Contexto AI del cliente — completar al menos technologyInnovation o rdiRoadmap (página Edit Context)')
+    } else {
+      if (!context?.technologyInnovation) warnings.push('Falta technologyInnovation (calidad de guidance reducida)')
+      if (!context?.rdiRoadmap) warnings.push('Falta rdiRoadmap (sin hitos para sequence temporal)')
+    }
+    // TRL lines — sin esto no se puede asignar techLineId ni warnings de gap
+    if (!fundingProfile?.trlProfile || fundingProfile.trlProfile.length === 0) {
+      warnings.push('Sin líneas TRL definidas — el agente no podrá asignar recomendaciones a líneas técnicas (FundingProfile · Technology lines)')
+    }
+    // Funding Profile básico
+    if (fundingProfile?.coFinancingCapacityPercent === undefined) {
+      warnings.push('Sin capacidad de cofinanciación definida (FundingProfile)')
+    }
+    // Discovery I+D+i
+    if (idiCalls.length === 0) {
+      critical.push('No hay convocatorias I+D+i en Discovery — sincroniza EU Portal y BDNS antes de generar')
+    } else if (idiCalls.length < 20) {
+      warnings.push(`Solo ${idiCalls.length} convocatorias I+D+i en Discovery — recomendamos sincronizar para tener ≥50 candidates`)
+    }
+    return { critical, warnings }
+  }
+
   const handleGenerate = async () => {
     if (!customer || !customerId) return
+
+    // ── VALIDACIÓN PRE-GENERACIÓN ──
+    const { critical, warnings } = checkClientReadiness()
+    if (critical.length > 0) {
+      alert(
+        `⚠️ No se puede generar el roadmap.\n\nFaltan datos críticos:\n\n` +
+        critical.map(c => `• ${c}`).join('\n') +
+        `\n\nCompleta estos puntos antes de generar para evitar resultados pobres y gasto innecesario de tokens.`,
+      )
+      return
+    }
+    if (warnings.length > 0) {
+      const confirmed = confirm(
+        `⚠️ El roadmap se puede generar pero faltan datos que mejorarían la calidad:\n\n` +
+        warnings.map(w => `• ${w}`).join('\n') +
+        `\n\n¿Generar igualmente?`,
+      )
+      if (!confirmed) return
+    }
+
     setGenerating(true)
     setError(null)
     try {
