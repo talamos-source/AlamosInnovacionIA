@@ -28,6 +28,12 @@ export interface PptRecommendation {
   priorityOrder: number
   /** Orientación estratégica concreta para enfocar la propuesta. Opcional. */
   applicationGuidance?: string
+  /** TRL mínimo que necesita el cliente para aplicar. */
+  expectedStartTRL?: number
+  /** TRL realista al terminar el proyecto. */
+  expectedEndTRL?: number
+  /** ID de la tech line del cliente que esta call sirve. */
+  techLineId?: string | null
 }
 
 export interface PptCallDetail {
@@ -506,21 +512,36 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
         rec.estimatedFundingRange && rec.estimatedFundingRange !== '—' ? rec.estimatedFundingRange : null,
       ].filter(Boolean).join('  ·  ')
       slide.addText(truncate(metaParts, 160), {
-        x: 1.8, y: cy + 1.05, w: cardW - 1.4, h: 0.32,
+        x: 1.8, y: cy + 1.05, w: cardW - 1.4, h: 0.28,
         fontSize: 10, color: COLOR.muted, fontFace: FONT.body,
         valign: 'top',
         shrinkText: true,
       })
 
+      // TRL bar — si hay TRL ranges los pinto pegados a la meta
+      if (rec.expectedStartTRL || rec.expectedEndTRL) {
+        const trlText = `TRL ${rec.expectedStartTRL ?? '?'} → TRL ${rec.expectedEndTRL ?? '?'}`
+        slide.addShape('roundRect' as any, {
+          x: 1.8, y: cy + 1.34, w: 1.5, h: 0.28,
+          fill: { color: COLOR.brand50 }, line: { color: COLOR.brand },
+          rectRadius: 0.04,
+        })
+        slide.addText(trlText, {
+          x: 1.8, y: cy + 1.34, w: 1.5, h: 0.28,
+          fontSize: 9.5, bold: true, color: COLOR.brand, fontFace: FONT.heading,
+          align: 'center', valign: 'middle',
+        })
+      }
+
       // Separador sutil
       slide.addShape('rect' as any, {
-        x: 1.8, y: cy + 1.4, w: cardW - 1.4, h: 0.01,
+        x: 1.8, y: cy + 1.68, w: cardW - 1.4, h: 0.01,
         fill: { color: COLOR.border }, line: { color: COLOR.border },
       })
 
-      // Reasoning — compacto
-      slide.addText(truncate(stripAgentTags(rec.reasoning), 320), {
-        x: 1.8, y: cy + 1.48, w: cardW - 1.4, h: 0.55,
+      // Reasoning — compacto, debajo del separador
+      slide.addText(truncate(stripAgentTags(rec.reasoning), 280), {
+        x: 1.8, y: cy + 1.74, w: cardW - 1.4, h: 0.42,
         fontSize: 10.5, color: COLOR.text, fontFace: FONT.body,
         lineSpacingMultiple: 1.2,
         valign: 'top',
@@ -531,8 +552,8 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
       const guidance = rec.applicationGuidance && rec.applicationGuidance.trim()
         ? stripAgentTags(rec.applicationGuidance) : ''
       if (guidance) {
-        const gY = cy + 2.05
-        const gH = 0.55
+        const gY = cy + 2.18
+        const gH = 0.45
         // Fondo morado muy claro
         slide.addShape('rect' as any, {
           x: 1.8, y: gY, w: cardW - 1.4, h: gH,

@@ -706,10 +706,37 @@ Output a JSON object EXACTLY matching this schema:
       "estimatedFundingRange": "human-readable € range",
       "risks": "1 sentence about main risk or watchout.",
       "applicationGuidance": "2-3 sentences of CONCRETE strategic advice on how to ORIENT the proposal for THIS client: which tech line to position, which angle to emphasize, which partner type to seek, what to NOT mention. Practical, actionable, specific to this client+call combo.",
+      "expectedStartTRL": <integer 1-9>,
+      "expectedEndTRL": <integer 1-9>,
+      "techLineId": "<id of the client's tech line this call best serves, or null if generic>",
       "priorityOrder": <integer, 1=highest>
     }
   ]
 }
+
+═══════════════════════════════════════════════════════════════════════
+TRL RANGE per call (CRITICAL — for client expectation management)
+═══════════════════════════════════════════════════════════════════════
+For each recommendation, infer the realistic TRL JOURNEY the call enables:
+  · expectedStartTRL: minimum TRL the client's tech needs to have to apply
+    sensibly (e.g. CDTI PID typical 4-5 to start; EIC Accelerator 6+;
+    EIC Pathfinder 1-2; LIC 6-7).
+  · expectedEndTRL: realistic TRL achievable AT THE END of the project
+    (e.g. PID can reach 6-7; LIC reaches 8; EIC Accelerator can reach 9
+    if market-ready; Pathfinder rarely beyond 4).
+
+These DON'T have to match the client's currentTRL → targetTRL. The call
+delivers a SLICE of that journey. The frontend will compare and warn the
+consultant if the call's expectedEndTRL is LOWER than the client's
+targetTRL — that's OK as long as the agent sequences MULTIPLE calls to
+cover the full journey.
+
+Use the KNOWLEDGE BASE fichas (if provided) to ground these TRL ranges
+in the program's deduced TRL section (typically section §2 of each ficha).
+
+If the client has multiple tech lines in their FundingProfile, set
+techLineId to the line this call BEST serves. If the call is generic
+or serves multiple lines, set techLineId to null.
 
 ═══════════════════════════════════════════════════════════════════════
 ELIGIBILITY RULES (HARD CONSTRAINTS — never break)
@@ -845,6 +872,9 @@ interface RoadmapPayload {
       technology: string
       currentTRL: number
       targetTRL: number
+      /** Roadmap I+D para llegar al target. El agente lo usa para guidance. */
+      rdRoadmap?: string
+      /** @deprecated legacy field, fallback */
       notes?: string
     }>
     fundingHistory?: Array<{
@@ -941,10 +971,19 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
     // Build funding profile section
     // TRL profile multi-tecnología — IMPORTANTE para que el agente entienda que el cliente
     // puede tener varias líneas técnicas a distintos TRL simultáneamente.
+    // Cada línea lleva además su rdRoadmap (hitos para llegar al target TRL) que el agente
+    // usa para afinar applicationGuidance.
     const trlLines = (fundingProfile?.trlProfile || []).filter(l => l.technology?.trim())
     const trlSection = trlLines.length > 0
-      ? '\nTechnology lines (current → target TRL):\n' +
-        trlLines.map(l => `  · ${l.technology}: TRL ${l.currentTRL} → ${l.targetTRL}${l.notes ? ` (${l.notes})` : ''}`).join('\n')
+      ? '\nTechnology lines with R&D roadmap to target TRL:\n' +
+        trlLines.map(l => {
+          const roadmap = l.rdRoadmap || l.notes || ''
+          const head = `  · [${l.id}] ${l.technology}: TRL ${l.currentTRL} → TRL ${l.targetTRL}`
+          return roadmap.trim()
+            ? `${head}\n     R&D roadmap: ${roadmap.trim().replace(/\n/g, ' / ')}`
+            : head
+        }).join('\n') +
+        '\n(Use the [id] as techLineId when assigning a recommendation to a specific tech line.)'
       : ''
 
     const fpLines = fundingProfile
@@ -1236,6 +1275,10 @@ ${pass2FullPrompt}`,
               // Si Pass 3 produce applicationGuidance más detallada la preferimos,
               // si no caemos a la del Pass 2 deep matcher
               applicationGuidance: fitResult.parsed.applicationGuidance || rec.applicationGuidance,
+              // TRL ranges: Pass 3 generalmente más afinado, fallback a Pass 2
+              expectedStartTRL: typeof fitResult.parsed.expectedStartTRL === 'number' ? fitResult.parsed.expectedStartTRL : rec.expectedStartTRL,
+              expectedEndTRL: typeof fitResult.parsed.expectedEndTRL === 'number' ? fitResult.parsed.expectedEndTRL : rec.expectedEndTRL,
+              techLineId: fitResult.parsed.techLineId || rec.techLineId,
             }
           } catch (e) {
             console.warn(`   ↳ ${rec.callId}: re-score failed, keeping original`, e instanceof Error ? e.message : '')
@@ -1247,6 +1290,23 @@ ${pass2FullPrompt}`,
       rescoredRecs.sort((a, b) => (b.fitScore ?? 0) - (a.fitScore ?? 0))
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       rescoredRecs.forEach((r: any, i: number) => { r.priorityOrder = i + 1 })
+
+      // ── SANITIZATION: TRL ranges en cada rec (1-9) ──
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rescoredRecs.forEach((r: any) => {
+        const clamp = (n: unknown) => {
+          if (typeof n !== 'number' || !Number.isFinite(n)) return undefined
+          return Math.max(1, Math.min(9, Math.round(n)))
+        }
+        r.expectedStartTRL = clamp(r.expectedStartTRL)
+        r.expectedEndTRL = clamp(r.expectedEndTRL)
+        // Si end < start, swap (agente confundido)
+        if (r.expectedStartTRL && r.expectedEndTRL && r.expectedEndTRL < r.expectedStartTRL) {
+          [r.expectedStartTRL, r.expectedEndTRL] = [r.expectedEndTRL, r.expectedStartTRL]
+        }
+        // techLineId debe ser string o null
+        if (r.techLineId !== null && typeof r.techLineId !== 'string') r.techLineId = null
+      })
 
       // ── SANITIZATION: garantizar fechas SIEMPRE futuras dentro del horizonte ──
       // Defensa frente a agente que devuelve "2025-XX" o fechas pasadas.
@@ -1335,8 +1395,12 @@ async function analyzeCallFitInternal(
     .map(h => `${h.name} (${h.organism || '?'} ${h.year})`)
 
   const trlLines = (fundingProfile?.trlProfile || []).filter(l => l.technology?.trim())
-  const trlSummary = trlLines.length > 0
-    ? trlLines.map(l => `${l.technology} (TRL ${l.currentTRL}→${l.targetTRL})`).join(', ')
+  const trlDetailed = trlLines.length > 0
+    ? trlLines.map(l => {
+        const roadmap = l.rdRoadmap || l.notes || ''
+        const head = `[${l.id}] ${l.technology}: TRL ${l.currentTRL}→${l.targetTRL}`
+        return roadmap.trim() ? `${head} {roadmap: ${roadmap.trim().slice(0, 200)}}` : head
+      }).join(' | ')
     : ''
 
   const clientBlock = [
@@ -1348,7 +1412,7 @@ async function analyzeCallFitInternal(
     context?.technologyInnovation && `Tech: ${context.technologyInnovation.slice(0, 300)}`,
     context?.businessModel && `Business: ${context.businessModel.slice(0, 200)}`,
     context?.rdiRoadmap && `R+D+i roadmap: ${context.rdiRoadmap.slice(0, 200)}`,
-    trlSummary && `Technology lines (current→target TRL): ${trlSummary}`,
+    trlDetailed && `Technology lines + R&D roadmaps: ${trlDetailed}`,
     fundingProfile?.coFinancingCapacityPercent !== undefined &&
       `Co-financing capacity: ${fundingProfile.coFinancingCapacityPercent}%`,
     fundingProfile?.preferredProjectType && `Project type preference: ${fundingProfile.preferredProjectType}`,
@@ -1396,6 +1460,9 @@ Return a JSON object EXACTLY matching this schema:
   "estimatedFundingRange": "human-readable € range (e.g. '€100K-€500K')",
   "risks": "1 sentence about main risk or watchout.",
   "applicationGuidance": "2-3 sentences of CONCRETE strategic advice on how to ORIENT this proposal for THIS client: which tech line to lead with, which angle to emphasize, partner type to seek, what NOT to mention. Specific and actionable.",
+  "expectedStartTRL": <integer 1-9 — minimum TRL the client's tech needs to start>,
+  "expectedEndTRL": <integer 1-9 — realistic TRL achievable at the end of this project>,
+  "techLineId": "<id of the client's tech line this call best serves, or null if generic>",
   "eligibilityFlag": "OK" | "WARNING" | "BLOCKED" (BLOCKED only if hard rules clearly fail, e.g. NEOTEC for ${companyAgeYears && companyAgeYears > 3 ? 'NOT eligible — company exceeds 3y' : 'eligible'})
 }
 

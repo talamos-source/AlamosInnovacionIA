@@ -35,8 +35,14 @@ interface RoadmapRecommendation {
   estimatedFundingRange: string
   risks: string
   priorityOrder: number
-  /** Orientación estratégica para enfocar la propuesta (nuevo). Opcional para back-compat. */
+  /** Orientación estratégica para enfocar la propuesta. Opcional para back-compat. */
   applicationGuidance?: string
+  /** TRL mínimo necesario del cliente para aplicar a esta convocatoria. */
+  expectedStartTRL?: number
+  /** TRL realista alcanzable al finalizar el proyecto. */
+  expectedEndTRL?: number
+  /** ID de la TRL line del cliente que esta call mejor sirve (FundingProfile.trlProfile[].id). */
+  techLineId?: string | null
 }
 
 interface RoadmapResult {
@@ -82,6 +88,14 @@ interface FundingProfileLoaded {
   preferredProjectType?: string
   desiredAmountRange?: string
   targetTRL?: number
+  trlProfile?: Array<{
+    id: string
+    technology: string
+    currentTRL: number
+    targetTRL: number
+    rdRoadmap?: string
+    notes?: string
+  }>
   fundingHistory?: Array<{
     name: string
     organism: string
@@ -869,6 +883,7 @@ const RoadmapPage = () => {
                 key={rec.callId + i}
                 rec={rec}
                 idiCalls={idiCalls}
+                trlProfile={fundingProfile?.trlProfile || []}
                 onRemove={() => handleRemoveRecommendation(rec.callId)}
                 onUpdateMonth={(m) => handleUpdateRecommendationMonth(rec.callId, m)}
               />
@@ -994,10 +1009,11 @@ const RoadmapPage = () => {
    ============================================================ */
 
 const RecommendationCard = ({
-  rec, idiCalls, onRemove, onUpdateMonth,
+  rec, idiCalls, trlProfile = [], onRemove, onUpdateMonth,
 }: {
   rec: RoadmapRecommendation
   idiCalls: DiscoveryCall[]
+  trlProfile?: Array<{ id: string; technology: string; currentTRL: number; targetTRL: number }>
   onRemove?: () => void
   onUpdateMonth?: (newMonth: string) => void
 }) => {
@@ -1052,6 +1068,39 @@ const RecommendationCard = ({
 
       <div className="rm-rec-body">
         <p className="rm-rec-reasoning">{stripAgentTags(rec.reasoning)}</p>
+
+        {(rec.expectedStartTRL || rec.expectedEndTRL) && (() => {
+          // Buscar la línea TRL del cliente asignada por el agente
+          const matchedLine = rec.techLineId
+            ? trlProfile.find(l => l.id === rec.techLineId)
+            : undefined
+          const clientTarget = matchedLine?.targetTRL
+          // Warning si el final esperado de esta call NO llega al target del cliente
+          const trlGap = rec.expectedEndTRL && clientTarget && rec.expectedEndTRL < clientTarget
+          return (
+            <div className={`rm-rec-trl ${trlGap ? 'rm-rec-trl--gap' : ''}`}>
+              <div className="rm-rec-trl-label">RECORRIDO TRL DE ESTA CONVOCATORIA</div>
+              <div className="rm-rec-trl-bar">
+                <span className="rm-rec-trl-start">TRL {rec.expectedStartTRL ?? '?'}</span>
+                <span className="rm-rec-trl-arrow">→</span>
+                <span className="rm-rec-trl-end">TRL {rec.expectedEndTRL ?? '?'}</span>
+                {matchedLine && (
+                  <span className="rm-rec-trl-line">
+                    Línea: <strong>{matchedLine.technology}</strong>
+                    {' '}(target {matchedLine.targetTRL})
+                  </span>
+                )}
+              </div>
+              {trlGap && (
+                <p className="rm-rec-trl-warn">
+                  <AlertTriangle size={11} /> Esta convocatoria te lleva hasta TRL {rec.expectedEndTRL}, pero
+                  tu objetivo en esta línea es TRL {clientTarget}. Tendrás que encadenar otra convocatoria
+                  posterior para cerrar el último tramo.
+                </p>
+              )}
+            </div>
+          )
+        })()}
 
         {rec.applicationGuidance && rec.applicationGuidance.trim() && (
           <div className="rm-rec-guidance">

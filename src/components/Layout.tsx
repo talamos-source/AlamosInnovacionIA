@@ -3,7 +3,7 @@ import { ReactNode, useState, useEffect } from 'react'
 import {
   LayoutDashboard,
   Users,
-  Phone,
+  Megaphone,
   FileEdit,
   Brain,
   Briefcase,
@@ -57,7 +57,7 @@ const Layout = ({ children }: LayoutProps) => {
     { path: '/customers', label: 'Customers', icon: Users },
     { path: '/discovery', label: 'Discovery', icon: Compass },
     { path: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
-    { path: '/calls', label: 'Calls', icon: Phone },
+    { path: '/calls', label: 'Calls', icon: Megaphone },
     { path: '/proposals', label: 'Proposals', icon: FileEdit },
     { path: '/other-services', label: 'Other Services', icon: Brain },
     { path: '/projects', label: 'Projects', icon: Briefcase },

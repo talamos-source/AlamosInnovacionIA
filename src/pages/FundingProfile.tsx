@@ -57,6 +57,13 @@ export interface TRLLine {
   technology: string  // ej. "IA logística", "Blockchain trazabilidad"
   currentTRL: number  // 1-9
   targetTRL: number   // 1-9 — TRL objetivo en el horizonte del roadmap
+  /**
+   * Roadmap I+D para llevar la tecnología desde currentTRL hasta targetTRL.
+   * Hitos, validaciones, capacidades necesarias. El agente usa este texto
+   * para afinar applicationGuidance de cada convocatoria recomendada.
+   */
+  rdRoadmap?: string
+  /** @deprecated legacy — migrado a rdRoadmap */
   notes?: string
 }
 
@@ -627,13 +634,21 @@ const FundingProfilePage = () => {
                 </div>
                 <div className="fp-trl-row">
                   <div className="fp-trl-field fp-trl-field--full">
-                    <label>Notes (optional)</label>
-                    <input
-                      type="text"
-                      placeholder="Brief context about this tech line"
-                      value={line.notes || ''}
-                      onChange={(e) => updateTRLLine(line.id, { notes: e.target.value })}
+                    <label>
+                      Roadmap I+D para llegar de TRL {line.currentTRL} → TRL {line.targetTRL}
+                    </label>
+                    <textarea
+                      className="fp-trl-roadmap"
+                      placeholder={`Hitos técnicos, validaciones y capacidades necesarias para subir esta tecnología desde TRL ${line.currentTRL} hasta TRL ${line.targetTRL}.\n\nEj.: validar prototipo con cliente piloto (TRL 6) · integrar con ERP del cliente final (TRL 7) · certificación industrial CE (TRL 8) · primera unidad en producción real (TRL 9).`}
+                      value={line.rdRoadmap ?? line.notes ?? ''}
+                      onChange={(e) => updateTRLLine(line.id, { rdRoadmap: e.target.value })}
+                      rows={4}
                     />
+                    <p className="fp-trl-hint">
+                      El agente usa este roadmap para afinar la <strong>orientación de la solicitud</strong> en
+                      cada convocatoria recomendada — qué hito está cubriendo, qué validación queda pendiente,
+                      qué partner buscar.
+                    </p>
                   </div>
                 </div>
               </div>

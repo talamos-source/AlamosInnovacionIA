@@ -407,10 +407,38 @@
   font-size: var(--font-size-sm);
   font-family: var(--font-family-base);
 }
-.fp-trl-field input:focus {
+.fp-trl-field input:focus,
+.fp-trl-field textarea:focus {
   outline: none;
   border-color: var(--color-brand-500);
   box-shadow: var(--shadow-focus);
+}
+.fp-trl-roadmap {
+  padding: var(--space-3);
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family-base);
+  resize: vertical;
+  min-height: 84px;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+}
+.fp-trl-roadmap::placeholder {
+  color: var(--color-text-muted);
+  font-style: italic;
+  white-space: pre-line;
+}
+.fp-trl-hint {
+  margin: 6px 0 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  line-height: var(--line-height-relaxed);
+}
+.fp-trl-hint strong {
+  color: var(--color-brand-700);
+  font-weight: var(--font-weight-semibold);
 }
 
 @media (max-width: 640px) {

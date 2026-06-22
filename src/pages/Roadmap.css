@@ -785,6 +785,69 @@
   line-height: var(--line-height-relaxed);
 }
 
+/* ---------- Bloque TRL de la convocatoria ---------- */
+.rm-rec-trl {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--space-3);
+  background: var(--color-bg-default);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+}
+.rm-rec-trl-label {
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--color-text-muted);
+}
+.rm-rec-trl-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: var(--font-size-sm);
+}
+.rm-rec-trl-start,
+.rm-rec-trl-end {
+  font-weight: var(--font-weight-bold);
+  color: var(--color-brand-700);
+  background: var(--color-brand-50);
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-brand-200, #D5C9E6);
+}
+.rm-rec-trl-arrow {
+  font-size: 16px;
+  color: var(--color-brand-700);
+  font-weight: var(--font-weight-bold);
+}
+.rm-rec-trl-line {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  margin-left: 4px;
+}
+.rm-rec-trl-line strong { color: var(--color-text-primary); }
+
+.rm-rec-trl--gap {
+  background: var(--color-warning-50, #FFF8E5);
+  border-color: var(--color-warning-200, #F4D6A8);
+}
+.rm-rec-trl-warn {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-warning-800, #8B5A0F);
+  line-height: 1.4;
+}
+.rm-rec-trl-warn svg {
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+
 .rm-rec-guidance {
   background: linear-gradient(180deg, var(--color-brand-50) 0%, rgba(244, 239, 251, 0.4) 100%);
   border: 1px solid var(--color-brand-200, #D5C9E6);
