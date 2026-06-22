@@ -203,7 +203,13 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
   // 2 cards por slide → mucho aire por card, nada desborda
   const CARDS_PER_SLIDE = 2
   const cardsSlides = Math.ceil(sorted.length / CARDS_PER_SLIDE)
-  const totalPages = 1 /*cover*/ + 1 /*about*/ + (timelineImageDataUrl ? 1 : 0) + 1 /*summary table*/ + cardsSlides + 1 /*next steps*/
+
+  // Tabla resumen: máx 12 filas por slide (alto útil ~4.2", rowH 0.33 → cabe holgado).
+  // Si hay más recs, se parte en varias slides numeradas.
+  const SUMMARY_ROWS_PER_SLIDE = 12
+  const summarySlides = Math.max(1, Math.ceil(sorted.length / SUMMARY_ROWS_PER_SLIDE))
+
+  const totalPages = 1 /*cover*/ + 1 /*about*/ + (timelineImageDataUrl ? 1 : 0) + summarySlides + cardsSlides + 1 /*next steps*/
   let page = 0
 
   /* ============================================================
@@ -359,26 +365,34 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
   }
 
   /* ============================================================
-     4 · TABLA RESUMEN (top recomendaciones)
+     4 · TABLA RESUMEN (paginada — N slides si hay muchas recs)
      ============================================================ */
-  page++
-  {
+  const headers = ['#', 'Convocatoria', 'Fuente', 'Fit', 'Cuándo', 'Presupuesto']
+  for (let s = 0; s < summarySlides; s++) {
+    page++
     const slide = pres.addSlide()
     paintContentBackground(slide, branchWatermark, alamosLogo, page, totalPages)
+
+    const startIdx = s * SUMMARY_ROWS_PER_SLIDE
+    const endIdx = Math.min(startIdx + SUMMARY_ROWS_PER_SLIDE, sorted.length)
+    const chunk = sorted.slice(startIdx, endIdx)
 
     slide.addText('RESUMEN', {
       x: 0.6, y: 1.0, w: 5, h: 0.35,
       fontSize: 11, bold: true, color: COLOR.brand, fontFace: FONT.heading,
       charSpacing: 3,
     })
-    slide.addText('Recomendaciones priorizadas', {
-      x: 0.6, y: 1.35, w: 12, h: 0.7,
-      fontSize: 28, bold: true, color: COLOR.ink, fontFace: FONT.heading,
-    })
+    slide.addText(
+      summarySlides > 1
+        ? `Recomendaciones priorizadas (${s + 1}/${summarySlides})`
+        : 'Recomendaciones priorizadas',
+      {
+        x: 0.6, y: 1.35, w: 12, h: 0.7,
+        fontSize: 28, bold: true, color: COLOR.ink, fontFace: FONT.heading,
+      },
+    )
 
-    // Tabla
-    const headers = ['#', 'Convocatoria', 'Fuente', 'Fit', 'Cuándo', 'Presupuesto']
-    const rows = sorted.slice(0, 16).map(r => [
+    const rows = chunk.map(r => [
       `#${r.priorityOrder}`,
       truncate(stripAgentTags(r.title), 65),
       sourceLabel(r.source),
@@ -410,47 +424,80 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
     slide.addTable(tableRows, {
       x: 0.6, y: 2.3, w: 12.1,
       colW: [0.55, 5.95, 1.5, 0.7, 1.6, 1.8],
-      rowH: 0.32,
+      rowH: 0.33,
       border: { type: 'solid', color: COLOR.border, pt: 0.5 },
     })
 
-    if (sorted.length > 16) {
-      slide.addText(`+ ${sorted.length - 16} adicionales en las siguientes páginas`, {
-        x: 0.6, y: 6.7, w: 12, h: 0.3,
+    // Hint de continuación si no es la última slide de resumen
+    if (s < summarySlides - 1) {
+      slide.addText(`Continúa en la página siguiente…`, {
+        x: 0.6, y: 6.85, w: 12, h: 0.3,
         fontSize: 9, italic: true, color: COLOR.muted, fontFace: FONT.body,
       })
     }
   }
 
   /* ============================================================
-     5 · CARDS DETALLADAS (3 por slide)
+     5 · CARDS DETALLADAS — empaquetado adaptativo
+     ============================================================
+     Algoritmo greedy: para cada rec mira si su contenido es "denso"
+     (reasoning + guidance + risk grandes). Si lo es → 1 sola card
+     por slide ocupando el doble de alto. Si no → 2 cards por slide.
+     Garantiza que NUNCA se trunca con elipsis.
      ============================================================ */
-  for (let i = 0; i < sorted.length; i += CARDS_PER_SLIDE) {
+  const isDenseCard = (r: PptRecommendation): boolean => {
+    const reasonChars = stripAgentTags(r.reasoning || '').length
+    const guidanceChars = stripAgentTags(r.applicationGuidance || '').length
+    const riskChars = stripAgentTags(r.risks || '').length
+    const titleChars = stripAgentTags(r.title || '').length
+    // Umbrales calibrados con el espacio real disponible en cards normales (2.65" alto)
+    return reasonChars > 280 || guidanceChars > 250 || riskChars > 130 || titleChars > 110
+  }
+
+  // Empaqueta las recs ordenadas en grupos: [1] denso o [1,2] normales
+  type SlideGroup = { recs: PptRecommendation[]; mode: 'big' | 'normal' }
+  const groups: SlideGroup[] = []
+  let i = 0
+  while (i < sorted.length) {
+    const r1 = sorted[i]
+    if (isDenseCard(r1)) {
+      groups.push({ recs: [r1], mode: 'big' })
+      i += 1
+    } else if (i + 1 < sorted.length && !isDenseCard(sorted[i + 1])) {
+      groups.push({ recs: [r1, sorted[i + 1]], mode: 'normal' })
+      i += 2
+    } else {
+      groups.push({ recs: [r1], mode: 'normal' })
+      i += 1
+    }
+  }
+  const realCardsSlides = groups.length
+  // Recalculamos totalPages real (substituyendo el estimado inicial)
+  const realTotalPages = 1 /*cover*/ + 1 /*about*/ + (timelineImageDataUrl ? 1 : 0) + summarySlides + realCardsSlides + 1 /*next steps*/
+
+  for (let g = 0; g < groups.length; g++) {
     page++
     const slide = pres.addSlide()
-    paintContentBackground(slide, branchWatermark, alamosLogo, page, totalPages)
-    const chunk = sorted.slice(i, i + CARDS_PER_SLIDE)
-
-    const slideNumber = Math.floor(i / CARDS_PER_SLIDE) + 1
-    const totalCardSlides = cardsSlides
+    paintContentBackground(slide, branchWatermark, alamosLogo, page, realTotalPages)
+    const group = groups[g]
+    const chunk = group.recs
 
     slide.addText('DETALLE DE RECOMENDACIONES', {
       x: 0.6, y: 0.95, w: 8, h: 0.35,
       fontSize: 11, bold: true, color: COLOR.brand, fontFace: FONT.heading,
       charSpacing: 3,
     })
-    slide.addText(`Página ${slideNumber} de ${totalCardSlides}`, {
+    slide.addText(`Página ${g + 1} de ${realCardsSlides}`, {
       x: 9.5, y: 0.95, w: 3.4, h: 0.35,
       fontSize: 11, color: COLOR.muted, fontFace: FONT.body, align: 'right',
     })
 
-    // 2 cards por slide con bloque de guidance. Vertical budget:
-    //   slide útil = 7.5 - top(1.45) - bottom(0.5) = 5.55"
-    //   2 cards * 2.65 + 1 gap * 0.25 = 5.55 ✓
-    const cardH = 2.65
+    // Layout: 'big' = 1 card de 5.55" alto (ocupa todo el espacio útil)
+    //         'normal' = 1-2 cards de 2.65" cada una
     const cardW = 12.1
     const startY = 1.45
     const gapY = 0.25
+    const cardH = group.mode === 'big' ? 5.55 : 2.65
 
     chunk.forEach((rec, idx) => {
       const cy = startY + idx * (cardH + gapY)
@@ -491,10 +538,9 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
         align: 'center', valign: 'middle',
       })
 
-      // Title — hasta el fit chip menos margen. Más espacio vertical para
-      // permitir wrap a 2 líneas sin desbordar.
+      // Title — hasta el fit chip menos margen. Sin truncar, shrinkText se encarga.
       const titleW = fitChipX - 1.8 - 0.15
-      slide.addText(truncate(stripAgentTags(rec.title), 130), {
+      slide.addText(stripAgentTags(rec.title), {
         x: 1.8, y: cy + 0.22, w: titleW, h: 0.75,
         fontSize: 14, bold: true, color: COLOR.ink, fontFace: FONT.heading,
         valign: 'top',
@@ -511,7 +557,7 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
         `Apply: ${formatApply(rec.recommendedMonth)}`,
         rec.estimatedFundingRange && rec.estimatedFundingRange !== '—' ? rec.estimatedFundingRange : null,
       ].filter(Boolean).join('  ·  ')
-      slide.addText(truncate(metaParts, 160), {
+      slide.addText(metaParts, {
         x: 1.8, y: cy + 1.05, w: cardW - 1.4, h: 0.28,
         fontSize: 10, color: COLOR.muted, fontFace: FONT.body,
         valign: 'top',
@@ -539,55 +585,84 @@ export async function generateRoadmapPpt(args: GenerateRoadmapPptArgs): Promise<
         fill: { color: COLOR.border }, line: { color: COLOR.border },
       })
 
-      // Reasoning — compacto, debajo del separador
-      slide.addText(truncate(stripAgentTags(rec.reasoning), 280), {
-        x: 1.8, y: cy + 1.74, w: cardW - 1.4, h: 0.42,
-        fontSize: 10.5, color: COLOR.text, fontFace: FONT.body,
-        lineSpacingMultiple: 1.2,
+      // ── Layout interno por bloque (reasoning + guidance + risk) ──
+      // En cards 'normal' (cardH=2.65) las dimensiones son apretadas → texto completo
+      //   con shrinkText. Si no cabe, el agente partía la rec en grupo 'big'.
+      // En cards 'big' (cardH=5.55) hay mucho más espacio → bloques generosos
+      //   con todo el contenido visible cómodamente.
+      const isBig = group.mode === 'big'
+      const reasonH = isBig ? 1.5 : 0.42
+      const reasoningFontSize = isBig ? 12 : 10.5
+
+      slide.addText(stripAgentTags(rec.reasoning), {
+        x: 1.8, y: cy + 1.74, w: cardW - 1.4, h: reasonH,
+        fontSize: reasoningFontSize, color: COLOR.text, fontFace: FONT.body,
+        lineSpacingMultiple: 1.25,
         valign: 'top',
         shrinkText: true,
       })
 
-      // Bloque "Cómo orientar la solicitud" — destacado morado claro
+      // Bloque "Cómo orientar la solicitud" — sin truncar
       const guidance = rec.applicationGuidance && rec.applicationGuidance.trim()
         ? stripAgentTags(rec.applicationGuidance) : ''
+      const guidanceY = cy + 1.74 + reasonH + (isBig ? 0.25 : 0.1)
+      const guidanceH = isBig ? 2.4 : 0.45
+
       if (guidance) {
-        const gY = cy + 2.18
-        const gH = 0.45
-        // Fondo morado muy claro
         slide.addShape('rect' as any, {
-          x: 1.8, y: gY, w: cardW - 1.4, h: gH,
+          x: 1.8, y: guidanceY, w: cardW - 1.4, h: guidanceH,
           fill: { color: COLOR.brand50 }, line: { color: COLOR.brand50 },
         })
-        // Border-left morado
         slide.addShape('rect' as any, {
-          x: 1.8, y: gY, w: 0.04, h: gH,
+          x: 1.8, y: guidanceY, w: 0.04, h: guidanceH,
           fill: { color: COLOR.brand }, line: { color: COLOR.brand },
         })
-        // Label
-        slide.addText('CÓMO ORIENTAR', {
-          x: 1.93, y: gY + 0.04, w: 1.6, h: 0.2,
-          fontSize: 7.5, bold: true, color: COLOR.brand, fontFace: FONT.heading,
-          charSpacing: 1.5,
-          valign: 'top',
-        })
-        // Texto
-        slide.addText(truncate(guidance, 280), {
-          x: 3.55, y: gY + 0.05, w: cardW - 1.4 - 1.75 - 0.1, h: gH - 0.1,
-          fontSize: 10, italic: true, color: COLOR.text, fontFace: FONT.body,
-          lineSpacingMultiple: 1.2,
-          valign: 'top',
-          shrinkText: true,
-        })
+        if (isBig) {
+          // Card grande: label completo arriba, texto debajo (más legible)
+          slide.addText('CÓMO ORIENTAR LA SOLICITUD', {
+            x: 1.93, y: guidanceY + 0.08, w: 4.5, h: 0.22,
+            fontSize: 9, bold: true, color: COLOR.brand, fontFace: FONT.heading,
+            charSpacing: 1.5,
+            valign: 'top',
+          })
+          slide.addText(guidance, {
+            x: 1.93, y: guidanceY + 0.4,
+            w: cardW - 1.5, h: guidanceH - 0.5,
+            fontSize: 12, italic: true, color: COLOR.text, fontFace: FONT.body,
+            lineSpacingMultiple: 1.3,
+            valign: 'top',
+            shrinkText: true,
+          })
+        } else {
+          // Card normal: label corto a la izquierda, texto a la derecha
+          slide.addText('CÓMO ORIENTAR', {
+            x: 1.93, y: guidanceY + 0.04, w: 1.55, h: 0.32,
+            fontSize: 7.5, bold: true, color: COLOR.brand, fontFace: FONT.heading,
+            charSpacing: 1.5,
+            valign: 'middle',
+          })
+          slide.addText(guidance, {
+            x: 3.55, y: guidanceY + 0.05,
+            w: cardW - 1.4 - 1.75 - 0.1, h: guidanceH - 0.1,
+            fontSize: 10, italic: true, color: COLOR.text, fontFace: FONT.body,
+            lineSpacingMultiple: 1.2,
+            valign: 'top',
+            shrinkText: true,
+          })
+        }
       }
-      // Risk pegado al pie (si hay)
+
+      // Risk al pie de la card (siempre, si existe)
       if (rec.risks && rec.risks !== '—' && rec.risks.trim()) {
-        // Solo si NO hay guidance ponemos el risk con más espacio.
-        // Si HAY guidance, el risk va por encima o se omite por falta de espacio.
-        if (!guidance) {
-          slide.addText(`⚠ ${truncate(stripAgentTags(rec.risks), 160)}`, {
-            x: 1.8, y: cy + 2.1, w: cardW - 1.4, h: 0.45,
-            fontSize: 10, italic: true, color: COLOR.warning, fontFace: FONT.body,
+        const riskY = guidance
+          ? guidanceY + guidanceH + 0.1
+          : cy + 1.74 + reasonH + 0.15
+        // Solo lo pintamos si cabe dentro del card
+        const cardBottom = cy + cardH - 0.15
+        if (riskY + 0.28 <= cardBottom) {
+          slide.addText(`⚠ ${stripAgentTags(rec.risks)}`, {
+            x: 1.8, y: riskY, w: cardW - 1.4, h: Math.min(0.45, cardBottom - riskY),
+            fontSize: isBig ? 11 : 9, italic: true, color: COLOR.warning, fontFace: FONT.body,
             valign: 'top',
             shrinkText: true,
           })
