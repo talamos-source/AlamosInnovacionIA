@@ -747,3 +747,224 @@
     overflow-x: auto;
   }
 }
+
+/* ============================================================
+   EDIT CLIENT — Logo + Contacts + Contract (cf-* prefix)
+   ============================================================ */
+
+/* ─── Logo upload ─── */
+.cf-logo-section {
+  display: flex;
+  justify-content: center;
+  padding-bottom: var(--space-4);
+  border-bottom: 1px dashed var(--color-border-subtle);
+  margin-bottom: var(--space-4);
+}
+.cf-logo-upload-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-bg-default);
+  border: 1px dashed var(--color-border-default);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  width: 100%;
+  max-width: 480px;
+  text-align: left;
+  transition: all var(--transition-fast);
+  font-family: var(--font-family-base);
+}
+.cf-logo-upload-btn:hover {
+  border-color: var(--color-brand-500);
+  background: var(--color-brand-50);
+}
+.cf-logo-upload-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-brand-700);
+  flex-shrink: 0;
+}
+.cf-logo-upload-text { flex: 1; }
+.cf-logo-upload-text strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-sm);
+  color: var(--color-brand-700);
+  margin-bottom: 2px;
+}
+.cf-logo-upload-text small {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.cf-logo-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+}
+.cf-logo-preview img {
+  width: 90px;
+  height: 60px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-default);
+}
+.cf-logo-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ─── Sección reutilizable Contacts / Contract ─── */
+.cf-section {
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  margin: var(--space-4) 0;
+}
+.cf-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-3);
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.cf-section-header h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+.cf-empty-hint {
+  margin: 0;
+  padding: var(--space-3);
+  background: var(--color-bg-default);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+/* ─── Contacts table ─── */
+.cf-contacts-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cf-contacts-head,
+.cf-contacts-row {
+  display: grid;
+  grid-template-columns: 1.5fr 1.7fr 1fr 1.5fr 36px;
+  gap: 6px;
+  align-items: center;
+}
+.cf-contacts-head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-medium);
+  padding: 0 4px 4px 4px;
+}
+.cf-contacts-row input {
+  padding: 6px 8px;
+  background: var(--color-bg-default);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family-base);
+}
+.cf-contacts-row input:focus {
+  outline: none;
+  border-color: var(--color-brand-500);
+  box-shadow: 0 0 0 2px var(--color-brand-100);
+}
+
+/* ─── Contract PDF ─── */
+.cf-contract-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--color-bg-default);
+  border: 1px dashed var(--color-border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  width: 100%;
+  justify-content: center;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  transition: all var(--transition-fast);
+  font-family: var(--font-family-base);
+}
+.cf-contract-upload-btn:hover {
+  border-color: var(--color-brand-500);
+  color: var(--color-brand-700);
+  background: var(--color-brand-50);
+}
+.cf-contract-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-brand-50);
+  border: 1px solid var(--color-brand-200, #D5C9E6);
+  border-radius: var(--radius-md);
+}
+.cf-contract-icon {
+  color: var(--color-brand-700);
+  flex-shrink: 0;
+}
+.cf-contract-info { flex: 1; min-width: 0; }
+.cf-contract-info strong {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cf-contract-info small {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.cf-contract-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 720px) {
+  .cf-contacts-head,
+  .cf-contacts-row {
+    grid-template-columns: 1fr;
+  }
+  .cf-contacts-head { display: none; }
+  .cf-contacts-row {
+    padding: var(--space-3);
+    background: var(--color-bg-default);
+    border-radius: var(--radius-sm);
+  }
+}

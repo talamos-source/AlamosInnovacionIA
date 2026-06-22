@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, Globe, MapPin, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import {
+  Search, Globe, MapPin, ChevronDown, ChevronLeft, ChevronRight,
+  Upload, X, FileText, Plus, Trash2, Building2, Users as UsersIcon, FileCheck,
+} from 'lucide-react'
 import Modal from '../components/Modal'
 import ActionsMenu from '../components/ActionsMenu'
 import { useAuth } from '../contexts/AuthContext'
@@ -32,6 +35,22 @@ interface Customer {
   notes?: string
   createdAt?: string
   updatedAt?: string
+  /** Logo del cliente como dataURL (PNG/JPG, comprimido <400px). Aparece en PPT/PDF exports. */
+  logoBase64?: string
+  /** PDF de contrato firmado con el cliente (opcional). */
+  contractPdf?: {
+    dataUrl: string
+    fileName: string
+    uploadedAt: string
+  }
+  /** Lista opcional de contactos del cliente. */
+  contacts?: Array<{
+    id: string
+    name: string
+    email: string
+    phone: string
+    comments: string
+  }>
 }
 
 const Customers = () => {
@@ -71,8 +90,13 @@ const Customers = () => {
     status: 'Active',
     category: '',
     description: '',
-    notes: ''
+    notes: '',
+    logoBase64: '' as string | undefined,
+    contractPdf: undefined as { dataUrl: string; fileName: string; uploadedAt: string } | undefined,
+    contacts: [] as Array<{ id: string; name: string; email: string; phone: string; comments: string }>,
   })
+  const logoInputRef = useRef<HTMLInputElement | null>(null)
+  const contractInputRef = useRef<HTMLInputElement | null>(null)
   // Para el desplegable de "Member of"
   const [memberOfPick, setMemberOfPick] = useState('')
 
@@ -286,6 +310,11 @@ const Customers = () => {
         address: formData.address.trim() || undefined,
         description: formData.description.trim() || undefined,
         notes: formData.notes.trim() || undefined,
+        logoBase64: formData.logoBase64 || undefined,
+        contractPdf: formData.contractPdf || undefined,
+        contacts: formData.contacts.length > 0
+          ? formData.contacts.filter(c => c.name.trim() || c.email.trim() || c.phone.trim() || c.comments.trim())
+          : undefined,
         createdAt: editingCustomerId ? customers.find(c => c.id === editingCustomerId)?.createdAt : new Date().toISOString(),
         updatedAt: new Date().toISOString()
       }
@@ -316,7 +345,10 @@ const Customers = () => {
         status: 'Active',
         category: '',
         description: '',
-        notes: ''
+        notes: '',
+        logoBase64: undefined,
+        contractPdf: undefined,
+        contacts: [],
       })
       setMemberOfPick('')
       setEditingCustomerId(null)
@@ -365,7 +397,10 @@ const Customers = () => {
         status: customer.status,
         category: customer.category,
         description: customer.description || '',
-        notes: customer.notes || ''
+        notes: customer.notes || '',
+        logoBase64: customer.logoBase64 || undefined,
+        contractPdf: customer.contractPdf || undefined,
+        contacts: customer.contacts || [],
       })
       setMemberOfPick('')
       setEditingCustomerId(customerId)
@@ -375,6 +410,88 @@ const Customers = () => {
 
   const handleDelete = (_customerId: string) => {
     window.alert('La eliminación está desactivada para mantener el histórico de clientes.')
+  }
+
+  /* ---------- Logo upload con redimensión a 400px ---------- */
+  const handleLogoUpload = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      alert('Por favor sube una imagen (PNG, JPG, SVG…).')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const img = new Image()
+      img.onload = () => {
+        const MAX = 400
+        let { width, height } = img
+        if (width > MAX || height > MAX) {
+          const r = Math.min(MAX / width, MAX / height)
+          width = Math.round(width * r)
+          height = Math.round(height * r)
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        ctx.drawImage(img, 0, 0, width, height)
+        const isPng = file.type === 'image/png' || file.type === 'image/svg+xml'
+        const dataUrl = isPng
+          ? canvas.toDataURL('image/png')
+          : canvas.toDataURL('image/jpeg', 0.88)
+        setFormData(fd => ({ ...fd, logoBase64: dataUrl }))
+      }
+      img.src = reader.result as string
+    }
+    reader.readAsDataURL(file)
+  }
+
+  /* ---------- Contract PDF upload ---------- */
+  const handleContractUpload = (file: File) => {
+    if (file.type !== 'application/pdf') {
+      alert('El contrato debe ser un PDF.')
+      return
+    }
+    // 8MB cap aprox para no inflar el localStorage
+    if (file.size > 8 * 1024 * 1024) {
+      alert('El PDF supera 8 MB. Comprimirlo o subir otra versión.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      setFormData(fd => ({
+        ...fd,
+        contractPdf: {
+          dataUrl: reader.result as string,
+          fileName: file.name,
+          uploadedAt: new Date().toISOString(),
+        },
+      }))
+    }
+    reader.readAsDataURL(file)
+  }
+
+  /* ---------- Contacts CRUD ---------- */
+  const addContact = () => {
+    setFormData(fd => ({
+      ...fd,
+      contacts: [
+        ...fd.contacts,
+        { id: `contact-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: '', email: '', phone: '', comments: '' },
+      ],
+    }))
+  }
+  const updateContact = (id: string, patch: Partial<{ name: string; email: string; phone: string; comments: string }>) => {
+    setFormData(fd => ({
+      ...fd,
+      contacts: fd.contacts.map(c => c.id === id ? { ...c, ...patch } : c),
+    }))
+  }
+  const removeContact = (id: string) => {
+    setFormData(fd => ({
+      ...fd,
+      contacts: fd.contacts.filter(c => c.id !== id),
+    }))
   }
 
   const handleNewClient = () => {
@@ -396,7 +513,10 @@ const Customers = () => {
       status: 'Active',
       category: '',
       description: '',
-      notes: ''
+      notes: '',
+      logoBase64: undefined,
+      contractPdf: undefined,
+      contacts: [],
     })
     setMemberOfPick('')
     setIsModalOpen(true)
@@ -723,7 +843,10 @@ const Customers = () => {
             status: 'Active',
             category: '',
             description: '',
-            notes: ''
+            notes: '',
+            logoBase64: undefined,
+            contractPdf: undefined,
+            contacts: [],
           })
           setMemberOfPick('')
           setErrors({})
@@ -731,6 +854,57 @@ const Customers = () => {
         title={editingCustomerId ? "Edit Client" : "New Client"}
       >
         <form onSubmit={handleSubmit} className="client-form">
+          {/* ─── LOGO DEL CLIENTE ─── */}
+          <div className="cf-logo-section">
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={e => {
+                const f = e.target.files?.[0]
+                if (f) handleLogoUpload(f)
+                if (logoInputRef.current) logoInputRef.current.value = ''
+              }}
+            />
+            {formData.logoBase64 ? (
+              <div className="cf-logo-preview">
+                <img src={formData.logoBase64} alt="Client logo" />
+                <div className="cf-logo-preview-actions">
+                  <button
+                    type="button"
+                    className="btn-secondary btn-secondary--sm"
+                    onClick={() => logoInputRef.current?.click()}
+                  >
+                    Replace
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-link-danger"
+                    onClick={() => setFormData(fd => ({ ...fd, logoBase64: undefined }))}
+                    title="Remove logo"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="cf-logo-upload-btn"
+                onClick={() => logoInputRef.current?.click()}
+              >
+                <div className="cf-logo-upload-icon">
+                  <Building2 size={28} strokeWidth={1.5} />
+                </div>
+                <div className="cf-logo-upload-text">
+                  <strong><Upload size={12} /> Subir logo del cliente</strong>
+                  <small>PNG, JPG o SVG (recomendado &lt; 1 MB) — aparecerá en exports PPT/PDF</small>
+                </div>
+              </button>
+            )}
+          </div>
+
           <div className="form-row">
             <div className="form-group">
               <label htmlFor="name">Name <span className="required">*</span></label>
@@ -976,6 +1150,66 @@ const Customers = () => {
             </div>
           </div>
 
+          {/* ─── CONTACTOS ─── */}
+          <div className="cf-section">
+            <header className="cf-section-header">
+              <h3><UsersIcon size={16} /> Contacts <span className="optional-hint">(optional)</span></h3>
+              <button type="button" className="btn-secondary btn-secondary--sm" onClick={addContact}>
+                <Plus size={14} /> Add contact
+              </button>
+            </header>
+            {formData.contacts.length === 0 ? (
+              <p className="cf-empty-hint">Sin contactos. Añade nombres, emails y teléfonos del personal de contacto del cliente.</p>
+            ) : (
+              <div className="cf-contacts-table">
+                <div className="cf-contacts-head">
+                  <span>Nombre</span>
+                  <span>Email</span>
+                  <span>Teléfono</span>
+                  <span>Comentarios</span>
+                  <span></span>
+                </div>
+                {formData.contacts.map(c => (
+                  <div key={c.id} className="cf-contacts-row">
+                    <input
+                      type="text"
+                      placeholder="Nombre completo"
+                      value={c.name}
+                      onChange={e => updateContact(c.id, { name: e.target.value })}
+                    />
+                    <input
+                      type="email"
+                      placeholder="email@cliente.com"
+                      value={c.email}
+                      onChange={e => updateContact(c.id, { email: e.target.value })}
+                    />
+                    <input
+                      type="tel"
+                      placeholder="+34 ..."
+                      value={c.phone}
+                      onChange={e => updateContact(c.id, { phone: e.target.value })}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Rol, notas…"
+                      value={c.comments}
+                      onChange={e => updateContact(c.id, { comments: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      className="btn-link-danger"
+                      onClick={() => removeContact(c.id)}
+                      title="Remove contact"
+                      aria-label="Remove"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="form-group">
             <label htmlFor="description">Description <span className="required">*</span></label>
             <textarea
@@ -986,6 +1220,66 @@ const Customers = () => {
               rows={4}
             />
             {errors.description && <span className="error-message">{errors.description}</span>}
+          </div>
+
+          {/* ─── CONTRACT PDF ─── */}
+          <div className="cf-section">
+            <header className="cf-section-header">
+              <h3><FileCheck size={16} /> Contract <span className="optional-hint">(optional)</span></h3>
+            </header>
+            <input
+              ref={contractInputRef}
+              type="file"
+              accept="application/pdf"
+              style={{ display: 'none' }}
+              onChange={e => {
+                const f = e.target.files?.[0]
+                if (f) handleContractUpload(f)
+                if (contractInputRef.current) contractInputRef.current.value = ''
+              }}
+            />
+            {formData.contractPdf ? (
+              <div className="cf-contract-preview">
+                <FileText size={28} className="cf-contract-icon" />
+                <div className="cf-contract-info">
+                  <strong>{formData.contractPdf.fileName}</strong>
+                  <small>Subido el {new Date(formData.contractPdf.uploadedAt).toLocaleString('es-ES', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</small>
+                </div>
+                <div className="cf-contract-actions">
+                  <a
+                    href={formData.contractPdf.dataUrl}
+                    download={formData.contractPdf.fileName}
+                    className="btn-secondary btn-secondary--sm"
+                  >
+                    Download
+                  </a>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-secondary--sm"
+                    onClick={() => contractInputRef.current?.click()}
+                  >
+                    Replace
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-link-danger"
+                    onClick={() => setFormData(fd => ({ ...fd, contractPdf: undefined }))}
+                    title="Remove contract"
+                    aria-label="Remove"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="cf-contract-upload-btn"
+                onClick={() => contractInputRef.current?.click()}
+              >
+                <Upload size={16} /> Subir contrato firmado (PDF, máx. 8 MB)
+              </button>
+            )}
           </div>
 
           <div className="form-group">
