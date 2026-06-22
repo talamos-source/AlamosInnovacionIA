@@ -10,6 +10,8 @@ import {
   Calendar,
   Target,
   Activity as ActivityIcon,
+  AlertCircle,
+  Route as RouteIcon,
 } from 'lucide-react'
 import './Page.css'
 import './Dashboard.css'
@@ -139,6 +141,88 @@ const Dashboard = () => {
       window.clearInterval(interval)
     }
   }, [])
+
+  /* ============================================================
+     ROADMAP DEADLINES — recomendaciones con deadline próximo
+     ============================================================
+     Cruza:
+       · cdtiRoadmaps (localStorage) → recomendaciones por customer
+       · discoveryCalls (localStorage) → fecha closeDate por externalId
+     Devuelve recs con closeDate dentro de los próximos 90 días, ordenadas
+     por urgencia (más cercano primero).
+     ============================================================ */
+  const roadmapDeadlines = useMemo(() => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const roadmaps = JSON.parse(localStorage.getItem('cdtiRoadmaps') || '[]') as any[]
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const calls = JSON.parse(localStorage.getItem('discoveryCalls') || '[]') as any[]
+      const customers = data.customers
+      const callsById = new Map(calls.map(c => [c.externalId, c]))
+      const customersById = new Map(customers.map(c => [c.id, c]))
+
+      const today = new Date()
+      const horizon90 = new Date(today.getTime() + 90 * 86400000)
+
+      const items: Array<{
+        callId: string
+        customerName: string
+        customerId: string
+        roadmapId: string
+        title: string
+        source: 'EU_PORTAL' | 'BDNS'
+        fitScore: number
+        priorityOrder: number
+        closeDate: Date
+        daysLeft: number
+        program?: string
+      }> = []
+
+      // Roadmap activo = más reciente por customer (no enumerar todas las versiones,
+      // solo la última generada por cliente)
+      const latestByCustomer = new Map<string, typeof roadmaps[number]>()
+      for (const rm of roadmaps) {
+        const cur = latestByCustomer.get(rm.customerId)
+        if (!cur || new Date(rm.generatedAt) > new Date(cur.generatedAt)) {
+          latestByCustomer.set(rm.customerId, rm)
+        }
+      }
+
+      latestByCustomer.forEach(rm => {
+        const customer = customersById.get(rm.customerId)
+        if (!customer) return
+        const recs = rm.result?.recommendations || []
+        for (const rec of recs) {
+          const call = callsById.get(rec.callId)
+          if (!call?.closeDate) continue
+          const closeDate = new Date(call.closeDate)
+          if (Number.isNaN(closeDate.getTime())) continue
+          if (closeDate < today || closeDate > horizon90) continue
+          const daysLeft = Math.ceil((closeDate.getTime() - today.getTime()) / 86400000)
+          items.push({
+            callId: rec.callId,
+            customerName: customer.name,
+            customerId: customer.id,
+            roadmapId: rm.id,
+            title: rec.title,
+            source: rec.source,
+            fitScore: rec.fitScore,
+            priorityOrder: rec.priorityOrder,
+            closeDate,
+            daysLeft,
+            program: call.program,
+          })
+        }
+      })
+
+      items.sort((a, b) => a.daysLeft - b.daysLeft)
+      return items
+    } catch (err) {
+      console.warn('Failed to compute upcoming deadlines:', err)
+      return []
+    }
+  }, [data.customers, tick])
+
 
   /* ----------------------------------------------------------
      KPIs derivados
@@ -276,6 +360,55 @@ const Dashboard = () => {
           highlight
         />
       </div>
+
+      {/* ─── ROADMAP DEADLINES — bloque destacado si hay calls urgentes ─── */}
+      {roadmapDeadlines.length > 0 && (
+        <section className={`surface-card dashboard-deadlines ${roadmapDeadlines.some(d => d.daysLeft < 30) ? 'dashboard-deadlines--urgent' : ''}`}>
+          <header className="surface-card-header">
+            <h2>
+              <AlertCircle size={18} />
+              Deadlines próximos del roadmap
+              <span className="dashboard-deadlines-count">{roadmapDeadlines.length}</span>
+            </h2>
+            <span className="muted">Recomendaciones de los roadmaps activos con cierre en &lt;90 días</span>
+          </header>
+          <ul className="dashboard-deadlines-list">
+            {roadmapDeadlines.slice(0, 6).map(item => (
+              <li
+                key={`${item.customerId}-${item.callId}`}
+                className={`dashboard-deadline-row ${item.daysLeft < 14 ? 'critical' : item.daysLeft < 30 ? 'warning' : ''}`}
+                onClick={() => navigate(`/roadmap/${item.customerId}`)}
+              >
+                <div className="dashboard-deadline-countdown">
+                  <span className="dashboard-deadline-days">{item.daysLeft}</span>
+                  <span className="dashboard-deadline-days-label">días</span>
+                </div>
+                <div className="dashboard-deadline-content">
+                  <div className="dashboard-deadline-title">
+                    <strong>{item.customerName}</strong>
+                    <span className="dashboard-deadline-priority">#{item.priorityOrder}</span>
+                  </div>
+                  <p className="dashboard-deadline-call">{item.title}</p>
+                  <p className="dashboard-deadline-meta">
+                    {item.source === 'EU_PORTAL' ? 'EU Portal' : 'BDNS'}
+                    {item.program && <> · {item.program}</>}
+                    {' · '}
+                    Cierra el {item.closeDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {' · '}
+                    Fit {item.fitScore}
+                  </p>
+                </div>
+                <RouteIcon size={14} className="dashboard-deadline-arrow" />
+              </li>
+            ))}
+          </ul>
+          {roadmapDeadlines.length > 6 && (
+            <p className="muted dashboard-deadlines-more">
+              + {roadmapDeadlines.length - 6} deadlines más entre los próximos 90 días
+            </p>
+          )}
+        </section>
+      )}
 
       {/* Dos columnas: pipeline + deadlines */}
       <div className="dashboard-twocol">

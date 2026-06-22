@@ -362,7 +362,7 @@
   inset: 0;
   background: rgba(26, 19, 37, 0.55);
   backdrop-filter: blur(4px);
-  z-index: 100;
+  z-index: var(--z-modal);   /* por encima del topbar */
   display: flex;
   align-items: center;
   justify-content: center;

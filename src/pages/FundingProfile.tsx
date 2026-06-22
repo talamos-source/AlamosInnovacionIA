@@ -28,6 +28,30 @@ import './FundingProfile.css'
 
 type ProjectTypePreference = 'individual' | 'colaborativo' | 'ambos'
 type AmountRange = '<100k' | '100k-500k' | '500k-2M' | '>2M'
+
+/**
+ * Tipo de instrumento financiero que el cliente acepta.
+ *   grant         → subvención (fondo perdido)
+ *   loan          → préstamo reembolsable
+ *   participative → préstamo participativo (ENISA, sin avales)
+ *   equity        → entrada en capital (EIC Fund, VCs)
+ *   mixed         → mixta grant+equity / grant+loan (EIC Accelerator)
+ */
+export type AidTypePreference = 'grant' | 'loan' | 'participative' | 'equity' | 'mixed'
+
+interface AidTypeOption {
+  value: AidTypePreference
+  label: string
+  description: string
+}
+
+const AID_TYPE_OPTIONS: AidTypeOption[] = [
+  { value: 'grant',         label: 'Subvención',           description: 'Fondo perdido. AEI, NEOTEC, Misiones, LIFE, Horizon RIA…' },
+  { value: 'loan',          label: 'Préstamo reembolsable', description: 'A devolver con interés blando. CDTI LIC, LICA, PID, Cervera…' },
+  { value: 'participative', label: 'Préstamo participativo', description: 'Sin avales ni dilución. ENISA Emprendedores / Crecimiento.' },
+  { value: 'equity',        label: 'Equity / Capital',     description: 'Entrada en el capital. EIC STEP ScaleUp, capital riesgo.' },
+  { value: 'mixed',         label: 'Mixta (grant + equity)', description: 'Blended finance. EIC Accelerator (grant + equity).' },
+]
 // Estados que reflejan el flujo del CRM Álamos:
 //  · in-progress: propuesta en redacción
 //  · pending: propuesta enviada, esperando resolución
@@ -77,6 +101,12 @@ export interface FundingProfile {
   coFinancingCapacityPercent: number       // 0-100
   preferredProjectType: ProjectTypePreference
   desiredAmountRange: AmountRange
+  /**
+   * Tipos de instrumento aceptables para el cliente. El agente del roadmap
+   * descarta o penaliza fuertemente convocatorias que NO ofrezcan ninguno
+   * de los tipos seleccionados. Vacío = sin filtro.
+   */
+  preferredAidTypes?: AidTypePreference[]
   /** @deprecated mantener por compat — usar trlProfile */
   targetTRL?: number
   /** Multi-tecnología: una empresa puede tener varias líneas con distintos TRL */
@@ -641,6 +671,40 @@ const FundingProfilePage = () => {
               <option value=">2M">&gt; €2M</option>
             </select>
             <small className="fp-hint">Orientative grant size per project</small>
+          </div>
+        </div>
+
+        {/* ─── Tipos de ayuda aceptables (multi-select) ─── */}
+        <div className="fp-aid-types">
+          <label className="fp-aid-types-label">Tipos de ayuda que el cliente acepta</label>
+          <p className="muted" style={{ marginTop: 0, marginBottom: '12px', fontSize: 'var(--font-size-sm)' }}>
+            Marca todos los tipos que el cliente está dispuesto a aceptar. El agente del roadmap
+            descartará convocatorias que no encajen — si no marcas ninguno, no se aplica filtro.
+          </p>
+          <div className="fp-aid-types-grid">
+            {AID_TYPE_OPTIONS.map(opt => {
+              const selected = (profile.preferredAidTypes || []).includes(opt.value)
+              return (
+                <button
+                  type="button"
+                  key={opt.value}
+                  className={`fp-aid-chip ${selected ? 'selected' : ''}`}
+                  onClick={() => {
+                    const curr = profile.preferredAidTypes || []
+                    const next = selected
+                      ? curr.filter(v => v !== opt.value)
+                      : [...curr, opt.value]
+                    updateField('preferredAidTypes', next)
+                  }}
+                >
+                  <div className="fp-aid-chip-check">{selected ? '✓' : ''}</div>
+                  <div>
+                    <strong>{opt.label}</strong>
+                    <small>{opt.description}</small>
+                  </div>
+                </button>
+              )
+            })}
           </div>
         </div>
       </section>

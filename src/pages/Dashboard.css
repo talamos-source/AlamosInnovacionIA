@@ -499,3 +499,133 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ============================================================
+   ROADMAP DEADLINES — widget destacado
+   ============================================================ */
+.dashboard-deadlines {
+  margin-top: var(--space-4);
+  border-left: 4px solid var(--color-brand-500);
+}
+.dashboard-deadlines--urgent {
+  border-left-color: var(--color-warning-700, #B8780F);
+  background: linear-gradient(180deg, var(--color-warning-50, #FFF8E5) 0%, var(--color-bg-surface) 30%);
+}
+.dashboard-deadlines-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 8px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-brand-700);
+  color: white;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+}
+.dashboard-deadlines--urgent .dashboard-deadlines-count {
+  background: var(--color-warning-700, #B8780F);
+}
+.dashboard-deadlines-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-3) 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dashboard-deadline-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-default);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.dashboard-deadline-row:hover {
+  border-color: var(--color-brand-500);
+  background: var(--color-brand-50);
+  transform: translateX(2px);
+}
+.dashboard-deadline-row.critical { border-left: 4px solid #B14F4F; }
+.dashboard-deadline-row.warning  { border-left: 4px solid #B8780F; }
+.dashboard-deadline-row:not(.critical):not(.warning) { border-left: 4px solid var(--color-brand-500); }
+.dashboard-deadline-countdown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 54px;
+  padding: 6px 10px;
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+}
+.dashboard-deadline-row.critical .dashboard-deadline-countdown {
+  background: #FBEDED;
+  border-color: #E8B9B9;
+}
+.dashboard-deadline-row.warning .dashboard-deadline-countdown {
+  background: #FFF8E5;
+  border-color: #F4D6A8;
+}
+.dashboard-deadline-days {
+  font-size: 20px;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-brand-700);
+  line-height: 1;
+  font-feature-settings: "tnum";
+}
+.dashboard-deadline-row.critical .dashboard-deadline-days { color: #B14F4F; }
+.dashboard-deadline-row.warning .dashboard-deadline-days  { color: #B8780F; }
+.dashboard-deadline-days-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+.dashboard-deadline-content { flex: 1; min-width: 0; }
+.dashboard-deadline-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.dashboard-deadline-title strong {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+.dashboard-deadline-priority {
+  background: var(--color-brand-100);
+  color: var(--color-brand-700);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+}
+.dashboard-deadline-call {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  line-height: var(--line-height-snug);
+}
+.dashboard-deadline-meta {
+  margin: 2px 0 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.dashboard-deadline-arrow {
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+.dashboard-deadlines-more {
+  margin: var(--space-3) 0 0 0;
+  font-size: var(--font-size-sm);
+  text-align: center;
+  font-style: italic;
+}

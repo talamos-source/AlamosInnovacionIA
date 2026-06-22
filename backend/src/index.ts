@@ -874,6 +874,8 @@ interface RoadmapPayload {
     coFinancingCapacityPercent?: number
     preferredProjectType?: string
     desiredAmountRange?: string
+    /** Tipos de ayuda que el cliente acepta (grant/loan/participative/equity/mixed) */
+    preferredAidTypes?: Array<'grant' | 'loan' | 'participative' | 'equity' | 'mixed'>
     targetTRL?: number  // deprecated single TRL
     /** Multi-tecnología: cada línea con TRL current + target */
     trlProfile?: Array<{
@@ -1002,6 +1004,8 @@ app.post('/ai/generate-roadmap', requireAuth, async (req, res) => {
             `Co-financing capacity: ${fundingProfile.coFinancingCapacityPercent}%`,
           fundingProfile.preferredProjectType && `Preferred project type: ${fundingProfile.preferredProjectType}`,
           fundingProfile.desiredAmountRange && `Desired amount range: ${fundingProfile.desiredAmountRange}`,
+          fundingProfile.preferredAidTypes && fundingProfile.preferredAidTypes.length > 0 &&
+            `⚠️ ACCEPTED AID TYPES (FILTER): ${fundingProfile.preferredAidTypes.join(', ')} — DISCARD or strongly penalize calls offering ONLY other instrument types not in this list. If list is missing/empty, no filter applies.`,
           // Legacy single TRL solo si no hay trlProfile y existe
           trlLines.length === 0 && fundingProfile.targetTRL !== undefined &&
             `Target TRL (single — legacy): ${fundingProfile.targetTRL}`,
@@ -1517,6 +1521,8 @@ async function analyzeCallFitInternal(
       `Co-financing capacity: ${fundingProfile.coFinancingCapacityPercent}%`,
     fundingProfile?.preferredProjectType && `Project type preference: ${fundingProfile.preferredProjectType}`,
     fundingProfile?.desiredAmountRange && `Desired amount: ${fundingProfile.desiredAmountRange}`,
+    fundingProfile?.preferredAidTypes && fundingProfile.preferredAidTypes.length > 0 &&
+      `⚠️ Accepted aid types FILTER: ${fundingProfile.preferredAidTypes.join(', ')} — if this call's aid type is NOT in this list, fitScore must drop significantly and risks must explain why.`,
     wonProgrammes.length > 0 && `\n🚫 ALREADY WON (do not propose again): ${wonProgrammes.join(', ')}`,
   ].filter(Boolean).join('\n')
 

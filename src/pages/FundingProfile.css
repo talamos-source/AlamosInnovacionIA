@@ -445,6 +445,80 @@
    AUTO-EXTRACT (botón + alerta contexto)
    ============================================================ */
 
+/* ============================================================
+   Tipos de ayuda aceptables (multi-select chips)
+   ============================================================ */
+.fp-aid-types {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px dashed var(--color-border-subtle);
+}
+.fp-aid-types-label {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  margin-bottom: 4px;
+}
+.fp-aid-types-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-2);
+}
+.fp-aid-chip {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: var(--font-family-base);
+}
+.fp-aid-chip:hover {
+  border-color: var(--color-brand-500);
+  background: var(--color-brand-50);
+}
+.fp-aid-chip.selected {
+  border-color: var(--color-brand-500);
+  background: var(--color-brand-50);
+  box-shadow: 0 0 0 2px var(--color-brand-100);
+}
+.fp-aid-chip-check {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--color-border-default);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-brand-700);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.fp-aid-chip.selected .fp-aid-chip-check {
+  background: var(--color-brand-700);
+  border-color: var(--color-brand-700);
+  color: white;
+}
+.fp-aid-chip strong {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  margin-bottom: 2px;
+}
+.fp-aid-chip small {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  line-height: var(--line-height-snug);
+}
+
 .fp-trl-actions {
   display: inline-flex;
   gap: 8px;
@@ -525,7 +599,7 @@
   inset: 0;
   background: rgba(26, 19, 37, 0.55);
   backdrop-filter: blur(4px);
-  z-index: 100;
+  z-index: var(--z-modal);   /* por encima del topbar */
   display: flex;
   align-items: center;
   justify-content: center;
