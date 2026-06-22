@@ -1556,6 +1556,114 @@ app.get('/ai/fichas', requireAuth, (_req, res) => {
 })
 
 /* ============================================================
+   POST /ai/extract-trl-lines
+   Extrae líneas tecnológicas + roadmap I+D estructurado a partir
+   del contexto del cliente (technologyInnovation, businessModel,
+   rdiRoadmap). Devuelve [{technology, currentTRL, targetTRL,
+   rdRoadmap}] que el usuario puede aplicar o editar.
+   ============================================================ */
+const TRL_EXTRACT_PROMPT = `You are an R+D+i consultant who reads a client profile and identifies
+distinct technology lines the company is working on, with their current
+maturity level (TRL) and a roadmap of milestones to reach a target TRL.
+
+You receive the client's context (technology description, business model,
+R+D+i roadmap). Extract 1 to 4 DISTINCT technology lines.
+
+For EACH line, infer:
+- technology: short label (3-8 words) of the tech line
+- currentTRL (1-9): present maturity. If unclear, estimate from cues:
+  · "validated with pilot client" → 6-7
+  · "prototype in lab" → 4
+  · "concept proven" → 3
+  · "preparing first commercial unit" → 8
+  · "already in production for clients" → 9
+- targetTRL (1-9): realistic level to reach in the next 2-3 years (the
+  roadmap horizon of the client).
+- rdRoadmap: 2-4 milestones IN PROSE separated by ' / ' that take the
+  tech from currentTRL to targetTRL. Use info from the client's context
+  literally when available (verbatim milestones, dates, partners).
+  Example: "validar prototipo con cliente piloto (TRL 6) / integrar con
+  ERP (TRL 7) / certificación industrial CE (TRL 8) / primera unidad
+  en producción (TRL 9)".
+
+If the client describes ONE main technology line, return just one.
+If they have clearly separate parallel tech lines, return them separately.
+NEVER invent technologies the client doesn't mention.
+
+Return JSON EXACTLY:
+{
+  "lines": [
+    { "technology": "...", "currentTRL": <int>, "targetTRL": <int>, "rdRoadmap": "..." }
+  ]
+}
+No markdown, no surrounding text.`
+
+app.post('/ai/extract-trl-lines', requireAuth, async (req, res) => {
+  if (!anthropic) {
+    return res.status(503).json({ error: 'AI not configured.' })
+  }
+  const { customer, context } = (req.body || {}) as {
+    customer?: { name?: string; company?: string; description?: string; category?: string }
+    context?: { technologyInnovation?: string; businessModel?: string; rdiRoadmap?: string }
+  }
+  if (!context?.technologyInnovation && !context?.rdiRoadmap) {
+    return res.status(400).json({
+      error: 'No client context available. Please fill in technologyInnovation and/or rdiRoadmap before extracting.',
+    })
+  }
+  try {
+    const userBlock = [
+      customer?.name && `Client: ${customer.name}${customer.company ? ` (${customer.company})` : ''}`,
+      customer?.category && `Sector: ${customer.category}`,
+      customer?.description && `Description: ${customer.description.slice(0, 600)}`,
+      context.technologyInnovation && `\n=== Technology / Innovation ===\n${context.technologyInnovation.slice(0, 1500)}`,
+      context.businessModel && `\n=== Business model ===\n${context.businessModel.slice(0, 600)}`,
+      context.rdiRoadmap && `\n=== R+D+i roadmap ===\n${context.rdiRoadmap.slice(0, 1500)}`,
+    ].filter(Boolean).join('\n')
+
+    const stream = anthropic.messages.stream({
+      model: CLAUDE_MODEL_FAST,
+      max_tokens: 1500,
+      system: TRL_EXTRACT_PROMPT,
+      messages: [{ role: 'user', content: userBlock }],
+    })
+    const finalMessage = await stream.finalMessage()
+    const firstBlock = finalMessage.content[0]
+    const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : ''
+    let jsonText = text.trim()
+    if (jsonText.startsWith('```')) {
+      jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+    }
+    let parsed
+    try {
+      parsed = JSON.parse(jsonText)
+    } catch {
+      return res.status(502).json({ error: 'AI returned invalid JSON', raw: text.slice(0, 800) })
+    }
+    // Sanitización mínima
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const lines = (parsed?.lines || []).map((l: any) => ({
+      technology: String(l.technology || '').slice(0, 120).trim(),
+      currentTRL: Math.max(1, Math.min(9, Math.round(Number(l.currentTRL) || 1))),
+      targetTRL: Math.max(1, Math.min(9, Math.round(Number(l.targetTRL) || 9))),
+      rdRoadmap: String(l.rdRoadmap || '').slice(0, 800).trim(),
+    })).filter((l: { technology: string }) => l.technology.length > 0)
+    return res.json({
+      lines,
+      extractedAt: new Date().toISOString(),
+      model: CLAUDE_MODEL_FAST,
+      tokensUsed: {
+        input: finalMessage.usage?.input_tokens ?? 0,
+        output: finalMessage.usage?.output_tokens ?? 0,
+      },
+    })
+  } catch (err: unknown) {
+    console.error('extract-trl-lines error:', err)
+    return res.status(500).json({ error: err instanceof Error ? err.message : 'extract failed' })
+  }
+})
+
+/* ============================================================
    DISCOVERY — Sync de calls desde EU Funding Portal y BDNS
    ============================================================ */
 

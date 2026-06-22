@@ -14,6 +14,10 @@ import {
   RefreshCw,
   Briefcase,
   FileText,
+  Wand2,
+  Loader2,
+  X,
+  AlertCircle,
 } from 'lucide-react'
 import './Page.css'
 import './FundingProfile.css'
@@ -381,6 +385,61 @@ const FundingProfilePage = () => {
   const addTRLLine = () => {
     persist({ ...profile, trlProfile: [...(profile.trlProfile || []), newTRLLine()] })
   }
+
+  /* ---------- AUTO-EXTRACT TRL lines del contexto ---------- */
+  const [extractLoading, setExtractLoading] = useState(false)
+  const [extractError, setExtractError] = useState<string | null>(null)
+  const [extractedLines, setExtractedLines] = useState<TRLLine[] | null>(null)
+
+  const handleExtractFromContext = async () => {
+    setExtractError(null)
+    setExtractLoading(true)
+    try {
+      const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) || 'https://alamosinnovacionia.onrender.com'
+      const token = localStorage.getItem('authToken') || ''
+      const res = await fetch(`${API_BASE}/ai/extract-trl-lines`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ customer, context }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || `HTTP ${res.status}`)
+      }
+      const json = await res.json() as { lines: Array<{ technology: string; currentTRL: number; targetTRL: number; rdRoadmap: string }> }
+      // Generamos IDs nuevos para no colisionar con líneas existentes
+      const lines: TRLLine[] = json.lines.map(l => ({
+        id: `trl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        technology: l.technology,
+        currentTRL: l.currentTRL,
+        targetTRL: l.targetTRL,
+        rdRoadmap: l.rdRoadmap,
+      }))
+      if (lines.length === 0) {
+        setExtractError('El agente no detectó líneas tecnológicas en el contexto. Revisa que technologyInnovation y rdiRoadmap del cliente estén bien rellenos.')
+      } else {
+        setExtractedLines(lines)
+      }
+    } catch (err) {
+      setExtractError(err instanceof Error ? err.message : 'Error al extraer líneas TRL')
+    } finally {
+      setExtractLoading(false)
+    }
+  }
+
+  const applyExtractedReplace = () => {
+    if (!extractedLines) return
+    persist({ ...profile, trlProfile: extractedLines })
+    setExtractedLines(null)
+  }
+  const applyExtractedAppend = () => {
+    if (!extractedLines) return
+    persist({ ...profile, trlProfile: [...(profile.trlProfile || []), ...extractedLines] })
+    setExtractedLines(null)
+  }
+
+  const hasUsableContext = !!(context?.technologyInnovation || context?.rdiRoadmap)
+
   const removeTRLLine = (id: string) => {
     persist({ ...profile, trlProfile: (profile.trlProfile || []).filter(l => l.id !== id) })
   }
@@ -570,10 +629,48 @@ const FundingProfilePage = () => {
               Add each separately so the AI matches calls to the right TRL band per line.
             </p>
           </div>
-          <button type="button" className="btn-secondary btn-secondary--sm" onClick={addTRLLine}>
-            <Plus size={14} /> Add technology line
-          </button>
+          <div className="fp-trl-actions">
+            <button
+              type="button"
+              className="btn-secondary btn-secondary--sm btn-secondary--ai"
+              onClick={handleExtractFromContext}
+              disabled={extractLoading || !hasUsableContext}
+              title={hasUsableContext
+                ? 'Extraer líneas tecnológicas, TRL y roadmap I+D del contexto del cliente'
+                : 'Rellena primero technologyInnovation y/o rdiRoadmap en el contexto del cliente'}
+            >
+              {extractLoading ? (
+                <><Loader2 size={14} className="fp-spin" /> Extrayendo…</>
+              ) : (
+                <><Wand2 size={14} /> Auto-extraer del contexto</>
+              )}
+            </button>
+            <button type="button" className="btn-secondary btn-secondary--sm" onClick={addTRLLine}>
+              <Plus size={14} /> Add technology line
+            </button>
+          </div>
         </div>
+
+        {extractError && (
+          <div className="fp-extract-error">
+            <AlertCircle size={14} /> {extractError}
+            <button type="button" onClick={() => setExtractError(null)} aria-label="Dismiss">
+              <X size={12} />
+            </button>
+          </div>
+        )}
+
+        {!hasUsableContext && (
+          <div className="fp-extract-hint">
+            <AlertCircle size={14} />
+            <span>
+              <strong>Tip:</strong> el botón <em>Auto-extraer del contexto</em> está disponible cuando el
+              cliente tiene relleno <code>technologyInnovation</code> o <code>rdiRoadmap</code> en su contexto.
+              Te ahorra escribir manualmente las líneas tecnológicas, TRLs y roadmap I+D — los extrae estructurados
+              desde lo que ya describiste del cliente.
+            </span>
+          </div>
+        )}
 
         {(profile.trlProfile || []).length === 0 ? (
           <div className="fp-empty">
@@ -839,6 +936,69 @@ const FundingProfilePage = () => {
           <Sparkles size={16} /> Generate Roadmap
         </button>
       </section>
+
+      {/* ============== MODAL REVISIÓN líneas extraídas ============== */}
+      {extractedLines && (
+        <div className="fp-extract-overlay" onClick={() => setExtractedLines(null)}>
+          <div className="fp-extract-modal" onClick={e => e.stopPropagation()}>
+            <header className="fp-extract-modal-header">
+              <div>
+                <h3>
+                  <Wand2 size={18} /> {extractedLines.length} líneas tecnológicas detectadas
+                </h3>
+                <p className="muted">
+                  El agente leyó <code>technologyInnovation</code>, <code>businessModel</code> y
+                  <code>rdiRoadmap</code> del contexto y propone estas líneas con TRL inicial,
+                  target y roadmap de hitos. Revísalas antes de aplicar.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="fp-extract-close"
+                onClick={() => setExtractedLines(null)}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </header>
+
+            <div className="fp-extract-modal-body">
+              {extractedLines.map((line, i) => (
+                <article key={line.id} className="fp-extract-line">
+                  <header>
+                    <span className="fp-extract-line-num">#{i + 1}</span>
+                    <h4>{line.technology}</h4>
+                    <span className="fp-extract-trl-badge">
+                      TRL {line.currentTRL} → TRL {line.targetTRL}
+                    </span>
+                  </header>
+                  {line.rdRoadmap && (
+                    <p className="fp-extract-roadmap">
+                      <strong>Roadmap I+D:</strong> {line.rdRoadmap}
+                    </p>
+                  )}
+                </article>
+              ))}
+            </div>
+
+            <footer className="fp-extract-modal-footer">
+              <button type="button" className="btn-secondary" onClick={() => setExtractedLines(null)}>
+                Cancelar
+              </button>
+              {(profile.trlProfile || []).length > 0 && (
+                <button type="button" className="btn-secondary" onClick={applyExtractedAppend}>
+                  Añadir a las {(profile.trlProfile || []).length} existentes
+                </button>
+              )}
+              <button type="button" className="btn-primary" onClick={applyExtractedReplace}>
+                {(profile.trlProfile || []).length > 0
+                  ? `Reemplazar (perder ${(profile.trlProfile || []).length} actuales)`
+                  : 'Aplicar todas'}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
