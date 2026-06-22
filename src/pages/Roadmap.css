@@ -278,6 +278,25 @@
   gap: var(--space-2);
   flex-wrap: wrap;
 }
+.rm-compare-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-brand-300);
+  color: var(--color-brand-700);
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  transition: all var(--transition-fast);
+}
+.rm-compare-btn:hover {
+  background: var(--color-brand-50);
+  border-color: var(--color-brand-500);
+}
 .rm-history-label {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);

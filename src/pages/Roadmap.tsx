@@ -15,10 +15,12 @@ import {
   Search,
   FileDown,
   Download,
+  GitCompare,
 } from 'lucide-react'
 import './Page.css'
 import './Roadmap.css'
 import RoadmapTimeline, { type RoadmapTimelineHandle } from './RoadmapTimeline'
+import RoadmapDiff from './RoadmapDiff'
 import { generateRoadmapPpt, type PptCallDetail } from '../utils/roadmapPpt'
 
 /* ============================================================
@@ -272,6 +274,7 @@ const RoadmapPage = () => {
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
   const [view, setView] = useState<'timeline' | 'list'>('timeline')
   const [exportingPpt, setExportingPpt] = useState(false)
+  const [diffOpen, setDiffOpen] = useState(false)
   const timelineRef = useRef<RoadmapTimelineHandle | null>(null)
 
   const customerRoadmapsFromState = useMemo(
@@ -857,7 +860,26 @@ const RoadmapPage = () => {
               </button>
             </span>
           ))}
+          {customerRoadmapsFromState.length >= 2 && activeRoadmap && (
+            <button
+              type="button"
+              className="rm-compare-btn"
+              onClick={() => setDiffOpen(true)}
+              title="Comparar la versión activa con otra anterior"
+            >
+              <GitCompare size={13} /> Comparar versiones
+            </button>
+          )}
         </section>
+      )}
+
+      {/* ==================== MODAL COMPARE VERSIONS ==================== */}
+      {diffOpen && activeRoadmap && (
+        <RoadmapDiff
+          activeRoadmap={activeRoadmap}
+          allRoadmaps={customerRoadmapsFromState}
+          onClose={() => setDiffOpen(false)}
+        />
       )}
 
       {/* ==================== RESULT ==================== */}
