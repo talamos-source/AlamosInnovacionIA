@@ -1225,6 +1225,14 @@ For evergreen calls (cadence permanent or annual), recommendedMonth is an estima
 the consultant should start preparation — the actual deadline is flexible/annual.
 
 Apply ELIGIBILITY RULES strictly. If client has WON NEOTEC, NEVER recommend NEOTEC.
+
+⚠️ IDIOMA OBLIGATORIO — TODOS los campos de texto humano del JSON
+(executiveSummary, reasoning, applicationGuidance, risks) DEBEN estar
+escritos en ESPAÑOL (castellano), sin importar el idioma de las calls
+o del contexto. Los nombres oficiales de programas (CDTI PID, EIC
+Accelerator, etc.) NO se traducen. NO mezcles idiomas dentro de un
+mismo campo.
+
 Return ONLY the JSON object per the schema. No markdown fences, no surrounding text.
 
 ${pass2FullPrompt}`,
@@ -1232,8 +1240,8 @@ ${pass2FullPrompt}`,
       'deep-matcher',
     )
     const { text, inputTokens: deepInputTokens, outputTokens, stopReason } = deepResult
-    const inputTokens = screenerResult.inputTokens + deepInputTokens
-    const totalOutTokens = screenerResult.outputTokens + outputTokens
+    let inputTokens = screenerResult.inputTokens + deepInputTokens
+    let totalOutTokens = screenerResult.outputTokens + outputTokens
     console.log(`   ↳ ${outputTokens} out tokens, stop=${stopReason}, total in=${inputTokens}, out=${totalOutTokens}`)
     if (stopReason && stopReason !== 'end_turn') {
       console.warn(`⚠️ Deep matcher stopped unexpectedly: ${stopReason}. Response may be truncated.`)
@@ -1254,6 +1262,15 @@ ${pass2FullPrompt}`,
         raw: text.slice(0, 1500),
       })
     }
+
+    const pass2Translation = await translateParsedJsonToSpanishIfNeeded(
+      parsed,
+      'generate-roadmap pass 2',
+      7000,
+    )
+    parsed = pass2Translation.parsed
+    inputTokens += pass2Translation.inputTokens
+    totalOutTokens += pass2Translation.outputTokens
 
     // ─────────────────────────────────────────────────────────
     // PASS 3: RE-SCORING — analiza cada recommendation individualmente para garantizar
@@ -1371,6 +1388,80 @@ ${pass2FullPrompt}`,
 })
 
 /* ============================================================
+   Spanish output guard — heuristic English detection + retry
+   ============================================================ */
+
+const ENGLISH_MARKERS_RE = /\b(the|this|that|with|for|from|which|should|would|could|client|company|funding|project|technology|innovation|research)\b/gi
+
+function looksEnglish(s: unknown): boolean {
+  if (typeof s !== 'string' || s.length < 30) return false
+  const matches = s.match(ENGLISH_MARKERS_RE) || []
+  return matches.length >= 3
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function countEnglishHumanFieldsInParsed(parsed: any): number {
+  let count = 0
+  if (looksEnglish(parsed?.executiveSummary)) count++
+  if (looksEnglish(parsed?.reasoning)) count++
+  if (looksEnglish(parsed?.applicationGuidance)) count++
+  if (looksEnglish(parsed?.risks)) count++
+  if (Array.isArray(parsed?.recommendations)) {
+    for (const rec of parsed.recommendations) {
+      if (looksEnglish(rec?.reasoning)) count++
+      if (looksEnglish(rec?.applicationGuidance)) count++
+      if (looksEnglish(rec?.risks)) count++
+    }
+  }
+  return count
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function translateParsedJsonToSpanishIfNeeded(
+  parsed: any,
+  label: string,
+  maxTokens = 1500,
+): Promise<{ parsed: any; inputTokens: number; outputTokens: number }> {
+  if (!anthropic) return { parsed, inputTokens: 0, outputTokens: 0 }
+
+  const fieldsEnglish = countEnglishHumanFieldsInParsed(parsed)
+  if (fieldsEnglish < 1) {
+    return { parsed, inputTokens: 0, outputTokens: 0 }
+  }
+
+  console.warn(`🌐 ${label}: detected English in ${fieldsEnglish} field(s). Retrying with forced translation…`)
+  const retryUserMsg = `El siguiente JSON tiene campos en inglés que DEBEN estar en español. Tradúcelos al castellano manteniendo el significado exacto. NO traduzcas nombres oficiales de programas (CDTI PID, EIC Accelerator, Horizon Europe, NEOTEC, etc.). NO cambies números, fechas, ni el callId. Devuelve SOLO el JSON traducido, mismo schema, sin markdown.
+
+JSON original:
+${JSON.stringify(parsed)}`
+
+  const retryStream = anthropic.messages.stream({
+    model: CLAUDE_MODEL_FAST,
+    max_tokens: maxTokens,
+    messages: [{ role: 'user', content: retryUserMsg }],
+  })
+  const retryFinal = await retryStream.finalMessage()
+  const retryBlock = retryFinal.content[0]
+  const retryText = retryBlock && retryBlock.type === 'text' ? retryBlock.text : ''
+  let retryJson = retryText.trim()
+  if (retryJson.startsWith('```')) {
+    retryJson = retryJson.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+  }
+  try {
+    const reparsed = JSON.parse(retryJson)
+    console.log(`🌐 ✓ ${label} retraducido (${retryFinal.usage?.output_tokens} out tokens)`)
+    return {
+      parsed: { ...parsed, ...reparsed },
+      inputTokens: retryFinal.usage?.input_tokens ?? 0,
+      outputTokens: retryFinal.usage?.output_tokens ?? 0,
+    }
+  } catch {
+    console.warn(`🌐 ✗ ${label} retry failed to parse JSON, keeping original`)
+    return { parsed, inputTokens: 0, outputTokens: 0 }
+  }
+}
+
+/* ============================================================
    POST /ai/analyze-call-fit
    Análisis del fit de UNA call específica para un cliente.
    Usado cuando el consultor añade una call manualmente al roadmap.
@@ -1478,6 +1569,13 @@ Return a JSON object EXACTLY matching this schema:
 Apply ELIGIBILITY RULES (NEOTEC ≤3y company; if already won, never recommend again; EIC Accelerator SME-only; etc.).
 TRL is subjective — never reject solely on TRL.
 For TRL-aware sequencing: if call is research-type (Pathfinder, Doctorados, AEI) and client's tech is low TRL → recommend earlier; if call is innovation/scale (Accelerator, Línea Directa) → later in horizon.
+
+⚠️ IDIOMA OBLIGATORIO — TODOS los campos de texto humano del JSON
+(reasoning, applicationGuidance, risks) DEBEN estar escritos en
+ESPAÑOL (castellano), sin importar el idioma de la call o del contexto.
+Los nombres oficiales de programas (CDTI PID, EIC Accelerator, etc.)
+NO se traducen. NO mezcles idiomas dentro de un mismo campo.
+
 Return ONLY the JSON, no markdown fences, no surrounding text.`
 
   const stream = anthropic.messages.stream({
@@ -1494,11 +1592,17 @@ Return ONLY the JSON, no markdown fences, no surrounding text.`
   if (jsonText.startsWith('```')) {
     jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
   }
-  return {
-    parsed: JSON.parse(jsonText),
-    inputTokens: finalMessage.usage?.input_tokens ?? 0,
-    outputTokens: finalMessage.usage?.output_tokens ?? 0,
-  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let parsed: any = JSON.parse(jsonText)
+  let inputTokens = finalMessage.usage?.input_tokens ?? 0
+  let outputTokens = finalMessage.usage?.output_tokens ?? 0
+
+  const translation = await translateParsedJsonToSpanishIfNeeded(parsed, 'analyze-call-fit', 1500)
+  parsed = translation.parsed
+  inputTokens += translation.inputTokens
+  outputTokens += translation.outputTokens
+
+  return { parsed, inputTokens, outputTokens }
 }
 
 app.post('/ai/analyze-call-fit', requireAuth, async (req, res) => {
