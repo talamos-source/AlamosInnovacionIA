@@ -178,11 +178,26 @@ export async function generateRoadmapPdf(args: GenerateRoadmapPdfArgs): Promise<
 
   const sorted = [...recommendations].sort((a, b) => b.fitScore - a.fitScore)
 
-  // Calcular total de páginas (estimado, ajustamos al final)
+  // Calcular total de páginas — pre-estimación, recalculamos en sección 5
   const ROWS_PER_TABLE = 14
   const SUMMARY_PAGES = Math.max(1, Math.ceil(sorted.length / ROWS_PER_TABLE))
-  // Para cards: aprox 2 por página
-  const CARD_PAGES = Math.ceil(sorted.length / 2)
+
+  // Pre-empaquetado para conocer cuántas páginas de cards habrá
+  const _isDense = (r: PdfRecommendation): boolean => {
+    const re = stripAgentTags(r.reasoning || '').length
+    const gu = stripAgentTags(r.applicationGuidance || '').length
+    const ri = stripAgentTags(r.risks || '').length
+    const ti = stripAgentTags(r.title || '').length
+    return re > 280 || gu > 220 || ri > 120 || ti > 110
+  }
+  let _pagesCount = 0
+  let _idx = 0
+  while (_idx < sorted.length) {
+    if (_isDense(sorted[_idx])) { _pagesCount++; _idx++ }
+    else if (_idx + 1 < sorted.length && !_isDense(sorted[_idx + 1])) { _pagesCount++; _idx += 2 }
+    else { _pagesCount++; _idx++ }
+  }
+  const CARD_PAGES = _pagesCount
   const totalPages = 1 /*cover*/ + 1 /*about*/ + (timelineImageDataUrl ? 1 : 0) + SUMMARY_PAGES + CARD_PAGES + 1 /*contact*/
   let page = 0
 
@@ -354,25 +369,51 @@ export async function generateRoadmapPdf(args: GenerateRoadmapPdfArgs): Promise<
   }
 
   /* ============================================================
-     5 · CARDS DETALLADAS — 2 por página, sin truncar
+     5 · CARDS DETALLADAS — empaquetado adaptativo
+     ============================================================
+     Algoritmo: si rec es "densa" (mucho contenido) → 1 sola por
+     página con cardH grande (~150mm). Si no → 2 por página con
+     cardH normal (75mm). Mismo concepto que el PPT.
      ============================================================ */
-  const cardH = 75    // alto de cada card en mm
-  const cardGap = 6
-  const cardsStartY = 32
-
-  for (let i = 0; i < sorted.length; i++) {
-    const slotIndex = i % 2
-    if (slotIndex === 0) {
-      page++
-      doc.addPage()
-      paintContentBackground(doc, branchWatermark, alamosLogo, page, totalPages)
-      setText(doc, COLOR.brand, 9, 'bold')
-      doc.text('DETALLE DE RECOMENDACIONES', MARGIN, 25)
+  const isDenseCard = (r: PdfRecommendation): boolean => {
+    const reasonChars = stripAgentTags(r.reasoning || '').length
+    const guidanceChars = stripAgentTags(r.applicationGuidance || '').length
+    const riskChars = stripAgentTags(r.risks || '').length
+    const titleChars = stripAgentTags(r.title || '').length
+    return reasonChars > 280 || guidanceChars > 220 || riskChars > 120 || titleChars > 110
+  }
+  type CardGroup = { recs: PdfRecommendation[]; mode: 'big' | 'normal' }
+  const groups: CardGroup[] = []
+  let i = 0
+  while (i < sorted.length) {
+    const r1 = sorted[i]
+    if (isDenseCard(r1)) {
+      groups.push({ recs: [r1], mode: 'big' })
+      i += 1
+    } else if (i + 1 < sorted.length && !isDenseCard(sorted[i + 1])) {
+      groups.push({ recs: [r1, sorted[i + 1]], mode: 'normal' })
+      i += 2
+    } else {
+      groups.push({ recs: [r1], mode: 'normal' })
+      i += 1
     }
+  }
 
-    const rec = sorted[i]
-    const cy = cardsStartY + slotIndex * (cardH + cardGap)
-    paintCard(doc, rec, cy, cardH, callDetails)
+  const cardsStartY = 32
+  const cardGap = 6
+
+  for (const group of groups) {
+    page++
+    doc.addPage()
+    paintContentBackground(doc, branchWatermark, alamosLogo, page, totalPages)
+    setText(doc, COLOR.brand, 9, 'bold')
+    doc.text('DETALLE DE RECOMENDACIONES', MARGIN, 25)
+
+    const cardH = group.mode === 'big' ? 150 : 75
+    group.recs.forEach((rec, idx) => {
+      const cy = cardsStartY + idx * (cardH + cardGap)
+      paintCard(doc, rec, cy, cardH, callDetails, group.mode === 'big')
+    })
   }
 
   /* ============================================================
@@ -423,12 +464,28 @@ export async function generateRoadmapPdf(args: GenerateRoadmapPdfArgs): Promise<
    paintCard: una recomendación individual en la página detallada
    ============================================================ */
 
+/**
+ * Trunca un array de líneas a maxLines, añadiendo elipsis a la última
+ * si hubo recorte. Garantiza que el output nunca exceda maxLines.
+ */
+function truncateLines(lines: string[], maxLines: number): string[] {
+  if (lines.length <= maxLines) return lines
+  const out = lines.slice(0, maxLines)
+  // Añade … al final de la última línea (recorta 1-2 chars si hace falta)
+  const last = out[out.length - 1] || ''
+  out[out.length - 1] = last.length > 3
+    ? last.slice(0, Math.max(0, last.length - 2)) + '…'
+    : '…'
+  return out
+}
+
 function paintCard(
   doc: jsPDF,
   rec: PdfRecommendation,
   cy: number,
   cardH: number,
   callDetails: Record<string, PdfCallDetail>,
+  isBig = false,
 ) {
   const cardW = CONTENT_W
   const cardX = MARGIN
@@ -451,7 +508,7 @@ function paintCard(
   setText(doc, COLOR.white, 12, 'bold')
   doc.text(`${rec.priorityOrder}`, badgeX, badgeY + 1.5, { align: 'center' })
 
-  // Fit chip a la derecha (rectángulo redondeado)
+  // Fit chip a la derecha
   const fitColor = rec.fitScore >= 80 ? COLOR.success : rec.fitScore >= 60 ? COLOR.brand : COLOR.warning
   const fitChipW = 22
   const fitChipH = 8
@@ -462,13 +519,12 @@ function paintCard(
   setText(doc, COLOR.white, 9, 'bold')
   doc.text(`Fit ${rec.fitScore}`, fitChipX + fitChipW / 2, fitChipY + 5.5, { align: 'center' })
 
-  // Title (entre badge y fit chip)
+  // Title (entre badge y fit chip) — máx 2 líneas con truncado
   const titleX = cardX + 18
   const titleW = fitChipX - titleX - 3
   setText(doc, COLOR.ink, 11, 'bold')
-  const titleLines = wrapLines(doc, stripAgentTags(rec.title), titleW)
-  // Solo 2 líneas como máximo
-  doc.text(titleLines.slice(0, 2), titleX, cy + 7)
+  const titleLines = truncateLines(wrapLines(doc, stripAgentTags(rec.title), titleW), 2)
+  doc.text(titleLines, titleX, cy + 7)
 
   // Meta line
   const detail = callDetails[rec.callId]
@@ -480,12 +536,12 @@ function paintCard(
     rec.estimatedFundingRange && rec.estimatedFundingRange !== '—' ? rec.estimatedFundingRange : null,
   ].filter(Boolean).join('  ·  ')
   setText(doc, COLOR.muted, 8.5)
-  doc.text(metaParts, titleX, cy + 19)
+  // Truncar meta a 1 línea
+  const metaLines = truncateLines(wrapLines(doc, metaParts, cardW - 22), 1)
+  doc.text(metaLines, titleX, cy + 19)
 
-  // TRL bar si hay
+  // TRL bar
   if (rec.expectedStartTRL || rec.expectedEndTRL) {
-    // Nota: usamos '>' en vez de '→' porque la fuente Helvetica de jsPDF
-    // no incluye glifos Unicode complejos.
     const trlText = `TRL ${rec.expectedStartTRL ?? '?'}  >  TRL ${rec.expectedEndTRL ?? '?'}`
     doc.setFillColor(...COLOR.brand50)
     doc.setDrawColor(...COLOR.brand)
@@ -500,34 +556,66 @@ function paintCard(
   doc.setLineWidth(0.2)
   doc.line(titleX, cy + 31, cardX + cardW - 4, cy + 31)
 
-  // Reasoning
-  setText(doc, COLOR.text, 9)
-  const reasoningLines = wrapLines(doc, stripAgentTags(rec.reasoning), cardW - 22)
-  doc.text(reasoningLines.slice(0, 4), titleX, cy + 36)
+  /* ─── Budgets verticales por modo ─── */
+  // BIG card (cardH=150mm):
+  //   reasoning desde y=36 hasta y=80 (44mm = ~12 líneas a 3.5mm)
+  //   guidance desde y=85 hasta y=130 (45mm = ~12 líneas)
+  //   risk desde y=135 hasta y=145 (10mm = ~3 líneas)
+  // NORMAL card (cardH=75mm):
+  //   reasoning desde y=36 hasta y=51 (15mm = ~4 líneas)
+  //   guidance desde y=53 hasta y=67 (14mm con header 4mm + texto ~3 líneas)
+  //   risk en y=71 (1 línea)
+  const reasoningY = cy + 36
+  const reasoningMaxLines = isBig ? 12 : 4
+  const reasoningFontSize = isBig ? 10 : 9
+  const reasoningLineH = isBig ? 4 : 3.5
 
-  // Bloque "Cómo orientar" — destacado morado claro
+  setText(doc, COLOR.text, reasoningFontSize)
+  const reasoningWrapped = wrapLines(doc, stripAgentTags(rec.reasoning), cardW - 22)
+  const reasoningLines = truncateLines(reasoningWrapped, reasoningMaxLines)
+  doc.text(reasoningLines, titleX, reasoningY, { lineHeightFactor: 1.3 })
+
+  // Guidance — posición depende del modo
   const guidance = rec.applicationGuidance && rec.applicationGuidance.trim()
     ? stripAgentTags(rec.applicationGuidance) : ''
+
+  // Calculamos dinámicamente dónde empieza el guidance basado en cuánto
+  // ocupó el reasoning realmente
+  const reasoningUsedH = reasoningLines.length * reasoningLineH + 2
+  const guidanceY = isBig
+    ? reasoningY + reasoningUsedH + 6   // gap 6mm en big
+    : cy + 52                            // posición fija en normal
+
   if (guidance) {
-    const gY = cy + 52
-    const gH = 18
+    const guidanceH = isBig ? Math.min(45, cardH - (guidanceY - cy) - 16) : 18
+    const guidanceTextLineH = isBig ? 4 : 3.5
+    const guidanceFontSize = isBig ? 10 : 9
+    // Líneas que caben SEGURO dentro del rectángulo (descontando label arriba)
+    const guidanceTextH = guidanceH - (isBig ? 8 : 5)
+    const guidanceMaxLines = Math.max(1, Math.floor(guidanceTextH / guidanceTextLineH))
+
     doc.setFillColor(...COLOR.brand50)
-    doc.rect(titleX, gY, cardW - 22, gH, 'F')
+    doc.rect(titleX, guidanceY, cardW - 22, guidanceH, 'F')
     doc.setFillColor(...COLOR.brand)
-    doc.rect(titleX, gY, 1, gH, 'F')
+    doc.rect(titleX, guidanceY, 1, guidanceH, 'F')
+
     setText(doc, COLOR.brand, 7, 'bold')
-    doc.text('CÓMO ORIENTAR LA SOLICITUD', titleX + 3, gY + 4)
-    setText(doc, COLOR.text, 9, 'italic')
-    const guidanceLines = wrapLines(doc, guidance, cardW - 25)
-    doc.text(guidanceLines.slice(0, 3), titleX + 3, gY + 9)
+    doc.text('CÓMO ORIENTAR LA SOLICITUD', titleX + 3, guidanceY + 4)
+
+    setText(doc, COLOR.text, guidanceFontSize, 'italic')
+    const guidanceLines = truncateLines(wrapLines(doc, guidance, cardW - 25), guidanceMaxLines)
+    doc.text(guidanceLines, titleX + 3, guidanceY + (isBig ? 9 : 8), { lineHeightFactor: 1.25 })
   }
 
-  // Risk al pie
+  // Risk al pie — dentro del cardBottom estricto
   if (rec.risks && rec.risks !== '—' && rec.risks.trim()) {
-    // '[!]' sustituye al ⚠ (helvetica jsPDF no tiene el glifo)
-    setText(doc, COLOR.warning, 8, 'italic')
-    const riskText = `[!]  ${stripAgentTags(rec.risks)}`
-    const riskLines = wrapLines(doc, riskText, cardW - 22)
-    doc.text(riskLines.slice(0, 1), titleX, cy + 72)
+    const riskY = isBig
+      ? cy + cardH - 8     // 8mm desde el bottom de la card
+      : cy + cardH - 4
+    const riskMaxLines = isBig ? 2 : 1
+    setText(doc, COLOR.warning, isBig ? 9 : 8, 'italic')
+    const riskWrapped = wrapLines(doc, `[!]  ${stripAgentTags(rec.risks)}`, cardW - 22)
+    const riskLines = truncateLines(riskWrapped, riskMaxLines)
+    doc.text(riskLines, titleX, riskY)
   }
 }
