@@ -96,13 +96,19 @@ interface CustomerRow {
   description?: string
 }
 
-interface ContextField { value: string; suggested?: boolean }
+/**
+ * Contexto del cliente normalizado a strings.
+ *
+ * El storage original guarda cada campo como { value, suggested } pero
+ * loadContextForCustomer extrae el .value y devuelve strings planos,
+ * que es lo que necesita el agente y los checks de UI.
+ */
 interface CustomerContextData {
-  businessModel?: ContextField
-  companyOverview?: ContextField
-  technologyInnovation?: ContextField
-  currentTRL?: ContextField
-  rdiRoadmap?: ContextField
+  businessModel?: string
+  companyOverview?: string
+  technologyInnovation?: string
+  currentTRL?: string
+  rdiRoadmap?: string
 }
 
 interface ProjectRow {
@@ -163,11 +169,32 @@ const loadCustomer = (id: string): CustomerRow | null => {
   }
 }
 
+/**
+ * Carga el contexto del cliente.
+ *
+ * Está guardado DENTRO del customer (customers[i].context) — no en una clave
+ * aparte como podría sugerir el nombre. Además cada campo es un objeto
+ * { value: string, suggested?: boolean } — aquí lo normalizamos a strings
+ * para que el agente y los checks de hasUsableContext funcionen bien.
+ */
 const loadContextForCustomer = (id: string): CustomerContextData | null => {
   try {
-    const raw = localStorage.getItem(`customer-context-${id}`)
+    const raw = localStorage.getItem('customers')
     if (!raw) return null
-    return JSON.parse(raw) as CustomerContextData
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const list = JSON.parse(raw) as Array<{ id: string; context?: Record<string, any> }>
+    const cust = list.find(c => c.id === id)
+    if (!cust?.context) return null
+    // Cada campo del contexto está como { value, suggested? } — extraemos .value
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(cust.context)) {
+      if (typeof v === 'string') {
+        out[k] = v
+      } else if (v && typeof v === 'object' && typeof v.value === 'string') {
+        out[k] = v.value
+      }
+    }
+    return out as CustomerContextData
   } catch {
     return null
   }
@@ -510,10 +537,10 @@ const FundingProfilePage = () => {
     )
   }
 
-  const currentTRLValue = context?.currentTRL?.value || '—'
-  const rdiRoadmapText = context?.rdiRoadmap?.value || ''
-  const technologyText = context?.technologyInnovation?.value || ''
-  const businessModelText = context?.businessModel?.value || ''
+  const currentTRLValue = context?.currentTRL || '—'
+  const rdiRoadmapText = context?.rdiRoadmap || ''
+  const technologyText = context?.technologyInnovation || ''
+  const businessModelText = context?.businessModel || ''
 
   return (
     <div className="page page--funding-profile">

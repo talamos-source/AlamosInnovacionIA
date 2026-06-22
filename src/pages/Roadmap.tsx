@@ -74,13 +74,17 @@ interface CustomerRow {
   incorporationDate?: string
 }
 
-interface ContextField { value: string; suggested?: boolean }
+/**
+ * Contexto del cliente normalizado a strings planos por loadContextForCustomer.
+ * El storage original guarda cada campo como { value, suggested } pero el
+ * loader extrae el .value y devuelve esto.
+ */
 interface CustomerContextData {
-  businessModel?: ContextField
-  companyOverview?: ContextField
-  technologyInnovation?: ContextField
-  currentTRL?: ContextField
-  rdiRoadmap?: ContextField
+  businessModel?: string
+  companyOverview?: string
+  technologyInnovation?: string
+  currentTRL?: string
+  rdiRoadmap?: string
 }
 
 interface FundingProfileLoaded {
@@ -154,11 +158,28 @@ const loadCustomer = (id: string): CustomerRow | null => {
   } catch { return null }
 }
 
+/**
+ * Carga el contexto del cliente.
+ *
+ * BUG FIX: el contexto se guarda DENTRO del customer (customers[i].context),
+ * no en una key separada. Además cada campo del shape original es
+ * { value: string, suggested?: boolean }; aquí lo normalizamos a strings
+ * planos para enviarlo al agente.
+ */
 const loadContextForCustomer = (id: string): CustomerContextData | null => {
   try {
-    const raw = localStorage.getItem(`customer-context-${id}`)
+    const raw = localStorage.getItem('customers')
     if (!raw) return null
-    return JSON.parse(raw) as CustomerContextData
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const list = JSON.parse(raw) as Array<{ id: string; context?: Record<string, any> }>
+    const cust = list.find(c => c.id === id)
+    if (!cust?.context) return null
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(cust.context)) {
+      if (typeof v === 'string') out[k] = v
+      else if (v && typeof v === 'object' && typeof v.value === 'string') out[k] = v.value
+    }
+    return out as CustomerContextData
   } catch { return null }
 }
 
@@ -179,14 +200,18 @@ const loadDiscoveryCalls = (): DiscoveryCall[] => {
   } catch { return [] }
 }
 
-// Convierte el context AI a un objeto simple { key: stringValue }
+/**
+ * Devuelve el contexto como object plano para enviar al backend.
+ * Ahora es prácticamente identity porque loadContextForCustomer ya normalizó.
+ * Mantenida la función por compat con call-sites existentes y por filtrar undefined.
+ */
 const flattenContext = (ctx: CustomerContextData | null): Record<string, string> | undefined => {
   if (!ctx) return undefined
   const out: Record<string, string> = {}
-  Object.entries(ctx).forEach(([k, v]) => {
-    if (v && typeof v === 'object' && 'value' in v && v.value) out[k] = v.value
-  })
-  return out
+  for (const [k, v] of Object.entries(ctx)) {
+    if (typeof v === 'string' && v.trim()) out[k] = v
+  }
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 const formatRecommendedMonth = (m: string): string => {
