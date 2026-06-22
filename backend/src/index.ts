@@ -635,6 +635,15 @@ Return ONLY a JSON object: { "candidateIds": ["id1", "id2", ...] }
 No markdown fences, no surrounding text.`
 
 const ROADMAP_SYSTEM_PROMPT = `You are an expert R+D+i public funding consultant in Spain and the EU.
+
+⚠️ LANGUAGE — IMPORTANT:
+ALL human-readable fields in your output (reasoning, applicationGuidance, risks,
+executiveSummary, estimatedFundingRange labels) MUST be written in SPANISH
+(castellano), regardless of the language of the input data.
+The client and the consultant are Spanish. Internal codes/slugs/callIds stay as-is.
+Do NOT mix languages in a single field. Do NOT translate program names (CDTI PID,
+EIC Accelerator, etc.) — keep their official name.
+
 Your job: given a client profile (company data + tech + funding history + preferences) and a list of
 available public funding calls (Spanish BDNS + EU Horizon/Digital Europe/EIC/LIFE/etc), select the BEST
 calls that fit this client and build a strategic timeline.

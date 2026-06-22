@@ -414,6 +414,10 @@ const RoadmapPage = () => {
       recommendedMonth: string
       estimatedFundingRange: string
       risks: string
+      applicationGuidance?: string
+      expectedStartTRL?: number
+      expectedEndTRL?: number
+      techLineId?: string | null
       eligibilityFlag?: 'OK' | 'WARNING' | 'BLOCKED'
     }
     let fit: FitResult | null = null
@@ -477,11 +481,18 @@ const RoadmapPage = () => {
       title: call.title,
       source: call.source,
       fitScore: fit?.fitScore ?? 50,
-      reasoning: fit?.reasoning || 'Manually added by consultant. AI fit analysis unavailable.',
+      reasoning: fit?.reasoning || 'Añadida manualmente por el consultor. Análisis IA no disponible.',
       recommendedMonth: fit?.recommendedMonth || fallbackMonth,
       estimatedFundingRange: fit?.estimatedFundingRange || call.budget || '—',
       risks: fit?.risks || '—',
       priorityOrder: nextOrder,
+      // ✅ Propagar los campos nuevos del fit al recommendation para que se rendericen
+      //    el TRL bar y el bloque "Cómo orientar la solicitud" igual que en las recs
+      //    generadas por el agente del roadmap completo.
+      applicationGuidance: fit?.applicationGuidance,
+      expectedStartTRL: fit?.expectedStartTRL,
+      expectedEndTRL: fit?.expectedEndTRL,
+      techLineId: fit?.techLineId,
     }
 
     if (fit?.eligibilityFlag === 'BLOCKED') {
