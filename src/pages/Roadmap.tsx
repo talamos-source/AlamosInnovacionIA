@@ -22,6 +22,7 @@ import './Roadmap.css'
 import RoadmapTimeline, { type RoadmapTimelineHandle } from './RoadmapTimeline'
 import RoadmapDiff from './RoadmapDiff'
 import { generateRoadmapPpt, type PptCallDetail } from '../utils/roadmapPpt'
+import { generateRoadmapPdf, type PdfCallDetail } from '../utils/roadmapPdf'
 
 /* ============================================================
    Tipos
@@ -274,6 +275,7 @@ const RoadmapPage = () => {
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
   const [view, setView] = useState<'timeline' | 'list'>('timeline')
   const [exportingPpt, setExportingPpt] = useState(false)
+  const [exportingPdf, setExportingPdf] = useState(false)
   const [diffOpen, setDiffOpen] = useState(false)
   const timelineRef = useRef<RoadmapTimelineHandle | null>(null)
 
@@ -352,6 +354,56 @@ const RoadmapPage = () => {
       alert('No se pudo generar el PPT. Revisa la consola para detalles.')
     } finally {
       setExportingPpt(false)
+      if (view !== previousView) setView(previousView)
+    }
+  }
+
+  /**
+   * Export del roadmap activo a PDF (A4 landscape) con la misma identidad
+   * visual que el PPT. Alternativa más ligera para email / propuestas.
+   */
+  const handleExportPdf = async () => {
+    if (!activeRoadmap || !customer) return
+    setExportingPdf(true)
+    const previousView = view
+    try {
+      if (view !== 'timeline') {
+        setView('timeline')
+        await new Promise(r => setTimeout(r, 250))
+      }
+      let timelinePng: string | undefined
+      try {
+        timelinePng = await timelineRef.current?.getTimelinePngDataUrl()
+      } catch (err) {
+        console.warn('Timeline PNG capture failed, generating PDF without timeline image:', err)
+      }
+      const callDetails: Record<string, PdfCallDetail> = {}
+      idiCalls.forEach(c => {
+        callDetails[c.externalId] = {
+          externalId: c.externalId,
+          url: c.url,
+          program: c.program,
+          region: c.region,
+          closeDate: c.closeDate,
+        }
+      })
+      const logo = (customer as unknown as { logoBase64?: string }).logoBase64
+      const sector = (customer as unknown as { category?: string }).category
+
+      await generateRoadmapPdf({
+        customerName: customer.name,
+        customerLogoBase64: logo,
+        customerSector: sector,
+        timeline: activeRoadmap.timeline,
+        recommendations: activeRoadmap.result.recommendations,
+        timelineImageDataUrl: timelinePng,
+        callDetails,
+      })
+    } catch (err) {
+      console.error('PDF export failed:', err)
+      alert('No se pudo generar el PDF. Revisa la consola para detalles.')
+    } finally {
+      setExportingPdf(false)
       if (view !== previousView) setView(previousView)
     }
   }
@@ -944,10 +996,23 @@ const RoadmapPage = () => {
               </button>
               <button
                 type="button"
+                className="rm-export-pdf-btn"
+                onClick={handleExportPdf}
+                disabled={exportingPdf}
+                title="Exportar a PDF A4 — más ligero, ideal para email"
+              >
+                {exportingPdf ? (
+                  <><Loader2 size={15} className="rm-spin" /> Generating PDF…</>
+                ) : (
+                  <><FileDown size={15} /> Export PDF</>
+                )}
+              </button>
+              <button
+                type="button"
                 className="rm-export-ppt-btn"
                 onClick={handleExportPpt}
                 disabled={exportingPpt}
-                title="Export to PowerPoint with Álamos branding"
+                title="Exportar a PowerPoint con branding Álamos completo"
               >
                 {exportingPpt ? (
                   <><Loader2 size={15} className="rm-spin" /> Generating PPT…</>
