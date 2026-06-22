@@ -1453,6 +1453,42 @@ app.post('/ai/analyze-call-fit', requireAuth, async (req, res) => {
 })
 
 /* ============================================================
+   GET /ai/fichas
+   Catálogo público de programas que el agente reconoce con detalle.
+   Solo devuelve metadatos (frontmatter), no el contenido completo
+   de cada ficha (eso queda como contexto interno del agente).
+   ============================================================ */
+app.get('/ai/fichas', requireAuth, (_req, res) => {
+  const fichas = getFichasIndex()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mapped = fichas.map((f: any) => ({
+    slug: f.slug,
+    organisms: f.frontmatter?.organisms || [],
+    aliases: f.frontmatter?.aliases || [],
+    aliasCount: (f.frontmatter?.aliases || []).length,
+    aidType: f.frontmatter?.aid_type ?? f.frontmatter?.aid_type_internacional ?? null,
+    regime: f.frontmatter?.regime ?? null,
+    aidObject: f.frontmatter?.aid_object ?? null,
+    sectorBound: f.frontmatter?.sector_bound ?? null,
+    targetCompany: f.frontmatter?.target_company ?? null,
+    collaborationRequired: f.frontmatter?.collaboration_required ?? false,
+    internationalRequired: f.frontmatter?.international_required ?? false,
+    convocatoriaTipo: f.frontmatter?.convocatoria_tipo ?? null,
+    lastUpdated: f.frontmatter?.last_updated ?? f.frontmatter?.fiche_review_date ?? null,
+    similarAlternatives: f.frontmatter?.similar_alternatives ?? [],
+    exclusiveWith: f.frontmatter?.exclusive_with ?? [],
+    sourceUrls: f.frontmatter?.source_urls ?? {},
+  }))
+  // Total aliases para stats
+  const totalAliases = mapped.reduce((sum, f) => sum + f.aliasCount, 0)
+  res.json({
+    count: mapped.length,
+    totalAliases,
+    fichas: mapped.sort((a, b) => a.slug.localeCompare(b.slug)),
+  })
+})
+
+/* ============================================================
    DISCOVERY — Sync de calls desde EU Funding Portal y BDNS
    ============================================================ */
 
