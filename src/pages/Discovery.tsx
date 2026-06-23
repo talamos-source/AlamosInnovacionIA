@@ -448,7 +448,28 @@ const Discovery = () => {
       )
     }
 
-    return filtered
+    // Orden por deadline ascendente (más próximo primero). Calls sin
+    // closeDate o con fecha inválida quedan al final. Tras ese criterio,
+    // desempate por discoveredAt descendente (más recientes primero).
+    const sorted = [...filtered].sort((a, b) => {
+      const ta = a.closeDate ? new Date(a.closeDate).getTime() : NaN
+      const tb = b.closeDate ? new Date(b.closeDate).getTime() : NaN
+      const aValid = !Number.isNaN(ta)
+      const bValid = !Number.isNaN(tb)
+      if (aValid && bValid) {
+        if (ta !== tb) return ta - tb
+      } else if (aValid) {
+        return -1
+      } else if (bValid) {
+        return 1
+      }
+      // Desempate
+      const da = a.discoveredAt ? new Date(a.discoveredAt).getTime() : 0
+      const db = b.discoveredAt ? new Date(b.discoveredAt).getTime() : 0
+      return db - da
+    })
+
+    return sorted
   }, [calls, view, actionableOnly, sourceFilter, programFilter, typeOfActionFilter, regionFilter, deadlineYearFilter, search])
 
   const totalCount = filteredCalls.length
