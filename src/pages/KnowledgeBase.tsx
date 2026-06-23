@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import './Page.css'
 import './KnowledgeBase.css'
+import { mapFichaToCall } from '../utils/callMapping'
 
 /* ============================================================
    Tipos espejados del backend (/ai/fichas)
@@ -174,27 +175,24 @@ const KnowledgeBase = () => {
       return
     }
 
-    // Detectar scope por organismo principal
-    const orgLower = activeFicha.organisms.join(' ').toLowerCase()
-    const scope = /comisión europea|european|eic|cinea|eacea|eit|eureka/.test(orgLower)
-      ? 'European'
-      : 'National'
-
-    const name = importForm.customName.trim() || humanizeSlug(activeFicha.slug)
-    const newCall = {
-      id: `kb-${activeFicha.slug}-${importForm.year}-${Date.now()}`,
-      name,
-      scope,
-      deadline: importForm.deadline,
-      budget: importForm.budget || '',
-      status: importForm.status,
-      fundingBody: activeFicha.organisms[0] || '',
-      program: humanizeSlug(activeFicha.slug),
+    // Usa el helper compartido (mismo enriquecimiento que el modal de /calls):
+    // — sourceUrl desde ficha.sourceUrls (pagina/boe/programa…)
+    // — scope (International si lo requiere, sino EU/Regional/National)
+    // — eligibleCompanySizes desde target_company
+    // — additionalRequirements en bullets (sectorial, consorcio, alternativas…)
+    // — internalNotes con metadata
+    // — fechas en formato dd/mm/yyyy que el form de /calls espera
+    const mapped = mapFichaToCall(activeFicha, {
+      customName: importForm.customName,
       year: importForm.year,
       openDate: importForm.openDate,
-      aidType: humanizeAidType(activeFicha.aidType),
-      sourceUrl: '',
-      eligibleRegion: [],
+      deadline: importForm.deadline,
+      budget: importForm.budget,
+      status: importForm.status,
+    })
+    const newCall = {
+      ...mapped,
+      id: `kb-${activeFicha.slug}-${importForm.year}-${Date.now()}`,
       knowledgeBaseSlug: activeFicha.slug,
     }
 

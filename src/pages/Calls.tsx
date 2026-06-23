@@ -8,6 +8,7 @@ import ActionsMenu from '../components/ActionsMenu'
 import Modal from '../components/Modal'
 import CallFichaModal, { CallFichaInput } from '../components/CallFichaModal'
 import { formatCurrency } from '../utils/formatCurrency'
+import { mapDiscoveryToCall, mapFichaToCall } from '../utils/callMapping'
 import './Page.css'
 import './SharedTableLayout.css'
 import './CallsImport.css'
@@ -1176,31 +1177,10 @@ const ImportFromDiscovery = ({
     const toImport: Call[] = discoveryCalls
       .filter(c => selected.has(c.externalId))
       .map(c => {
-        // URL — fallback robusto: prueba url, sourceUrl (datos viejos), o construye
-        // BDNS desde externalId si está vacía.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const cAny = c as any
-        let sourceUrl: string = cAny.url || cAny.sourceUrl || ''
-        if (!sourceUrl && c.source === 'BDNS' && c.externalId) {
-          sourceUrl = `https://www.pap.hacienda.gob.es/bdnstrans/GE/es/convocatoria/${c.externalId}`
-        }
-
+        const mapped = mapDiscoveryToCall(c)
         return {
+          ...mapped,
           id: `disc-${c.externalId}-${Date.now()}`,
-          name: c.title || '(sin título)',
-          scope: c.source === 'EU_PORTAL' ? 'European' : 'National',
-          deadline: c.closeDate ? c.closeDate.split('T')[0] : '',
-          budget: c.budget || '',
-          status: 'Open',
-          fundingBody: c.fundingBody || (c.source === 'EU_PORTAL' ? 'EU Commission' : ''),
-          program: c.program || '',
-          year: c.closeDate ? c.closeDate.slice(0, 4) : new Date().getFullYear().toString(),
-          openDate: c.openDate ? c.openDate.split('T')[0] : '',
-          aidType: c.typeOfAction || '',
-          sourceUrl,
-          eligibleRegion: c.region ? [c.region] : [],
-          additionalRequirements: c.description ? c.description.slice(0, 500) : '',
-          // Anclas para detectar duplicados en futuros imports
           discoveryExternalId: c.externalId,
         } as Call
       })
@@ -1311,8 +1291,16 @@ interface FichaMeta {
   organisms: string[]
   aliases: string[]
   aidType: string | null
+  aidObject?: string | null
+  regime?: string | null
   sectorBound: string | null
+  targetCompany?: string | null
+  collaborationRequired?: boolean
   internationalRequired: boolean
+  convocatoriaTipo?: string | null
+  similarAlternatives?: string[]
+  exclusiveWith?: string[]
+  sourceUrls?: Record<string, string>
 }
 
 const ImportFromKnowledgeBase = ({
@@ -1389,23 +1377,19 @@ const ImportFromKnowledgeBase = ({
       setFormError('La fecha de cierre (deadline) es obligatoria. Si la call es de ventanilla abierta, indica una fecha estimada.')
       return
     }
-    const name = form.customName.trim() || humanizeSlug(selected.slug)
-    const newCall: Call = {
-      id: `kb-${selected.slug}-${form.year}-${Date.now()}`,
-      name,
-      scope: suggestedScope,
-      deadline: form.deadline,
-      budget: form.budget || '',
-      status: form.status,
-      fundingBody: selected.organisms[0] || '',
-      program: humanizeSlug(selected.slug),
+    const mapped = mapFichaToCall(selected, {
+      customName: form.customName,
       year: form.year,
       openDate: form.openDate,
-      aidType: humanizeAidType(selected.aidType),
-      sourceUrl: '',
-      eligibleRegion: [],
+      deadline: form.deadline,
+      budget: form.budget,
+      status: form.status,
+    })
+    const newCall: Call = {
+      ...mapped,
+      id: `kb-${selected.slug}-${form.year}-${Date.now()}`,
       knowledgeBaseSlug: selected.slug,
-    }
+    } as Call
     onImport(newCall)
   }
 
