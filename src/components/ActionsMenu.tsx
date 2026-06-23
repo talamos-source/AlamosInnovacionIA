@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { MoreVertical, Edit, Trash2, Eye, Wand2, Route } from 'lucide-react'
+import { MoreVertical, Edit, Trash2, Eye, Wand2, Route, Archive, ArchiveRestore } from 'lucide-react'
 import './ActionsMenu.css'
 
 interface ActionsMenuProps {
@@ -9,6 +9,10 @@ interface ActionsMenuProps {
   onEditContext?: () => void
   onGenerateRoadmap?: () => void
   onDelete?: () => void
+  /** Si se pasa, muestra la acción "Archive" o "Unarchive" según isArchived. */
+  onArchive?: () => void
+  /** Si true, el item ya está archivado → se muestra "Unarchive". */
+  isArchived?: boolean
 }
 
 interface MenuPosition {
@@ -21,7 +25,7 @@ const MENU_WIDTH = 200
 const MENU_HEIGHT_ESTIMATE = 224 // ~ 5 items * 40px + padding
 const VIEWPORT_PADDING = 8
 
-const ActionsMenu = ({ onView, onEdit, onEditContext, onGenerateRoadmap, onDelete }: ActionsMenuProps) => {
+const ActionsMenu = ({ onView, onEdit, onEditContext, onGenerateRoadmap, onDelete, onArchive, isArchived }: ActionsMenuProps) => {
   const [isOpen, setIsOpen] = useState(false)
   const [position, setPosition] = useState<MenuPosition>({ top: 0, left: 0, openUp: false })
 
@@ -156,6 +160,16 @@ const ActionsMenu = ({ onView, onEdit, onEditContext, onGenerateRoadmap, onDelet
             >
               <Route size={16} />
               <span>Generate roadmap</span>
+            </button>
+          )}
+          {onArchive && (
+            <button
+              type="button"
+              className={`actions-menu-item ${isArchived ? '' : 'actions-menu-item--archive'}`}
+              onClick={() => { onArchive(); setIsOpen(false) }}
+            >
+              {isArchived ? <ArchiveRestore size={16} /> : <Archive size={16} />}
+              <span>{isArchived ? 'Unarchive' : 'Archive'}</span>
             </button>
           )}
           {onDelete && (
