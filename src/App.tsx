@@ -12,6 +12,7 @@ import Roadmap from './pages/Roadmap'
 import Discovery from './pages/Discovery'
 import DiscoveryImport from './pages/DiscoveryImport'
 import KnowledgeBase from './pages/KnowledgeBase'
+import AgentMetrics from './pages/AgentMetrics'
 import Calls from './pages/Calls'
 import Proposals from './pages/Proposals'
 import OtherServices from './pages/OtherServices'
@@ -60,6 +61,7 @@ const AppRoutes = () => {
         <Route path="/discovery" element={isCustomer ? <Navigate to="/projects" replace /> : <Discovery />} />
         <Route path="/discovery/:id/import" element={isCustomer ? <Navigate to="/projects" replace /> : <DiscoveryImport />} />
         <Route path="/knowledge-base" element={isCustomer ? <Navigate to="/projects" replace /> : <KnowledgeBase />} />
+        <Route path="/agent-metrics" element={isCustomer ? <Navigate to="/projects" replace /> : <AgentMetrics />} />
         <Route path="/calls" element={isCustomer ? <Navigate to="/projects" replace /> : <Calls />} />
         <Route path="/proposals" element={isCustomer ? <Navigate to="/projects" replace /> : <Proposals />} />
         <Route path="/other-services" element={isCustomer ? <Navigate to="/projects" replace /> : <OtherServices />} />

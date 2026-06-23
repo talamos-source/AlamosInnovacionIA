@@ -18,6 +18,7 @@ import {
   ChevronDown,
   Compass,
   BookOpen,
+  Target,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import LoginModal from './LoginModal'
@@ -57,6 +58,7 @@ const Layout = ({ children }: LayoutProps) => {
     { path: '/customers', label: 'Customers', icon: Users },
     { path: '/discovery', label: 'Discovery', icon: Compass },
     { path: '/knowledge-base', label: 'Knowledge Base', icon: BookOpen },
+    { path: '/agent-metrics', label: 'Agent Metrics', icon: Target },
     { path: '/calls', label: 'Calls', icon: Megaphone },
     { path: '/proposals', label: 'Proposals', icon: FileEdit },
     { path: '/other-services', label: 'Other Services', icon: Brain },
