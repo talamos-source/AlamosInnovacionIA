@@ -1172,6 +1172,34 @@ const ImportFromDiscovery = ({
           discoveryExternalId: c.externalId,
         } as Call
       })
+
+    // Sincroniza discoveryCalls: marca las que acabamos de importar como
+    // 'imported' para que en /discovery aparezcan con badge y el botón
+    // bloqueado (siguen visibles, pero ya no se pueden volver a importar).
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const allDiscovery: any[] = JSON.parse(localStorage.getItem('discoveryCalls') || '[]')
+      const importedExternalIds = new Set(
+        toImport.map(c => c.discoveryExternalId).filter(Boolean)
+      )
+      const newCallByExtId = new Map(
+        toImport.map(c => [c.discoveryExternalId!, c.id])
+      )
+      const updated = allDiscovery.map(c => {
+        if (!importedExternalIds.has(c.externalId)) return c
+        return {
+          ...c,
+          userStatus: 'imported',
+          importedToCallId: newCallByExtId.get(c.externalId),
+          importedAt: new Date().toISOString(),
+        }
+      })
+      localStorage.setItem('discoveryCalls', JSON.stringify(updated))
+      localStorage.setItem('appDataUpdatedAt', new Date().toISOString())
+    } catch (err) {
+      console.warn('Failed to sync discoveryCalls userStatus:', err)
+    }
+
     onImport(toImport)
   }
 

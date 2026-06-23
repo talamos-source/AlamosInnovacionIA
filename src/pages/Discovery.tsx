@@ -10,6 +10,7 @@ import {
   Sparkles,
   AlertTriangle,
   Loader2,
+  Check,
 } from 'lucide-react'
 import './Page.css'
 import './Discovery.css'
@@ -390,7 +391,10 @@ const Discovery = () => {
     // View filter (KPI)
     switch (view) {
       case 'all':
-        filtered = filtered.filter(c => c.userStatus !== 'dismissed' && c.userStatus !== 'imported')
+        // Las descartadas se ocultan; las importadas SIGUEN visibles para
+        // que la usuaria sepa qué ya se llevó a /calls (con badge + botón
+        // de import bloqueado).
+        filtered = filtered.filter(c => c.userStatus !== 'dismissed')
         break
       case 'today':
         filtered = filtered.filter(c => isToday(c.discoveredAt))
@@ -826,7 +830,7 @@ const Discovery = () => {
             ) : pageCalls.map(call => {
               const dDays = daysUntil(call.closeDate)
               return (
-                <tr key={call.id} className="disc-row">
+                <tr key={call.id} className={`disc-row ${call.userStatus === 'imported' ? 'disc-row--imported' : ''}`}>
                   <td>
                     <input
                       type="checkbox"
@@ -875,11 +879,19 @@ const Discovery = () => {
                     <div className="disc-actions">
                       <button
                         type="button"
-                        className="disc-action-btn disc-action-btn--primary"
-                        onClick={() => openImportFlow(call.id)}
-                        title="Review and import to Calls"
+                        className={`disc-action-btn ${call.userStatus === 'imported' ? 'disc-action-btn--done' : 'disc-action-btn--primary'}`}
+                        onClick={() => call.userStatus !== 'imported' && openImportFlow(call.id)}
+                        disabled={call.userStatus === 'imported'}
+                        title={
+                          call.userStatus === 'imported'
+                            ? 'Ya importada a /calls — abre /calls para editarla o archivarla'
+                            : 'Review and import to Calls'
+                        }
                       >
-                        <ExternalLink size={14} />
+                        {call.userStatus === 'imported'
+                          ? <Check size={14} />
+                          : <ExternalLink size={14} />
+                        }
                       </button>
                       {call.userStatus === 'dismissed' ? (
                         <button

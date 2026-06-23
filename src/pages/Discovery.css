@@ -446,6 +446,30 @@
   color: var(--color-text-inverse);
 }
 
+/* Estado "ya importada" — botón de import bloqueado con check verde
+   para que se note de un vistazo que ya está llevada a /calls. */
+.disc-action-btn--done {
+  background-color: var(--color-success-50, #F1FAF4);
+  border-color: var(--color-success-200, #C8E6D2);
+  color: var(--color-success-700, #2E7D5A);
+  cursor: not-allowed;
+}
+.disc-action-btn--done:hover {
+  background-color: var(--color-success-50, #F1FAF4);
+  border-color: var(--color-success-200, #C8E6D2);
+  color: var(--color-success-700, #2E7D5A);
+  transform: none;
+}
+
+/* Row de una call ya importada — opacidad leve + tinte verde sutil
+   en el fondo para diferenciarla de las pendientes sin esconderla. */
+.disc-table .disc-row--imported td {
+  background-color: rgba(46, 125, 90, 0.04);
+}
+.disc-table .disc-row--imported .disc-call-title {
+  opacity: 0.75;
+}
+
 /* ----------------------------------------------------------
    RESPONSIVE
    ---------------------------------------------------------- */
