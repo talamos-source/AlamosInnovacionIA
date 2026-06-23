@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Search, ChevronDown, ChevronLeft, ChevronRight, Clock,
-  Download as DownloadIcon, BookOpen, Compass, Plus, X, Check,
+  Download as DownloadIcon, BookOpen, Compass, X, Check,
+  Archive, ArchiveRestore,
 } from 'lucide-react'
 import ActionsMenu from '../components/ActionsMenu'
 import Modal from '../components/Modal'
@@ -30,6 +31,10 @@ interface Call {
   eligibleRegion?: string[]
   additionalRequirements?: string
   internalNotes?: string
+  /** Si true, la call está archivada (no aparece en la tabla por defecto). */
+  archived?: boolean
+  /** Fecha ISO en que se archivó. */
+  archivedAt?: string
 }
 
 const Calls = () => {
@@ -43,6 +48,9 @@ const Calls = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingCallId, setEditingCallId] = useState<string | null>(null)
   const itemsPerPage = 10
+
+  /* ── Toggle ver archivadas ── */
+  const [showArchived, setShowArchived] = useState(false)
 
   /* ── Importación: estado del dropdown + modales ── */
   const [importMenuOpen, setImportMenuOpen] = useState(false)
@@ -164,6 +172,9 @@ const Calls = () => {
   const safeLower = (v: unknown): string => typeof v === 'string' ? v.toLowerCase() : ''
   const filteredCalls = calls.filter(call => {
     if (!call || typeof call !== 'object') return false
+    // Filtro de archivadas: por defecto solo activas, con toggle activo solo archivadas
+    const isArchived = !!call.archived
+    if (showArchived !== isArchived) return false
     const searchLower = searchTerm.toLowerCase()
 
     // Search across all table fields — null-safe
@@ -220,8 +231,21 @@ const Calls = () => {
     }
   }
 
-  const handleDelete = (_callId: string) => {
-    window.alert('La eliminación está desactivada para conservar el histórico de calls.')
+  /**
+   * Archiva / desarchiva una call. No se elimina nunca — el histórico
+   * de calls se conserva. Las archivadas no aparecen en la tabla por
+   * defecto; se muestran activando el toggle "Show archived".
+   */
+  const handleToggleArchive = (callId: string) => {
+    setCalls(prev => prev.map(c => {
+      if (c.id !== callId) return c
+      const isArchiving = !c.archived
+      return {
+        ...c,
+        archived: isArchiving,
+        archivedAt: isArchiving ? new Date().toISOString() : undefined,
+      }
+    }))
   }
 
   const handleNewCall = () => {
@@ -415,9 +439,15 @@ const Calls = () => {
     <div className="page">
       <div className="page-header">
         <div>
-          <h1>Calls</h1>
+          <h1>
+            Calls
+            {showArchived && <span className="ci-archived-badge">📦 Archivadas</span>}
+          </h1>
           <p className="page-subtitle">
-            Track public and private calls to apply to — deadlines, budgets and status
+            {showArchived
+              ? 'Vista de convocatorias archivadas. Click en la acción para desarchivarlas.'
+              : 'Track public and private calls to apply to — deadlines, budgets and status'
+            }
           </p>
         </div>
       </div>
@@ -482,6 +512,26 @@ const Calls = () => {
         </div>
 
         <div className="ci-header-actions">
+          {/* Toggle ver archivadas */}
+          {(() => {
+            const archivedCount = calls.filter(c => c.archived).length
+            const activeCount = calls.filter(c => !c.archived).length
+            return (
+              <button
+                type="button"
+                className={`btn-secondary ci-toggle-archived ${showArchived ? 'active' : ''}`}
+                onClick={() => setShowArchived(v => !v)}
+                title={showArchived ? 'Volver a la vista activa' : 'Ver convocatorias archivadas'}
+              >
+                {showArchived ? (
+                  <><ArchiveRestore size={14} /> Ver activas ({activeCount})</>
+                ) : (
+                  <><Archive size={14} /> Ver archivadas ({archivedCount})</>
+                )}
+              </button>
+            )
+          })()}
+
           {/* Botón Import con dropdown */}
           <div className="ci-import-wrap" ref={importMenuRef}>
             <button
@@ -916,7 +966,8 @@ const Calls = () => {
                       <td>
                         <ActionsMenu
                           onEdit={() => handleEdit(call.id)}
-                          onDelete={() => handleDelete(call.id)}
+                          onArchive={() => handleToggleArchive(call.id)}
+                          isArchived={!!call.archived}
                         />
                       </td>
                     </tr>
