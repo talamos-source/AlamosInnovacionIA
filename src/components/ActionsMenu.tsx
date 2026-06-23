@@ -171,7 +171,7 @@ const ActionsMenu = ({ onView, onEdit, onEditContext, onGenerateRoadmap, onGener
               onClick={() => { onGenerateFicha(); setIsOpen(false) }}
             >
               <Sparkles size={16} />
-              <span>Generate ficha</span>
+              <span>Generate brief</span>
             </button>
           )}
           {onArchive && (

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   BookOpen,
   Loader2,
@@ -9,6 +10,8 @@ import {
   Filter,
   ExternalLink,
   X,
+  Download,
+  CheckCircle2,
 } from 'lucide-react'
 import './Page.css'
 import './KnowledgeBase.css'
@@ -134,6 +137,94 @@ const KnowledgeBase = () => {
 
   // Detalle modal
   const [activeFicha, setActiveFicha] = useState<FichaMeta | null>(null)
+
+  // Import-to-calls (form dentro del modal detalle)
+  const navigate = useNavigate()
+  const currentYear = String(new Date().getFullYear())
+  const [importMode, setImportMode] = useState(false)
+  const [importForm, setImportForm] = useState({
+    customName: '',
+    year: currentYear,
+    openDate: '',
+    deadline: '',
+    budget: '',
+    status: 'Forthcoming' as 'Open' | 'Forthcoming' | 'Closed',
+  })
+  const [importError, setImportError] = useState<string | null>(null)
+  const [importSuccess, setImportSuccess] = useState(false)
+
+  // Reset import state cuando se abre/cierra el detalle o se cambia de ficha
+  useEffect(() => {
+    setImportMode(false)
+    setImportError(null)
+    setImportSuccess(false)
+    if (activeFicha) {
+      setImportForm(prev => ({
+        ...prev,
+        customName: `${humanizeSlug(activeFicha.slug)} ${prev.year}`,
+      }))
+    }
+  }, [activeFicha?.slug])
+
+  const handleImportToCalls = () => {
+    if (!activeFicha) return
+    setImportError(null)
+    if (!importForm.deadline) {
+      setImportError('La fecha de cierre (deadline) es obligatoria. Si la call es de ventanilla abierta, indica una fecha estimada.')
+      return
+    }
+
+    // Detectar scope por organismo principal
+    const orgLower = activeFicha.organisms.join(' ').toLowerCase()
+    const scope = /comisión europea|european|eic|cinea|eacea|eit|eureka/.test(orgLower)
+      ? 'European'
+      : 'National'
+
+    const name = importForm.customName.trim() || humanizeSlug(activeFicha.slug)
+    const newCall = {
+      id: `kb-${activeFicha.slug}-${importForm.year}-${Date.now()}`,
+      name,
+      scope,
+      deadline: importForm.deadline,
+      budget: importForm.budget || '',
+      status: importForm.status,
+      fundingBody: activeFicha.organisms[0] || '',
+      program: humanizeSlug(activeFicha.slug),
+      year: importForm.year,
+      openDate: importForm.openDate,
+      aidType: humanizeAidType(activeFicha.aidType),
+      sourceUrl: '',
+      eligibleRegion: [],
+      knowledgeBaseSlug: activeFicha.slug,
+    }
+
+    // Persiste directamente en localStorage (igual que /calls)
+    let existing: Array<{ id: string; knowledgeBaseSlug?: string; year?: string }> = []
+    try {
+      existing = JSON.parse(localStorage.getItem('calls') || '[]')
+    } catch { existing = [] }
+
+    // Duplicado por slug + año (avisar antes de crear otra)
+    const duplicate = existing.some(c =>
+      c.knowledgeBaseSlug === activeFicha.slug && c.year === importForm.year
+    )
+    if (duplicate) {
+      const confirm = window.confirm(
+        `Ya existe una call para "${humanizeSlug(activeFicha.slug)}" en ${importForm.year}.\n\n¿Crear otra de todos modos?`
+      )
+      if (!confirm) return
+    }
+
+    existing.push(newCall)
+    localStorage.setItem('calls', JSON.stringify(existing))
+    localStorage.setItem('appDataUpdatedAt', new Date().toISOString())
+    setImportSuccess(true)
+  }
+
+  const handleGoToCalls = () => {
+    setActiveFicha(null)
+    navigate('/calls')
+  }
 
   useEffect(() => {
     const fetchFichas = async () => {
@@ -537,6 +628,136 @@ const KnowledgeBase = () => {
                   Última revisión: {activeFicha.lastUpdated}
                 </p>
               )}
+
+              {/* ─── IMPORT TO CALLS ─── */}
+              <div className="kb-import-section">
+                {!importMode && !importSuccess && (
+                  <button
+                    type="button"
+                    className="kb-import-trigger"
+                    onClick={() => setImportMode(true)}
+                  >
+                    <Download size={16} />
+                    Import to /calls
+                    <small>Crea una call en tu CRM con los datos de esta convocatoria</small>
+                  </button>
+                )}
+
+                {importMode && !importSuccess && (
+                  <div className="kb-import-form">
+                    <header className="kb-import-form-header">
+                      <strong>Importar a /calls</strong>
+                      <small>Rellena las fechas y el presupuesto de esta edición. Podrás editarlo en /calls.</small>
+                    </header>
+
+                    <div className="kb-import-grid">
+                      <label>
+                        <span>Nombre</span>
+                        <input
+                          type="text"
+                          value={importForm.customName}
+                          onChange={e => setImportForm(f => ({ ...f, customName: e.target.value }))}
+                          placeholder={`${humanizeSlug(activeFicha.slug)} ${currentYear}`}
+                        />
+                      </label>
+                      <label>
+                        <span>Año</span>
+                        <input
+                          type="text"
+                          value={importForm.year}
+                          onChange={e => setImportForm(f => ({ ...f, year: e.target.value }))}
+                        />
+                      </label>
+                      <label>
+                        <span>Open date</span>
+                        <input
+                          type="date"
+                          value={importForm.openDate}
+                          onChange={e => setImportForm(f => ({ ...f, openDate: e.target.value }))}
+                        />
+                      </label>
+                      <label>
+                        <span>Deadline *</span>
+                        <input
+                          type="date"
+                          value={importForm.deadline}
+                          onChange={e => setImportForm(f => ({ ...f, deadline: e.target.value }))}
+                          required
+                        />
+                      </label>
+                      <label>
+                        <span>Budget</span>
+                        <input
+                          type="text"
+                          value={importForm.budget}
+                          onChange={e => setImportForm(f => ({ ...f, budget: e.target.value }))}
+                          placeholder="€175k - €4M"
+                        />
+                      </label>
+                      <label>
+                        <span>Estado</span>
+                        <select
+                          value={importForm.status}
+                          onChange={e => setImportForm(f => ({ ...f, status: e.target.value as 'Open' | 'Forthcoming' | 'Closed' }))}
+                        >
+                          <option value="Forthcoming">Forthcoming</option>
+                          <option value="Open">Open</option>
+                          <option value="Closed">Closed</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    {importError && (
+                      <p className="kb-import-error">{importError}</p>
+                    )}
+
+                    <div className="kb-import-actions">
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => { setImportMode(false); setImportError(null) }}
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-primary kb-import-confirm"
+                        onClick={handleImportToCalls}
+                      >
+                        <Download size={14} />
+                        Import to /calls
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {importSuccess && (
+                  <div className="kb-import-success">
+                    <CheckCircle2 size={32} />
+                    <strong>Call importada</strong>
+                    <p>Se ha añadido a tu CRM. Puedes editarla y archivarla desde /calls.</p>
+                    <div className="kb-import-actions">
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => {
+                          setImportSuccess(false)
+                          setImportMode(false)
+                        }}
+                      >
+                        Importar otra edición
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={handleGoToCalls}
+                      >
+                        Ir a /calls →
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
