@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import ActionsMenu from '../components/ActionsMenu'
 import Modal from '../components/Modal'
+import CallFichaModal, { CallFichaInput } from '../components/CallFichaModal'
 import { formatCurrency } from '../utils/formatCurrency'
 import './Page.css'
 import './SharedTableLayout.css'
@@ -57,6 +58,28 @@ const Calls = () => {
   const importMenuRef = useRef<HTMLDivElement | null>(null)
   const [discoveryModalOpen, setDiscoveryModalOpen] = useState(false)
   const [kbModalOpen, setKbModalOpen] = useState(false)
+
+  /* ── Generador IA de ficha comercial ── */
+  const [fichaModalCall, setFichaModalCall] = useState<CallFichaInput | null>(null)
+
+  const handleGenerateFicha = (callId: string) => {
+    const c = calls.find(x => x.id === callId)
+    if (!c) return
+    setFichaModalCall({
+      id: c.id,
+      name: c.name,
+      title: c.name,
+      program: c.program,
+      fundingBody: c.fundingBody,
+      aidType: c.aidType,
+      openDate: c.openDate,
+      closeDate: c.deadline,
+      deadline: c.deadline,
+      budget: c.budget,
+      description: c.additionalRequirements || c.internalNotes,
+      url: c.sourceUrl,
+    })
+  }
 
   // Cerrar dropdown si clic fuera
   useEffect(() => {
@@ -597,6 +620,14 @@ const Calls = () => {
         />
       )}
 
+      {/* MODAL · Generate Ficha (IA) */}
+      {fichaModalCall && (
+        <CallFichaModal
+          call={fichaModalCall}
+          onClose={() => setFichaModalCall(null)}
+        />
+      )}
+
       <Modal 
         isOpen={isModalOpen} 
         onClose={() => {
@@ -966,6 +997,7 @@ const Calls = () => {
                       <td>
                         <ActionsMenu
                           onEdit={() => handleEdit(call.id)}
+                          onGenerateFicha={() => handleGenerateFicha(call.id)}
                           onArchive={() => handleToggleArchive(call.id)}
                           isArchived={!!call.archived}
                         />

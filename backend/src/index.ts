@@ -1865,6 +1865,225 @@ app.post('/ai/extract-trl-lines', requireAuth, async (req, res) => {
 })
 
 /* ============================================================
+   POST /ai/generate-call-ficha
+   Genera una ficha comercial estructurada de una convocatoria a
+   partir de los documentos subidos (orden de bases, convocatoria,
+   workprogramme, application guide…) y datos base de la call.
+   ============================================================ */
+
+const CALL_FICHA_SYSTEM_PROMPT = `Eres un consultor senior de Álamos Innovación, especializado en
+financiación pública de I+D+i. Tu tarea es extraer y estructurar la
+información clave de una convocatoria a partir de la documentación oficial
+(orden de bases, resolución de convocatoria, workprogramme, application
+guide o equivalente).
+
+El objetivo es generar una FICHA COMERCIAL que se usará para:
+1) Enviar a clientes potenciales y orientar sus decisiones de aplicación.
+2) Publicar en la web/blog de Álamos como contenido de valor.
+
+RESPONDE SIEMPRE EN ESPAÑOL (incluso si los documentos están en inglés —
+traduce los conceptos clave, pero conserva nombres propios de programas,
+acrónimos y URLs literalmente).
+
+Devuelve un único objeto JSON con la siguiente estructura EXACTA. Todos los
+campos string pueden estar vacíos ('') si no hay información en los docs.
+Los campos array pueden ser []:
+
+{
+  "title": "<nombre oficial del programa, ej. 'NEOTEC 2026'>",
+  "subtitle": "<subtitulo corto que resuma esencia, ej. 'Subvención para EBTs en fase semilla'>",
+  "year": "<año de convocatoria, ej. '2026'>",
+  "organism": "<organismo convocante, ej. 'CDTI', 'AEI', 'Comisión Europea (EISMEA)'>",
+  "managingEntity": "<entidad gestora si distinta, vacío si igual>",
+  "legalFramework": "<plan/marco normativo, ej. 'Plan Estatal 2024-2027' o 'Horizon Europe Pilar III' o 'PRTR Componente 12'>",
+  "regime": "<régimen de concesión, ej. 'Concurrencia competitiva' o 'Concurrencia no competitiva (orden de llegada)'>",
+  "callBudget": "<presupuesto total convocatoria con €, ej. '20,4 M€' o '90 M€ (ampliable)'>",
+  "aboutCall": "<2-4 frases describiendo objeto/finalidad de la convocatoria. Tono claro, comercial>",
+  "thematicAreas": ["<área 1>", "<área 2>", ...],
+  "submissionPeriod": "<plazo en texto, ej. 'Del 14/04/2026 al 14/05/2026 a las 12:00'>",
+  "deadline": "<fecha límite ISO YYYY-MM-DD si la puedes extraer, '' si no>",
+  "beneficiaries": ["<categoría 1: pequeñas EBT>", "<categoría 2>", ...],
+  "excludedBeneficiaries": ["<categoría no elegible 1>", ...],
+  "projectFeatures": {
+    "duration": "<ej. '12 o 24 meses' / 'Máx 36 meses'>",
+    "budgetMin": "<ej. '175.000 €' o ''>",
+    "budgetMax": "<ej. '750.000 €' o ''>",
+    "consortium": "<descripción consorcio si aplica, ej. 'Mín. 2 entidades, líder PYME, máx 70% por participante' o ''>",
+    "geographic": "<ámbito geográfico, ej. 'Una única CCAA' o 'Mín. 2 CCAA elegibles' o 'Internacional EUREKA' o ''>",
+    "trl": "<rango TRL final esperado, ej. 'TRL 5-6' o ''>"
+  },
+  "aidFeatures": {
+    "type": "<'Subvención' | 'Préstamo' | 'Mixta (subvención + préstamo)' | 'Otra'>",
+    "intensity": "<intensidad máxima, ej. 'Hasta 70% (85% con doctor)' o 'Hasta el 95% del presupuesto en préstamo'>",
+    "maxAmount": "<importe máximo por beneficiario/proyecto, ej. '250.000 €' o '15 M€'>",
+    "minAmount": "<importe mínimo si aplica>",
+    "advancePayment": "<descripción anticipo, ej. 'Hasta 60% anticipado sin garantías' o ''>"
+  },
+  "eligibleCosts": ["<concepto 1: Personal>", "<concepto 2: Equipamiento>", ...],
+  "nonEligibleCosts": ["<concepto 1: IVA>", ...],
+  "payment": "<descripción del pago/anticipos en 1-2 frases>",
+  "guarantees": "<descripción garantías requeridas, '' si no aplica>",
+  "evaluationCriteria": {
+    "minScore": "<puntuación mínima para ser financiable, ej. '60 puntos' o ''>",
+    "criteria": [
+      {"name": "<criterio 1>", "weight": "<%>", "description": "<descripción>"},
+      ...
+    ]
+  },
+  "novelties": ["<novedad respecto convocatorias anteriores 1>", ...],
+  "alamosCommentary": "<2-3 frases con tu análisis estratégico desde la óptica de Álamos: a quién encaja, particularidades a vigilar, tips de presentación. Solo si los docs te dan base — no inventes>",
+  "sourceUrls": {
+    "legalBasis": "<URL orden de bases (BOE) si aparece>",
+    "callOrder": "<URL resolución/orden convocatoria>",
+    "programWeb": "<URL ficha web del programa>",
+    "applicationGuide": "<URL guía solicitante si aparece>"
+  }
+}
+
+Reglas estrictas:
+- NUNCA inventes datos. Si el documento no lo dice, deja vacío.
+- Importes siempre con formato europeo (€, punto miles, coma decimales).
+- Fechas siempre dd/mm/aaaa en submissionPeriod (en deadline ISO YYYY-MM-DD).
+- Sé conciso pero específico. Cita cifras exactas cuando aparezcan.
+- Si el documento es muy largo, prioriza secciones: objeto, beneficiarios,
+  presupuesto, costes, plazos, criterios.
+- Para aboutCall y alamosCommentary, usa tono profesional pero accesible
+  (cliente final, no técnico de UE).
+
+NO incluyas markdown, NO incluyas texto fuera del JSON, NO incluyas \`\`\`.`
+
+interface CallFichaPayload {
+  call: {
+    id?: string
+    name?: string
+    title?: string
+    program?: string
+    fundingBody?: string
+    aidType?: string
+    openDate?: string
+    closeDate?: string
+    deadline?: string
+    budget?: string
+    description?: string
+    url?: string
+  }
+  documents: Array<{ name: string; text: string }>
+}
+
+app.post('/ai/generate-call-ficha', requireAuth, async (req, res) => {
+  if (!anthropic) {
+    return res.status(503).json({ error: 'AI not configured.' })
+  }
+
+  const { call, documents } = (req.body || {}) as CallFichaPayload
+
+  if (!call || (!call.name && !call.title)) {
+    return res.status(400).json({ error: 'call.name or call.title is required.' })
+  }
+  if (!documents || !Array.isArray(documents) || documents.length === 0) {
+    return res.status(400).json({
+      error: 'At least one document is required to generate the ficha.',
+    })
+  }
+
+  // Limites defensivos por doc para no rebasar context window
+  const MAX_DOC_CHARS = 25_000
+  const MAX_TOTAL_CHARS = 90_000
+
+  const cleanedDocs = documents
+    .filter(d => d && typeof d.text === 'string' && d.text.trim().length > 0)
+    .map(d => ({
+      name: (d.name || 'documento').slice(0, 200),
+      text: d.text.slice(0, MAX_DOC_CHARS),
+    }))
+
+  if (cleanedDocs.length === 0) {
+    return res.status(400).json({ error: 'No documents with text content provided.' })
+  }
+
+  // Trim total
+  let totalChars = 0
+  const trimmedDocs: Array<{ name: string; text: string }> = []
+  for (const d of cleanedDocs) {
+    const remaining = MAX_TOTAL_CHARS - totalChars
+    if (remaining <= 200) break
+    const slice = d.text.length > remaining ? d.text.slice(0, remaining) : d.text
+    trimmedDocs.push({ name: d.name, text: slice })
+    totalChars += slice.length
+  }
+
+  try {
+    const baseSection = `=== DATOS BASE DE LA CALL (Discovery / KB / manual) ===
+Título: ${call.name || call.title || ''}
+Programa: ${call.program || ''}
+Organismo: ${call.fundingBody || ''}
+Tipo ayuda (preliminar): ${call.aidType || ''}
+Fecha apertura: ${call.openDate || ''}
+Fecha cierre: ${call.closeDate || call.deadline || ''}
+Presupuesto convocatoria: ${call.budget || ''}
+URL: ${call.url || ''}
+${call.description ? `\nDescripción base:\n${call.description.slice(0, 1500)}` : ''}`
+
+    const docsSection = trimmedDocs
+      .map((d, i) => `=== DOCUMENTO ${i + 1}: ${d.name} ===\n${d.text}`)
+      .join('\n\n')
+
+    const userContent = `Genera una FICHA COMERCIAL completa para esta convocatoria, extrayendo los datos de los documentos oficiales adjuntos. Usa los datos base como pista pero PRIORIZA siempre lo que dicen los documentos.
+
+${baseSection}
+
+${docsSection}
+
+Devuelve el JSON con la estructura exacta del system prompt.`
+
+    const message = await anthropic.messages.create({
+      model: CLAUDE_MODEL, // Sonnet — necesitamos comprensión profunda y estructuración
+      max_tokens: 4500,
+      system: CALL_FICHA_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userContent }],
+    })
+
+    const firstBlock = message.content[0]
+    const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : ''
+    let jsonText = text.trim()
+    if (jsonText.startsWith('```')) {
+      jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+    }
+
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(jsonText)
+    } catch (parseErr) {
+      console.error('Claude returned invalid JSON for ficha:', text.slice(0, 500))
+      return res.status(502).json({
+        error: 'AI returned invalid JSON',
+        raw: text.slice(0, 1500),
+      })
+    }
+
+    return res.json({
+      ficha: parsed,
+      generatedAt: new Date().toISOString(),
+      model: CLAUDE_MODEL,
+      tokensUsed: {
+        input: message.usage?.input_tokens ?? 0,
+        output: message.usage?.output_tokens ?? 0,
+      },
+      trace: {
+        documentsReceived: documents.length,
+        documentsUsed: trimmedDocs.length,
+        totalChars,
+      },
+    })
+  } catch (err: unknown) {
+    console.error('generate-call-ficha error:', err)
+    return res.status(500).json({
+      error: err instanceof Error ? err.message : 'generate failed',
+    })
+  }
+})
+
+/* ============================================================
    DISCOVERY — Sync de calls desde EU Funding Portal y BDNS
    ============================================================ */
 
