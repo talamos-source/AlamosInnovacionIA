@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { Search, ChevronDown, Calendar, Users, MoreVertical, Clock, Pencil, Trash2, Plus, Edit, FileText, ListTodo, Copy } from 'lucide-react'
 import { formatCurrency, formatNumber, parseEuropeanNumber } from '../utils/formatCurrency'
 import Modal from '../components/Modal'
+import DateInput from '../components/DateInput'
 import { useAuth } from '../contexts/AuthContext'
 import './Page.css'
 import './SharedTableLayout.css'
@@ -471,13 +472,6 @@ const Projects = () => {
     setIsEditModalOpen(true)
   }
 
-  const handleDateInput = (field: 'startDate' | 'endDate') => (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value.replace(/\D/g, '')
-    if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2)
-    if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9)
-    setEditFormData(prev => ({ ...prev, [field]: value }))
-  }
-
   const handleEditFormChange = (field: string, value: string) => {
     setEditFormData(prev => ({ ...prev, [field]: value }))
   }
@@ -530,13 +524,6 @@ const Projects = () => {
   }
 
   // Handle Add Billing
-  const handleBillingDateInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value.replace(/\D/g, '')
-    if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2)
-    if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9)
-    setBillingFormData(prev => ({ ...prev, dueDate: value }))
-  }
-
   const formatDateForInput = (dateString?: string) => {
     if (!dateString) return ''
     const date = new Date(dateString)
@@ -710,13 +697,6 @@ const Projects = () => {
     setIsEditBillingModalOpen(true)
   }
 
-  const handleEditBillingDateInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value.replace(/\D/g, '')
-    if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2)
-    if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9)
-    setEditBillingFormData(prev => ({ ...prev, dueDate: value }))
-  }
-
   const handleEditBillingFormChange = (field: string, value: string) => {
     setEditBillingFormData(prev => ({ ...prev, [field]: value }))
     if (editBillingErrors[field]) {
@@ -823,13 +803,6 @@ const Projects = () => {
   }
 
   // Handle Add Task
-  const handleTaskDateInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value.replace(/\D/g, '')
-    if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2)
-    if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9)
-    setTaskFormData(prev => ({ ...prev, dueDate: value }))
-  }
-
   const handleTaskFormChange = (field: string, value: string) => {
     setTaskFormData(prev => ({ ...prev, [field]: value }))
     if (taskErrors[field]) {
@@ -1534,25 +1507,19 @@ const Projects = () => {
 
           <div className="form-group">
             <label htmlFor="edit-start-date">Start Date</label>
-            <input
-              type="text"
+            <DateInput
               id="edit-start-date"
               value={editFormData.startDate}
-              onChange={handleDateInput('startDate')}
-              placeholder="dd/mm/yyyy"
-              maxLength={10}
+              onChange={(v) => setEditFormData(prev => ({ ...prev, startDate: v }))}
             />
           </div>
 
           <div className="form-group">
             <label htmlFor="edit-end-date">End Date</label>
-            <input
-              type="text"
+            <DateInput
               id="edit-end-date"
               value={editFormData.endDate}
-              onChange={handleDateInput('endDate')}
-              placeholder="dd/mm/yyyy"
-              maxLength={10}
+              onChange={(v) => setEditFormData(prev => ({ ...prev, endDate: v }))}
             />
           </div>
 
@@ -1679,14 +1646,11 @@ const Projects = () => {
 
           <div className="form-group">
             <label htmlFor="billing-due-date">Due Date <span className="required">*</span></label>
-            <input
-              type="text"
+            <DateInput
               id="billing-due-date"
               value={billingFormData.dueDate}
-              onChange={handleBillingDateInput}
+              onChange={(v) => setBillingFormData(prev => ({ ...prev, dueDate: v }))}
               className={billingErrors.dueDate ? 'error' : ''}
-              placeholder="dd/mm/yyyy"
-              maxLength={10}
             />
             {billingErrors.dueDate && <span className="error-message">{billingErrors.dueDate}</span>}
           </div>
@@ -1792,14 +1756,11 @@ const Projects = () => {
 
           <div className="form-group">
             <label htmlFor="task-due-date">Due Date <span className="required">*</span></label>
-            <input
-              type="text"
+            <DateInput
               id="task-due-date"
               value={taskFormData.dueDate}
-              onChange={handleTaskDateInput}
+              onChange={(v) => setTaskFormData(prev => ({ ...prev, dueDate: v }))}
               className={taskErrors.dueDate ? 'error' : ''}
-              placeholder="dd/mm/yyyy"
-              maxLength={10}
             />
             {taskErrors.dueDate && <span className="error-message">{taskErrors.dueDate}</span>}
           </div>
@@ -1932,14 +1893,11 @@ const Projects = () => {
 
           <div className="form-group">
             <label htmlFor="edit-billing-due-date">Due Date <span className="required">*</span></label>
-            <input
-              type="text"
+            <DateInput
               id="edit-billing-due-date"
               value={editBillingFormData.dueDate}
-              onChange={handleEditBillingDateInput}
+              onChange={(v) => setEditBillingFormData(prev => ({ ...prev, dueDate: v }))}
               className={editBillingErrors.dueDate ? 'error' : ''}
-              placeholder="dd/mm/yyyy"
-              maxLength={10}
             />
             {editBillingErrors.dueDate && <span className="error-message">{editBillingErrors.dueDate}</span>}
           </div>
@@ -2028,14 +1986,11 @@ const Projects = () => {
 
           <div className="form-group">
             <label htmlFor="edit-task-due-date">Due Date <span className="required">*</span></label>
-            <input
-              type="text"
+            <DateInput
               id="edit-task-due-date"
               value={taskFormData.dueDate}
-              onChange={handleTaskDateInput}
+              onChange={(v) => setTaskFormData(prev => ({ ...prev, dueDate: v }))}
               className={taskErrors.dueDate ? 'error' : ''}
-              placeholder="dd/mm/yyyy"
-              maxLength={10}
             />
             {taskErrors.dueDate && <span className="error-message">{taskErrors.dueDate}</span>}
           </div>

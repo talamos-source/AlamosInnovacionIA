@@ -7,6 +7,7 @@ import {
 import ActionsMenu from '../components/ActionsMenu'
 import Modal from '../components/Modal'
 import CallFichaModal, { CallFichaInput } from '../components/CallFichaModal'
+import DateInput from '../components/DateInput'
 import { formatCurrency } from '../utils/formatCurrency'
 import { mapDiscoveryToCall, mapFichaToCall } from '../utils/callMapping'
 import './Page.css'
@@ -332,13 +333,6 @@ const Calls = () => {
         }
       })
     }
-  }
-
-  const handleDateInput = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value.replace(/\D/g, '')
-    if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2)
-    if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9)
-    handleInputChange(field, value)
   }
 
   const isValidDate = (value: string) => {
@@ -732,28 +726,22 @@ const Calls = () => {
             <div className="form-row">
               <div className="form-group">
                 <label htmlFor="openDate">Open Date <span className="required">*</span></label>
-                <input
-                  type="text"
+                <DateInput
                   id="openDate"
                   value={formData.openDate}
-                  onChange={handleDateInput('openDate')}
+                  onChange={(v) => handleInputChange('openDate', v)}
                   className={errors.openDate ? 'error' : ''}
-                  placeholder="dd/mm/yyyy"
-                  maxLength={10}
                 />
                 {errors.openDate && <span className="error-message">{errors.openDate}</span>}
               </div>
 
               <div className="form-group">
                 <label htmlFor="deadline">Deadline <span className="required">*</span></label>
-                <input
-                  type="text"
+                <DateInput
                   id="deadline"
                   value={formData.deadline}
-                  onChange={handleDateInput('deadline')}
+                  onChange={(v) => handleInputChange('deadline', v)}
                   className={errors.deadline ? 'error' : ''}
-                  placeholder="dd/mm/yyyy"
-                  maxLength={10}
                 />
                 {errors.deadline && <span className="error-message">{errors.deadline}</span>}
               </div>

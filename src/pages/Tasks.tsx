@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Search, ChevronDown, Pencil, Trash2, Plus, List, Calendar, ChevronLeft, ChevronRight } from 'lucide-react'
 import Modal from '../components/Modal'
+import DateInput from '../components/DateInput'
 import './Page.css'
 import './SharedTableLayout.css'
 
@@ -129,14 +130,6 @@ const Tasks = () => {
   // Get unique values for filters
   const uniqueStatuses = Array.from(new Set(allTasks.map(t => t.status).filter(Boolean))) as string[]
   const uniquePriorities = Array.from(new Set(allTasks.map(t => t.priority).filter(Boolean))) as string[]
-
-  // Handle date input
-  const handleTaskDateInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value.replace(/\D/g, '')
-    if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2)
-    if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9)
-    setTaskFormData(prev => ({ ...prev, dueDate: value }))
-  }
 
   const handleTaskFormChange = (field: string, value: string) => {
     setTaskFormData(prev => ({ ...prev, [field]: value }))
@@ -1018,14 +1011,11 @@ const Tasks = () => {
 
           <div className="form-group">
             <label htmlFor="new-task-due-date">Due Date <span className="required">*</span></label>
-            <input
-              type="text"
+            <DateInput
               id="new-task-due-date"
               value={taskFormData.dueDate}
-              onChange={handleTaskDateInput}
+              onChange={(v) => setTaskFormData(prev => ({ ...prev, dueDate: v }))}
               className={taskErrors.dueDate ? 'error' : ''}
-              placeholder="dd/mm/yyyy"
-              maxLength={10}
             />
             {taskErrors.dueDate && <span className="error-message">{taskErrors.dueDate}</span>}
           </div>
@@ -1165,14 +1155,11 @@ const Tasks = () => {
 
           <div className="form-group">
             <label htmlFor="edit-task-due-date">Due Date <span className="required">*</span></label>
-            <input
-              type="text"
+            <DateInput
               id="edit-task-due-date"
               value={taskFormData.dueDate}
-              onChange={handleTaskDateInput}
+              onChange={(v) => setTaskFormData(prev => ({ ...prev, dueDate: v }))}
               className={taskErrors.dueDate ? 'error' : ''}
-              placeholder="dd/mm/yyyy"
-              maxLength={10}
             />
             {taskErrors.dueDate && <span className="error-message">{taskErrors.dueDate}</span>}
           </div>

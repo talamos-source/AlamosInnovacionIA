@@ -136,6 +136,29 @@ export function toCallDateFormat(input: string | undefined | null): string {
   return ''
 }
 
+/** Inversa de toCallDateFormat: dd/mm/yyyy → yyyy-mm-dd (formato ISO que
+ *  espera <input type="date">). Si la entrada no es válida, devuelve ''. */
+export function toIsoDateFormat(input: string | undefined | null): string {
+  if (!input || typeof input !== 'string') return ''
+  const t = input.trim()
+  if (!t) return ''
+  // Ya en ISO
+  const iso = t.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`
+  // dd/mm/yyyy o dd-mm-yyyy
+  const dmy = t.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/)
+  if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`
+  // Date parse fallback
+  const parsed = new Date(t)
+  if (!Number.isNaN(parsed.getTime())) {
+    const d = String(parsed.getDate()).padStart(2, '0')
+    const m = String(parsed.getMonth() + 1).padStart(2, '0')
+    const y = parsed.getFullYear()
+    return `${y}-${m}-${d}`
+  }
+  return ''
+}
+
 /** Detecta el primer URL HTTP en sourceUrls (la ficha guarda varias claves:
  *  pagina, boe, guidelines, programa, ayuda...) — preferimos la "principal". */
 export function pickPrimaryUrl(sourceUrls: Record<string, string> | undefined): string {

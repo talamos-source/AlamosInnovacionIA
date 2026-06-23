@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import Modal from '../components/Modal'
 import ActionsMenu from '../components/ActionsMenu'
+import DateInput from '../components/DateInput'
 import { useAuth } from '../contexts/AuthContext'
 import './Page.css'
 import './Customers.css'
@@ -354,13 +355,6 @@ const Customers = () => {
       setEditingCustomerId(null)
       setIsModalOpen(false)
     }
-  }
-
-  const handleDateInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value.replace(/\D/g, '')
-    if (value.length >= 2) value = value.slice(0, 2) + '/' + value.slice(2)
-    if (value.length >= 5) value = value.slice(0, 5) + '/' + value.slice(5, 9)
-    handleInputChange('incorporationDate', value)
   }
 
   const getInitials = (name: string) => {
@@ -962,14 +956,11 @@ const Customers = () => {
           <div className="form-row">
             <div className="form-group">
               <label htmlFor="incorporationDate">Incorporation Date <span className="required">*</span></label>
-              <input
-                type="text"
+              <DateInput
                 id="incorporationDate"
                 value={formData.incorporationDate}
-                onChange={handleDateInput}
+                onChange={(v) => setFormData(prev => ({ ...prev, incorporationDate: v }))}
                 className={errors.incorporationDate ? 'error' : ''}
-                placeholder="dd/mm/yyyy"
-                maxLength={10}
               />
               {errors.incorporationDate && <span className="error-message">{errors.incorporationDate}</span>}
             </div>
