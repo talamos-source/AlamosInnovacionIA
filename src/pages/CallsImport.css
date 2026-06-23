@@ -375,6 +375,27 @@
   box-shadow: 0 0 0 2px var(--color-brand-100);
 }
 
+/* CTA primaria dentro del panel derecho del KB modal — visible justo después
+   del formulario para que la usuaria no tenga que buscar el botón en el
+   footer. Misma acción que el footer "Importar", solo es un atajo visual. */
+.ci-kb-import-cta {
+  margin-top: var(--space-4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 18px !important;
+  font-size: var(--font-size-md) !important;
+  font-weight: var(--font-weight-semibold) !important;
+  box-shadow: 0 4px 12px rgba(92, 53, 143, 0.18);
+}
+.ci-kb-import-cta:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .ci-form-hint {
   margin: var(--space-3) 0 0 0;
   font-size: var(--font-size-xs);

@@ -183,7 +183,8 @@ const CallFichaModal = ({ call, onClose }: CallFichaModalProps) => {
     setErrorMessage('')
 
     try {
-      const token = localStorage.getItem('token')
+      // App guarda en 'authToken' — 'token' era un bug heredado
+      const token = localStorage.getItem('authToken') || localStorage.getItem('token')
       const res = await fetch(`${API_BASE}/ai/generate-call-ficha`, {
         method: 'POST',
         headers: {

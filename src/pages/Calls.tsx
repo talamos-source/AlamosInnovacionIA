@@ -36,6 +36,12 @@ interface Call {
   archived?: boolean
   /** Fecha ISO en que se archivó. */
   archivedAt?: string
+  /** Identificador externo de Discovery (EU Portal o BDNS) si fue importada
+   *  desde allí. Permite detectar duplicados aunque cambies el nombre o id. */
+  discoveryExternalId?: string
+  /** Slug de la ficha de Knowledge Base si la call viene del catálogo del agente.
+   *  Usado para detectar si esa ficha ya fue importada este año. */
+  knowledgeBaseSlug?: string
 }
 
 const Calls = () => {
@@ -1109,11 +1115,40 @@ const ImportFromDiscovery = ({
     } catch { return [] }
   }, [])
 
-  // IDs ya importados (para marcarlos)
-  const existingIds = useMemo(
-    () => new Set(existing.map(c => c.id)),
-    [existing],
-  )
+  // Set robusto de identificadores ya importados desde Discovery.
+  // Probamos varias señales (en orden de fiabilidad):
+  //   1) discoveryExternalId — campo persistido al importar
+  //   2) id que empieza por `disc-<externalId>` — formato anterior
+  //   3) sourceUrl idéntico al url de la call externa
+  const existingDiscoveryIds = useMemo(() => {
+    const ids = new Set<string>()
+    const urls = new Set<string>()
+    for (const c of existing) {
+      if (c.discoveryExternalId) ids.add(c.discoveryExternalId)
+      if (c.id?.startsWith('disc-')) {
+        // Extrae el externalId del ID antiguo `disc-<id>[-timestamp]`
+        const rest = c.id.slice(5)
+        // Si tiene timestamp al final (formato nuevo), quita el último segmento numérico
+        const parts = rest.split('-')
+        if (parts.length > 1 && /^\d{10,}$/.test(parts[parts.length - 1])) {
+          parts.pop()
+          ids.add(parts.join('-'))
+        } else {
+          ids.add(rest)
+        }
+      }
+      if (c.sourceUrl) urls.add(c.sourceUrl)
+    }
+    return { ids, urls }
+  }, [existing])
+
+  const isAlreadyImported = (c: DiscoveryCall): boolean => {
+    if (existingDiscoveryIds.ids.has(c.externalId)) return true
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const url = (c as any).url || (c as any).sourceUrl || ''
+    if (url && existingDiscoveryIds.urls.has(url)) return true
+    return false
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -1140,22 +1175,35 @@ const ImportFromDiscovery = ({
   const handleImport = () => {
     const toImport: Call[] = discoveryCalls
       .filter(c => selected.has(c.externalId))
-      .map(c => ({
-        id: `disc-${c.externalId}`,
-        name: c.title || '(sin título)',
-        scope: c.source === 'EU_PORTAL' ? 'European' : 'National',
-        deadline: c.closeDate ? c.closeDate.split('T')[0] : '',
-        budget: c.budget || '',
-        status: 'Open',
-        fundingBody: c.fundingBody || (c.source === 'EU_PORTAL' ? 'EU Commission' : ''),
-        program: c.program || '',
-        year: c.closeDate ? c.closeDate.slice(0, 4) : new Date().getFullYear().toString(),
-        openDate: c.openDate ? c.openDate.split('T')[0] : '',
-        aidType: c.typeOfAction || '',
-        sourceUrl: c.url || '',
-        eligibleRegion: c.region ? [c.region] : [],
-        additionalRequirements: c.description ? c.description.slice(0, 500) : '',
-      }))
+      .map(c => {
+        // URL — fallback robusto: prueba url, sourceUrl (datos viejos), o construye
+        // BDNS desde externalId si está vacía.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const cAny = c as any
+        let sourceUrl: string = cAny.url || cAny.sourceUrl || ''
+        if (!sourceUrl && c.source === 'BDNS' && c.externalId) {
+          sourceUrl = `https://www.pap.hacienda.gob.es/bdnstrans/GE/es/convocatoria/${c.externalId}`
+        }
+
+        return {
+          id: `disc-${c.externalId}-${Date.now()}`,
+          name: c.title || '(sin título)',
+          scope: c.source === 'EU_PORTAL' ? 'European' : 'National',
+          deadline: c.closeDate ? c.closeDate.split('T')[0] : '',
+          budget: c.budget || '',
+          status: 'Open',
+          fundingBody: c.fundingBody || (c.source === 'EU_PORTAL' ? 'EU Commission' : ''),
+          program: c.program || '',
+          year: c.closeDate ? c.closeDate.slice(0, 4) : new Date().getFullYear().toString(),
+          openDate: c.openDate ? c.openDate.split('T')[0] : '',
+          aidType: c.typeOfAction || '',
+          sourceUrl,
+          eligibleRegion: c.region ? [c.region] : [],
+          additionalRequirements: c.description ? c.description.slice(0, 500) : '',
+          // Anclas para detectar duplicados en futuros imports
+          discoveryExternalId: c.externalId,
+        } as Call
+      })
     onImport(toImport)
   }
 
@@ -1202,7 +1250,7 @@ const ImportFromDiscovery = ({
           ) : (
             <ul className="ci-list">
               {filtered.slice(0, 200).map(c => {
-                const isExisting = existingIds.has(`disc-${c.externalId}`)
+                const isExisting = isAlreadyImported(c)
                 const isSelected = selected.has(c.externalId)
                 return (
                   <li
@@ -1356,12 +1404,17 @@ const ImportFromKnowledgeBase = ({
       aidType: humanizeAidType(selected.aidType),
       sourceUrl: '',
       eligibleRegion: [],
+      knowledgeBaseSlug: selected.slug,
     }
     onImport(newCall)
   }
 
-  // IDs ya importados de esta ficha en este año
-  const existingFromKB = (slug: string) => existing.some(c => c.id.startsWith(`kb-${slug}-${form.year}-`))
+  // IDs ya importados de esta ficha en este año (matching por slug + año)
+  const existingFromKB = (slug: string) => existing.some(c =>
+    c.knowledgeBaseSlug === slug
+      ? c.year === form.year
+      : c.id?.startsWith(`kb-${slug}-${form.year}-`)
+  )
 
   return (
     <div className="ci-modal-overlay" onClick={onClose}>
@@ -1501,13 +1554,30 @@ const ImportFromKnowledgeBase = ({
                 {formError && (
                   <div className="ci-form-error">{formError}</div>
                 )}
+
+                {/* CTA visible dentro del panel — la usuaria reportaba no
+                    encontrar el botón de importar en KB. Ahora aparece tanto
+                    aquí como en el footer. */}
+                <button
+                  type="button"
+                  className="btn-primary ci-kb-import-cta"
+                  onClick={handleSubmit}
+                  disabled={!selected}
+                >
+                  <DownloadIcon size={14} />
+                  Importar esta call a /calls
+                </button>
               </>
             )}
           </div>
         </div>
 
         <footer className="ci-modal-footer">
-          <span className="muted">{fichas.length} programas en el catálogo</span>
+          <span className="muted">
+            {fichas.length > 0
+              ? `${fichas.length} programas en el catálogo · ${selected ? '✓ ficha seleccionada' : 'selecciona una ficha →'}`
+              : 'Catálogo no disponible'}
+          </span>
           <div className="ci-footer-actions">
             <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>
             <button
@@ -1515,8 +1585,9 @@ const ImportFromKnowledgeBase = ({
               className="btn-primary"
               onClick={handleSubmit}
               disabled={!selected}
+              title={!selected ? 'Primero selecciona una ficha en la lista de la izquierda' : ''}
             >
-              Import
+              <DownloadIcon size={14} /> Importar
             </button>
           </div>
         </footer>
