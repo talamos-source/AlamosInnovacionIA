@@ -1,10 +1,14 @@
-import { useState, useEffect } from 'react'
-import { Search, ChevronDown, ChevronLeft, ChevronRight, Clock } from 'lucide-react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import {
+  Search, ChevronDown, ChevronLeft, ChevronRight, Clock,
+  Download as DownloadIcon, BookOpen, Compass, Plus, X, Check,
+} from 'lucide-react'
 import ActionsMenu from '../components/ActionsMenu'
 import Modal from '../components/Modal'
 import { formatCurrency } from '../utils/formatCurrency'
 import './Page.css'
 import './SharedTableLayout.css'
+import './CallsImport.css'
 
 interface Call {
   id: string
@@ -39,6 +43,23 @@ const Calls = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingCallId, setEditingCallId] = useState<string | null>(null)
   const itemsPerPage = 10
+
+  /* ── Importación: estado del dropdown + modales ── */
+  const [importMenuOpen, setImportMenuOpen] = useState(false)
+  const importMenuRef = useRef<HTMLDivElement | null>(null)
+  const [discoveryModalOpen, setDiscoveryModalOpen] = useState(false)
+  const [kbModalOpen, setKbModalOpen] = useState(false)
+
+  // Cerrar dropdown si clic fuera
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (importMenuRef.current && !importMenuRef.current.contains(e.target as Node)) {
+        setImportMenuOpen(false)
+      }
+    }
+    if (importMenuOpen) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [importMenuOpen])
 
   // Form state
   const [formData, setFormData] = useState({
@@ -460,8 +481,71 @@ const Calls = () => {
           </div>
         </div>
 
-        <button className="btn-primary" onClick={handleNewCall}>+ New Call</button>
+        <div className="ci-header-actions">
+          {/* Botón Import con dropdown */}
+          <div className="ci-import-wrap" ref={importMenuRef}>
+            <button
+              type="button"
+              className="btn-secondary ci-import-btn"
+              onClick={() => setImportMenuOpen(o => !o)}
+            >
+              <DownloadIcon size={14} /> Import calls
+              <ChevronDown size={12} className={importMenuOpen ? 'ci-chev-open' : ''} />
+            </button>
+            {importMenuOpen && (
+              <div className="ci-import-menu">
+                <button
+                  type="button"
+                  className="ci-import-menu-item"
+                  onClick={() => { setImportMenuOpen(false); setDiscoveryModalOpen(true) }}
+                >
+                  <div className="ci-import-menu-icon"><Compass size={18} /></div>
+                  <div className="ci-import-menu-text">
+                    <strong>Discovery</strong>
+                    <small>Calls sincronizadas en tiempo real de EU Portal y BDNS</small>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  className="ci-import-menu-item"
+                  onClick={() => { setImportMenuOpen(false); setKbModalOpen(true) }}
+                >
+                  <div className="ci-import-menu-icon"><BookOpen size={18} /></div>
+                  <div className="ci-import-menu-text">
+                    <strong>Knowledge Base</strong>
+                    <small>Programas conocidos (fichas) — rellenas las fechas y el budget actuales</small>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+          <button className="btn-primary" onClick={handleNewCall}>+ New Call</button>
+        </div>
       </div>
+
+      {/* MODAL · Import from Discovery */}
+      {discoveryModalOpen && (
+        <ImportFromDiscovery
+          existing={calls}
+          onClose={() => setDiscoveryModalOpen(false)}
+          onImport={(newOnes) => {
+            setCalls(prev => [...prev, ...newOnes])
+            setDiscoveryModalOpen(false)
+          }}
+        />
+      )}
+
+      {/* MODAL · Import from Knowledge Base */}
+      {kbModalOpen && (
+        <ImportFromKnowledgeBase
+          existing={calls}
+          onClose={() => setKbModalOpen(false)}
+          onImport={(newCall) => {
+            setCalls(prev => [...prev, newCall])
+            setKbModalOpen(false)
+          }}
+        />
+      )}
 
       <Modal 
         isOpen={isModalOpen} 
@@ -901,6 +985,482 @@ const Calls = () => {
       </div>
     </div>
   )
+}
+
+/* ============================================================
+   IMPORT FROM DISCOVERY — multi-select de calls sincronizadas
+   ============================================================ */
+
+interface DiscoveryCall {
+  externalId: string
+  source: 'EU_PORTAL' | 'BDNS'
+  title: string
+  fundingBody?: string
+  program?: string
+  typeOfAction?: string
+  region?: string
+  budget?: string
+  closeDate?: string
+  openDate?: string
+  externalStatus?: string
+  description?: string
+  url?: string
+}
+
+const ImportFromDiscovery = ({
+  existing,
+  onClose,
+  onImport,
+}: {
+  existing: Call[]
+  onClose: () => void
+  onImport: (newCalls: Call[]) => void
+}) => {
+  const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [filter, setFilter] = useState<'all' | 'EU_PORTAL' | 'BDNS'>('all')
+
+  const discoveryCalls = useMemo<DiscoveryCall[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('discoveryCalls') || '[]')
+    } catch { return [] }
+  }, [])
+
+  // IDs ya importados (para marcarlos)
+  const existingIds = useMemo(
+    () => new Set(existing.map(c => c.id)),
+    [existing],
+  )
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return discoveryCalls.filter(c => {
+      if (filter !== 'all' && c.source !== filter) return false
+      if (!q) return true
+      return (
+        c.title?.toLowerCase().includes(q) ||
+        c.program?.toLowerCase().includes(q) ||
+        c.fundingBody?.toLowerCase().includes(q)
+      )
+    })
+  }, [discoveryCalls, search, filter])
+
+  const toggleSelect = (id: string) => {
+    setSelected(s => {
+      const next = new Set(s)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleImport = () => {
+    const toImport: Call[] = discoveryCalls
+      .filter(c => selected.has(c.externalId))
+      .map(c => ({
+        id: `disc-${c.externalId}`,
+        name: c.title || '(sin título)',
+        scope: c.source === 'EU_PORTAL' ? 'European' : 'National',
+        deadline: c.closeDate ? c.closeDate.split('T')[0] : '',
+        budget: c.budget || '',
+        status: 'Open',
+        fundingBody: c.fundingBody || (c.source === 'EU_PORTAL' ? 'EU Commission' : ''),
+        program: c.program || '',
+        year: c.closeDate ? c.closeDate.slice(0, 4) : new Date().getFullYear().toString(),
+        openDate: c.openDate ? c.openDate.split('T')[0] : '',
+        aidType: c.typeOfAction || '',
+        sourceUrl: c.url || '',
+        eligibleRegion: c.region ? [c.region] : [],
+        additionalRequirements: c.description ? c.description.slice(0, 500) : '',
+      }))
+    onImport(toImport)
+  }
+
+  return (
+    <div className="ci-modal-overlay" onClick={onClose}>
+      <div className="ci-modal" onClick={e => e.stopPropagation()}>
+        <header className="ci-modal-header">
+          <div>
+            <h2><Compass size={18} /> Import from Discovery</h2>
+            <p className="muted">
+              Selecciona las convocatorias activas que quieres copiar a tu lista de Calls.
+              {discoveryCalls.length === 0 && ' Discovery está vacío — sincroniza primero EU Portal / BDNS.'}
+            </p>
+          </div>
+          <button type="button" className="ci-modal-close" onClick={onClose}><X size={18} /></button>
+        </header>
+
+        <div className="ci-modal-toolbar">
+          <div className="ci-search-input">
+            <Search size={14} />
+            <input
+              type="text"
+              placeholder="Buscar por título, programa, organismo…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="ci-source-chips">
+            <button type="button" className={`ci-chip ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>
+              Todas ({discoveryCalls.length})
+            </button>
+            <button type="button" className={`ci-chip ${filter === 'EU_PORTAL' ? 'active' : ''}`} onClick={() => setFilter('EU_PORTAL')}>
+              EU Portal ({discoveryCalls.filter(c => c.source === 'EU_PORTAL').length})
+            </button>
+            <button type="button" className={`ci-chip ${filter === 'BDNS' ? 'active' : ''}`} onClick={() => setFilter('BDNS')}>
+              BDNS ({discoveryCalls.filter(c => c.source === 'BDNS').length})
+            </button>
+          </div>
+        </div>
+
+        <div className="ci-modal-body">
+          {filtered.length === 0 ? (
+            <p className="ci-empty">No hay convocatorias que coincidan con los filtros.</p>
+          ) : (
+            <ul className="ci-list">
+              {filtered.slice(0, 200).map(c => {
+                const isExisting = existingIds.has(`disc-${c.externalId}`)
+                const isSelected = selected.has(c.externalId)
+                return (
+                  <li
+                    key={c.externalId}
+                    className={`ci-list-item ${isSelected ? 'selected' : ''} ${isExisting ? 'existing' : ''}`}
+                    onClick={() => !isExisting && toggleSelect(c.externalId)}
+                  >
+                    <div className={`ci-check ${isSelected ? 'on' : ''}`}>
+                      {isExisting ? <Check size={12} /> : isSelected ? <Check size={12} /> : null}
+                    </div>
+                    <div className="ci-list-item-content">
+                      <strong>{c.title}</strong>
+                      <span className="ci-list-meta">
+                        <span className={`ci-source-tag ci-source-${c.source.toLowerCase()}`}>
+                          {c.source === 'EU_PORTAL' ? 'EU' : 'BDNS'}
+                        </span>
+                        {c.program && <span>· {c.program}</span>}
+                        {c.closeDate && <span>· Cierre: {c.closeDate.split('T')[0]}</span>}
+                        {c.budget && <span>· {c.budget}</span>}
+                        {isExisting && <span className="ci-existing-tag">ya importada</span>}
+                      </span>
+                    </div>
+                  </li>
+                )
+              })}
+              {filtered.length > 200 && (
+                <li className="ci-list-more">+ {filtered.length - 200} más — refina la búsqueda</li>
+              )}
+            </ul>
+          )}
+        </div>
+
+        <footer className="ci-modal-footer">
+          <span className="muted">{selected.size} seleccionadas</span>
+          <div className="ci-footer-actions">
+            <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleImport}
+              disabled={selected.size === 0}
+            >
+              Import {selected.size > 0 ? `(${selected.size})` : ''}
+            </button>
+          </div>
+        </footer>
+      </div>
+    </div>
+  )
+}
+
+/* ============================================================
+   IMPORT FROM KNOWLEDGE BASE — selecciona ficha + completa datos
+   ============================================================ */
+
+interface FichaMeta {
+  slug: string
+  organisms: string[]
+  aliases: string[]
+  aidType: string | null
+  sectorBound: string | null
+  internationalRequired: boolean
+}
+
+const ImportFromKnowledgeBase = ({
+  existing,
+  onClose,
+  onImport,
+}: {
+  existing: Call[]
+  onClose: () => void
+  onImport: (newCall: Call) => void
+}) => {
+  const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [fichas, setFichas] = useState<FichaMeta[]>([])
+  const [selectedSlug, setSelectedSlug] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  // Form state — campos editables que rellena el consultor
+  const currentYear = new Date().getFullYear()
+  const [form, setForm] = useState({
+    year: String(currentYear),
+    openDate: '',
+    deadline: '',
+    budget: '',
+    status: 'Forthcoming' as 'Open' | 'Forthcoming' | 'Closed',
+    customName: '',
+  })
+
+  useEffect(() => {
+    const fetchFichas = async () => {
+      try {
+        const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) || 'https://alamosinnovacionia.onrender.com'
+        const token = localStorage.getItem('authToken') || ''
+        const res = await fetch(`${API_BASE}/ai/fichas`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const json = await res.json() as { fichas: FichaMeta[] }
+        setFichas(json.fichas || [])
+      } catch (err) {
+        console.error('Failed to load fichas:', err)
+        setFichas([])
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchFichas()
+  }, [])
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return fichas
+    return fichas.filter(f =>
+      f.slug.includes(q) ||
+      f.aliases.some(a => a.toLowerCase().includes(q)) ||
+      f.organisms.some(o => o.toLowerCase().includes(q))
+    )
+  }, [fichas, search])
+
+  const selected = fichas.find(f => f.slug === selectedSlug) || null
+
+  // Scope sugerido según organismo principal
+  const suggestedScope = useMemo(() => {
+    if (!selected) return 'National'
+    const lower = selected.organisms.join(' ').toLowerCase()
+    if (/comisión europea|european|eic|cinea|eacea|eit|eureka/.test(lower)) return 'European'
+    return 'National'
+  }, [selected])
+
+  const handleSubmit = () => {
+    if (!selected) return
+    setFormError(null)
+    if (!form.deadline) {
+      setFormError('La fecha de cierre (deadline) es obligatoria. Si la call es de ventanilla abierta, indica una fecha estimada.')
+      return
+    }
+    const name = form.customName.trim() || humanizeSlug(selected.slug)
+    const newCall: Call = {
+      id: `kb-${selected.slug}-${form.year}-${Date.now()}`,
+      name,
+      scope: suggestedScope,
+      deadline: form.deadline,
+      budget: form.budget || '',
+      status: form.status,
+      fundingBody: selected.organisms[0] || '',
+      program: humanizeSlug(selected.slug),
+      year: form.year,
+      openDate: form.openDate,
+      aidType: humanizeAidType(selected.aidType),
+      sourceUrl: '',
+      eligibleRegion: [],
+    }
+    onImport(newCall)
+  }
+
+  // IDs ya importados de esta ficha en este año
+  const existingFromKB = (slug: string) => existing.some(c => c.id.startsWith(`kb-${slug}-${form.year}-`))
+
+  return (
+    <div className="ci-modal-overlay" onClick={onClose}>
+      <div className="ci-modal ci-modal--kb" onClick={e => e.stopPropagation()}>
+        <header className="ci-modal-header">
+          <div>
+            <h2><BookOpen size={18} /> Import from Knowledge Base</h2>
+            <p className="muted">
+              Elige un programa conocido por el agente y completa las fechas, budget y estado
+              actuales para esta edición.
+            </p>
+          </div>
+          <button type="button" className="ci-modal-close" onClick={onClose}><X size={18} /></button>
+        </header>
+
+        <div className="ci-kb-layout">
+          {/* LEFT — lista de fichas */}
+          <div className="ci-kb-list-panel">
+            <div className="ci-search-input">
+              <Search size={14} />
+              <input
+                type="text"
+                placeholder="Buscar programa o alias…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            {loading ? (
+              <p className="ci-empty">Cargando catálogo…</p>
+            ) : fichas.length === 0 ? (
+              <p className="ci-empty">No se pudo cargar el catálogo (¿backend offline?).</p>
+            ) : (
+              <ul className="ci-list">
+                {filtered.map(f => {
+                  const isSel = f.slug === selectedSlug
+                  const exists = existingFromKB(f.slug)
+                  return (
+                    <li
+                      key={f.slug}
+                      className={`ci-list-item ${isSel ? 'selected' : ''}`}
+                      onClick={() => { setSelectedSlug(f.slug); setForm(prev => ({ ...prev, customName: humanizeSlug(f.slug) + ' ' + prev.year })) }}
+                    >
+                      <div className={`ci-check ${isSel ? 'on' : ''}`}>
+                        {isSel && <Check size={12} />}
+                      </div>
+                      <div className="ci-list-item-content">
+                        <strong>{humanizeSlug(f.slug)}</strong>
+                        <span className="ci-list-meta">
+                          <span className="ci-org-tag">{f.organisms[0] || 'unknown'}</span>
+                          <span>{humanizeAidType(f.aidType)}</span>
+                          {exists && <span className="ci-existing-tag">ya en {form.year}</span>}
+                        </span>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+
+          {/* RIGHT — formulario */}
+          <div className="ci-kb-form-panel">
+            {!selected ? (
+              <div className="ci-empty-form">
+                <BookOpen size={40} />
+                <p>Selecciona un programa de la lista para rellenar las fechas de esta edición.</p>
+              </div>
+            ) : (
+              <>
+                <h3>{humanizeSlug(selected.slug)}</h3>
+                <p className="muted">
+                  Organismo: <strong>{selected.organisms.join(', ')}</strong>
+                  {' · '}Tipo: <strong>{humanizeAidType(selected.aidType)}</strong>
+                </p>
+                <p className="ci-aliases">Aliases: {selected.aliases.slice(0, 4).join(' · ')}</p>
+
+                <div className="ci-form-grid">
+                  <label>
+                    <span>Nombre de la call</span>
+                    <input
+                      type="text"
+                      value={form.customName}
+                      onChange={e => setForm(f => ({ ...f, customName: e.target.value }))}
+                      placeholder={`${humanizeSlug(selected.slug)} ${currentYear}`}
+                    />
+                  </label>
+                  <label>
+                    <span>Año</span>
+                    <input
+                      type="text"
+                      value={form.year}
+                      onChange={e => setForm(f => ({ ...f, year: e.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    <span>Open date (apertura)</span>
+                    <input
+                      type="date"
+                      value={form.openDate}
+                      onChange={e => setForm(f => ({ ...f, openDate: e.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    <span>Deadline (cierre) *</span>
+                    <input
+                      type="date"
+                      value={form.deadline}
+                      onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    <span>Budget / dotación</span>
+                    <input
+                      type="text"
+                      value={form.budget}
+                      onChange={e => setForm(f => ({ ...f, budget: e.target.value }))}
+                      placeholder="€175k - €4M"
+                    />
+                  </label>
+                  <label>
+                    <span>Estado</span>
+                    <select
+                      value={form.status}
+                      onChange={e => setForm(f => ({ ...f, status: e.target.value as 'Open' | 'Forthcoming' | 'Closed' }))}
+                    >
+                      <option value="Forthcoming">Forthcoming</option>
+                      <option value="Open">Open</option>
+                      <option value="Closed">Closed</option>
+                    </select>
+                  </label>
+                </div>
+
+                <p className="ci-form-hint">
+                  Scope detectado por organismo: <strong>{suggestedScope}</strong>
+                </p>
+
+                {formError && (
+                  <div className="ci-form-error">{formError}</div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        <footer className="ci-modal-footer">
+          <span className="muted">{fichas.length} programas en el catálogo</span>
+          <div className="ci-footer-actions">
+            <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleSubmit}
+              disabled={!selected}
+            >
+              Import
+            </button>
+          </div>
+        </footer>
+      </div>
+    </div>
+  )
+}
+
+/* ---- Helpers compartidos ---- */
+
+const humanizeSlug = (slug: string): string => {
+  return slug
+    .split('-')
+    .map(p => p.length <= 4 ? p.toUpperCase() : p[0].toUpperCase() + p.slice(1))
+    .join(' ')
+}
+
+const humanizeAidType = (aid: string | null): string => {
+  if (!aid) return 'Subvención'
+  const a = aid.toLowerCase()
+  if (a.includes('prestamo_participativo')) return 'Préstamo participativo'
+  if (a.includes('prestamo')) return 'Préstamo'
+  if (a.includes('subvencion')) return 'Subvención'
+  if (a.includes('mixta') || a.includes('blended')) return 'Mixta (grant + equity)'
+  if (a.includes('equity') || a.includes('inversion')) return 'Equity'
+  if (a.includes('label')) return 'Label EUREKA + nacional'
+  return aid.replace(/_/g, ' ')
 }
 
 export default Calls
