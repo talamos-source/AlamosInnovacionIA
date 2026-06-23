@@ -139,18 +139,20 @@ const Calls = () => {
     }
   }, [calls])
 
-  // Filter calls
+  // Filter calls — defensive contra datos sucios (campos undefined / null)
+  const safeLower = (v: unknown): string => typeof v === 'string' ? v.toLowerCase() : ''
   const filteredCalls = calls.filter(call => {
+    if (!call || typeof call !== 'object') return false
     const searchLower = searchTerm.toLowerCase()
-    
-    // Search across all table fields
-    const matchesSearch = searchTerm === '' || 
-      call.name.toLowerCase().includes(searchLower) ||
-      call.scope.toLowerCase().includes(searchLower) ||
-      call.deadline.toLowerCase().includes(searchLower) ||
-      call.budget.toLowerCase().includes(searchLower) ||
-      call.status.toLowerCase().includes(searchLower)
-    
+
+    // Search across all table fields — null-safe
+    const matchesSearch = searchTerm === '' ||
+      safeLower(call.name).includes(searchLower) ||
+      safeLower(call.scope).includes(searchLower) ||
+      safeLower(call.deadline).includes(searchLower) ||
+      safeLower(call.budget).includes(searchLower) ||
+      safeLower(call.status).includes(searchLower)
+
     const matchesDeadline = !filters.deadline || filters.deadline === 'All' || call.deadline === filters.deadline
     const matchesStatus = !filters.status || filters.status === 'All' || call.status === filters.status
     const matchesScope = !filters.scope || filters.scope === 'All' || call.scope === filters.scope
@@ -158,10 +160,10 @@ const Calls = () => {
     return matchesSearch && matchesDeadline && matchesStatus && matchesScope
   })
 
-  // Get unique values for filters
-  const uniqueDeadlines = Array.from(new Set(calls.map(c => c.deadline).filter(Boolean))).sort()
-  const uniqueStatuses = Array.from(new Set(calls.map(c => c.status).filter(Boolean))).sort()
-  const uniqueScopes = Array.from(new Set(calls.map(c => c.scope).filter(Boolean))).sort()
+  // Get unique values for filters (filtra strings vacíos / no-string)
+  const uniqueDeadlines = Array.from(new Set(calls.map(c => c?.deadline).filter((v): v is string => typeof v === 'string' && v.length > 0))).sort()
+  const uniqueStatuses = Array.from(new Set(calls.map(c => c?.status).filter((v): v is string => typeof v === 'string' && v.length > 0))).sort()
+  const uniqueScopes = Array.from(new Set(calls.map(c => c?.scope).filter((v): v is string => typeof v === 'string' && v.length > 0))).sort()
 
   // Pagination
   const totalPages = Math.ceil(filteredCalls.length / itemsPerPage)
@@ -798,36 +800,44 @@ const Calls = () => {
                   </td>
                 </tr>
               ) : (
-                paginatedCalls.map(call => (
-                  <tr key={call.id} className="customer-row">
-                    <td className="name-cell">
-                      <div className="customer-name">{call.name}</div>
-                    </td>
-                    <td>
-                      <span className={`scope-badge scope-${call.scope.toLowerCase()}`}>
-                        {call.scope}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="call-deadline">
-                        <Clock size={14} className="call-deadline-icon" />
-                        {formatDate(call.deadline)}
-                      </div>
-                    </td>
-                    <td className="call-budget">{formatCurrency(call.budget)}</td>
-                    <td>
-                      <span className={`status-badge status-${call.status.toLowerCase()}`}>
-                        {call.status}
-                      </span>
-                    </td>
-                    <td>
-                      <ActionsMenu
-                        onEdit={() => handleEdit(call.id)}
-                        onDelete={() => handleDelete(call.id)}
-                      />
-                    </td>
-                  </tr>
-                ))
+                paginatedCalls.map(call => {
+                  // Render defensivo contra calls con campos undefined
+                  const scope = typeof call.scope === 'string' && call.scope ? call.scope : '—'
+                  const status = typeof call.status === 'string' && call.status ? call.status : '—'
+                  const name = typeof call.name === 'string' && call.name ? call.name : '(sin nombre)'
+                  const scopeClass = scope !== '—' ? scope.toLowerCase().replace(/\s+/g, '-') : 'unknown'
+                  const statusClass = status !== '—' ? status.toLowerCase().replace(/\s+/g, '-') : 'unknown'
+                  return (
+                    <tr key={call.id || `call-${Math.random()}`} className="customer-row">
+                      <td className="name-cell">
+                        <div className="customer-name">{name}</div>
+                      </td>
+                      <td>
+                        <span className={`scope-badge scope-${scopeClass}`}>
+                          {scope}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="call-deadline">
+                          <Clock size={14} className="call-deadline-icon" />
+                          {formatDate(call.deadline)}
+                        </div>
+                      </td>
+                      <td className="call-budget">{formatCurrency(call.budget)}</td>
+                      <td>
+                        <span className={`status-badge status-${statusClass}`}>
+                          {status}
+                        </span>
+                      </td>
+                      <td>
+                        <ActionsMenu
+                          onEdit={() => handleEdit(call.id)}
+                          onDelete={() => handleDelete(call.id)}
+                        />
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
