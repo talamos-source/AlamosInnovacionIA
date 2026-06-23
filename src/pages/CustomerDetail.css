@@ -491,3 +491,127 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ============================================================
+   CONTACTS sección
+   ============================================================ */
+.customer-contacts-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-3);
+}
+.customer-contact-card {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-left: 3px solid var(--color-brand-500);
+  border-radius: var(--radius-md);
+  align-items: flex-start;
+}
+.customer-contact-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-brand-700), var(--color-brand-500));
+  color: white;
+  font-weight: var(--font-weight-bold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: var(--font-size-md);
+}
+.customer-contact-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+.customer-contact-body strong {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+.customer-contact-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.customer-contact-meta:hover {
+  color: var(--color-brand-700);
+  text-decoration: underline;
+}
+.customer-contact-comments {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-style: italic;
+  margin-top: 2px;
+  line-height: var(--line-height-snug);
+}
+
+/* ============================================================
+   CONTRACT sección
+   ============================================================ */
+.customer-contract-card {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-4);
+  background: linear-gradient(135deg, var(--color-brand-50), var(--color-bg-surface));
+  border: 1px solid var(--color-brand-200, #D5C9E6);
+  border-radius: var(--radius-md);
+}
+.customer-contract-icon {
+  color: var(--color-brand-700);
+  flex-shrink: 0;
+}
+.customer-contract-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.customer-contract-info strong {
+  display: block;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.customer-contract-info small {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.btn-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  color: var(--color-brand-700);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+}
+.btn-link:hover {
+  background: var(--color-brand-50);
+  text-decoration: underline;
+}

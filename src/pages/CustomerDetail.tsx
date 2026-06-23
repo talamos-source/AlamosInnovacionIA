@@ -13,6 +13,12 @@ import {
   Route,
   Upload,
   X,
+  Users as UsersIcon,
+  Mail,
+  Phone,
+  FileCheck,
+  Download,
+  Calendar,
 } from 'lucide-react'
 import { formatCurrency, parseEuropeanNumber } from '../utils/formatCurrency'
 import './Page.css'
@@ -49,6 +55,20 @@ interface Customer {
   updatedAt?: string
   /** Logo opcional del cliente en data URL (base64) — aparece en exports PPT. */
   logoBase64?: string
+  /** PDF de contrato firmado opcional. */
+  contractPdf?: {
+    dataUrl: string
+    fileName: string
+    uploadedAt: string
+  }
+  /** Lista opcional de contactos del cliente. */
+  contacts?: Array<{
+    id: string
+    name: string
+    email: string
+    phone: string
+    comments: string
+  }>
 }
 
 interface Proposal {
@@ -67,6 +87,8 @@ interface Project {
   title: string
   source: 'proposal' | 'service'
   status: string
+  primaryClients?: string[]
+  secondaryClients?: string[]
 }
 
 /* ============================================================
@@ -205,8 +227,11 @@ const CustomerDetail = () => {
     try {
       const saved = localStorage.getItem('projects')
       const all: Project[] = saved ? JSON.parse(saved) : []
-      // Misma heurística que tenía: por ahora sin filter funcional
-      setProjects(all.filter(() => false))
+      // Filtra por cliente principal o secundario en el proyecto
+      setProjects(all.filter(p =>
+        (p.primaryClients || []).includes(id || '') ||
+        (p.secondaryClients || []).includes(id || '')
+      ))
     } catch (error) {
       console.error('Error loading projects:', error)
     }
@@ -514,6 +539,75 @@ const CustomerDetail = () => {
         <div className="customer-info-section">
           <h2>Description</h2>
           <p>{customer.description}</p>
+        </div>
+      )}
+
+      {/* ============================================================
+          CONTACTS
+          ============================================================ */}
+      {customer.contacts && customer.contacts.length > 0 && (
+        <div className="customer-info-section">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h2><UsersIcon size={18} /> Contacts</h2>
+            <button className="btn-link" onClick={handleEdit}>
+              <Edit size={13} /> Edit
+            </button>
+          </div>
+          <div className="customer-contacts-list">
+            {customer.contacts.map(c => (
+              <div key={c.id} className="customer-contact-card">
+                <div className="customer-contact-avatar">
+                  {c.name ? c.name.slice(0, 1).toUpperCase() : '?'}
+                </div>
+                <div className="customer-contact-body">
+                  <strong>{c.name || '(sin nombre)'}</strong>
+                  {c.email && (
+                    <a href={`mailto:${c.email}`} className="customer-contact-meta">
+                      <Mail size={12} /> {c.email}
+                    </a>
+                  )}
+                  {c.phone && (
+                    <a href={`tel:${c.phone}`} className="customer-contact-meta">
+                      <Phone size={12} /> {c.phone}
+                    </a>
+                  )}
+                  {c.comments && (
+                    <span className="customer-contact-comments">{c.comments}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          CONTRACT PDF
+          ============================================================ */}
+      {customer.contractPdf && (
+        <div className="customer-info-section">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h2><FileCheck size={18} /> Contract</h2>
+            <button className="btn-link" onClick={handleEdit}>
+              <Edit size={13} /> Edit
+            </button>
+          </div>
+          <div className="customer-contract-card">
+            <FileText size={32} className="customer-contract-icon" />
+            <div className="customer-contract-info">
+              <strong>{customer.contractPdf.fileName}</strong>
+              <small>
+                <Calendar size={12} /> Subido el {new Date(customer.contractPdf.uploadedAt).toLocaleString('es-ES', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </small>
+            </div>
+            <a
+              href={customer.contractPdf.dataUrl}
+              download={customer.contractPdf.fileName}
+              className="btn-secondary btn-secondary--sm"
+            >
+              <Download size={14} /> Download
+            </a>
+          </div>
         </div>
       )}
 
