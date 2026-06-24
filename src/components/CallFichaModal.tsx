@@ -106,24 +106,53 @@ interface StoredBrief {
 }
 
 function loadBrief(callId: string | undefined): StoredBrief | null {
-  if (!callId) return null
+  if (!callId) {
+    console.warn('[Brief] loadBrief: no callId provided')
+    return null
+  }
   try {
-    const all = JSON.parse(localStorage.getItem('callBriefs') || '{}')
+    const raw = localStorage.getItem('callBriefs') || '{}'
+    const all = JSON.parse(raw)
     const b = all[callId]
-    if (b && b.ficha) return b as StoredBrief
-  } catch { /* ignore */ }
+    if (b && b.ficha) {
+      console.log(`[Brief] loaded brief for call ${callId}`, { generatedAt: b.generatedAt })
+      return b as StoredBrief
+    }
+    console.log(`[Brief] no brief for call ${callId}. Stored keys:`, Object.keys(all))
+  } catch (err) {
+    console.warn('[Brief] loadBrief parse error:', err)
+  }
   return null
 }
 
-function saveBrief(callId: string | undefined, ficha: CallFicha): void {
-  if (!callId) return
+function saveBrief(callId: string | undefined, ficha: CallFicha): boolean {
+  if (!callId) {
+    console.warn('[Brief] saveBrief: no callId — cannot persist!')
+    return false
+  }
   try {
-    const all = JSON.parse(localStorage.getItem('callBriefs') || '{}')
+    const raw = localStorage.getItem('callBriefs') || '{}'
+    const all = JSON.parse(raw)
     all[callId] = { ficha, generatedAt: new Date().toISOString() }
-    localStorage.setItem('callBriefs', JSON.stringify(all))
+    const serialized = JSON.stringify(all)
+    localStorage.setItem('callBriefs', serialized)
     localStorage.setItem('appDataUpdatedAt', new Date().toISOString())
+
+    // Verify post-write — leer de vuelta para confirmar que se guardó
+    const verify = localStorage.getItem('callBriefs')
+    if (!verify || verify.length < serialized.length / 2) {
+      console.error('[Brief] saveBrief verification failed — storage may be full or blocked')
+      return false
+    }
+    console.log(`[Brief] saved brief for call ${callId} (${(serialized.length / 1024).toFixed(1)} KB)`)
+    return true
   } catch (err) {
-    console.warn('Failed to persist brief:', err)
+    // QuotaExceededError es el más probable si hay muchas fichas grandes
+    console.error('[Brief] saveBrief failed:', err)
+    if (err instanceof Error && /quota|exceed/i.test(err.message)) {
+      alert('No queda espacio en el almacenamiento del navegador. Borra alguna ficha vieja o usa el botón "Regenerar" para sobrescribir.')
+    }
+    return false
   }
 }
 

@@ -12,7 +12,11 @@ export const APP_DATA_KEYS = [
   'discoveryCalls',
   'discoverySources',
   'fundingProfiles',
-  'roadmaps'
+  'roadmaps',
+  // Briefs (fichas comerciales) generados con IA, indexados por callId.
+  // Se sincronizan con backend para que estén disponibles desde cualquier
+  // device y no se pierdan tras un applySnapshot con datos del server.
+  'callBriefs',
 ]
 
 export type AppDataSnapshot = Record<string, string>
