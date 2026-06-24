@@ -240,6 +240,73 @@ const Discovery = () => {
 
   const [calls, setCalls] = useState<DiscoveryCall[]>(loadCalls)
   const [sources, setSources] = useState<DiscoverySourcesState>(loadSources)
+
+  /* ----------------------------------------------------------
+     BACKFILL: marcar como 'imported' las DiscoveryCalls que ya
+     existen en localStorage['calls'] aunque no tengan userStatus.
+     ---------------------------------------------------------- */
+  useEffect(() => {
+    try {
+      const userCallsRaw = localStorage.getItem('calls')
+      if (!userCallsRaw) return
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const userCalls: any[] = JSON.parse(userCallsRaw)
+      if (!Array.isArray(userCalls) || userCalls.length === 0) return
+
+      // Indices rápidos para matching robusto:
+      const byExtId = new Map<string, string>()    // externalId → user call id
+      const byUrl = new Map<string, string>()      // sourceUrl → user call id
+      for (const uc of userCalls) {
+        if (uc?.discoveryExternalId) {
+          byExtId.set(String(uc.discoveryExternalId), uc.id)
+        }
+        // ID antiguo formato `disc-<externalId>[-timestamp]`
+        if (typeof uc?.id === 'string' && uc.id.startsWith('disc-')) {
+          const rest = uc.id.slice(5)
+          const parts = rest.split('-')
+          if (parts.length > 1 && /^\d{10,}$/.test(parts[parts.length - 1])) {
+            parts.pop()
+            byExtId.set(parts.join('-'), uc.id)
+          } else {
+            byExtId.set(rest, uc.id)
+          }
+        }
+        if (uc?.sourceUrl) byUrl.set(String(uc.sourceUrl), uc.id)
+      }
+
+      let changed = false
+      const backfilled = calls.map(c => {
+        // Ya marcada — nada que hacer
+        if (c.userStatus === 'imported') return c
+
+        // ¿Coincide por discoveryExternalId persistido?
+        const byIdMatch = byExtId.get(c.externalId)
+        // ¿Coincide por URL exacta?
+        const byUrlMatch = c.url ? byUrl.get(c.url) : undefined
+        const userCallId = byIdMatch || byUrlMatch
+        if (!userCallId) return c
+
+        changed = true
+        return {
+          ...c,
+          userStatus: 'imported' as const,
+          importedToCallId: userCallId,
+          importedAt: c.importedAt || new Date().toISOString(),
+        }
+      })
+
+      if (changed) {
+        setCalls(backfilled)
+        saveCalls(backfilled)
+        console.log('[Discovery] backfilled imported status for previously-imported calls')
+      }
+    } catch (err) {
+      console.warn('[Discovery] backfill failed:', err)
+    }
+    // Solo al montar (depende de loadCalls que devuelve el snapshot inicial).
+    // No queremos re-ejecutar en cada render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [view, setView] = useState<ViewFilter>('all')
   const [search, setSearch] = useState('')
   const [sourceFilter, setSourceFilter] = useState<'all' | DiscoverySource>('all')
