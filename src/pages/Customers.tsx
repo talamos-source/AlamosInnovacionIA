@@ -202,7 +202,15 @@ const Customers = () => {
   // que el AppDataSync.initialize() de un próximo refresh sobrescriba los
   // cambios locales con un snapshot del server más viejo.
   useEffect(() => {
-    persistAppData('customers', JSON.stringify(customers))
+    const json = JSON.stringify(customers)
+    persistAppData('customers', json)
+    // Verificación post-write
+    const verify = localStorage.getItem('customers')
+    if (verify !== json) {
+      console.error('[Customers] persist verification FAILED! Expected len', json.length, 'got', verify?.length)
+    } else {
+      console.log('[Customers] persisted to localStorage — count:', customers.length, '(', (json.length / 1024).toFixed(1), 'KB )')
+    }
   }, [customers])
 
   const sortedCustomers = [...customers].sort((a, b) =>
@@ -323,10 +331,20 @@ const Customers = () => {
 
       if (editingCustomerId) {
         // Update existing customer
-        setCustomers(prev => prev.map(c => c.id === editingCustomerId ? customerData : c))
+        console.log('[Customers] updating customer', customerData.id, customerData.name)
+        setCustomers(prev => {
+          const next = prev.map(c => c.id === editingCustomerId ? customerData : c)
+          console.log('[Customers] state after update — count:', next.length)
+          return next
+        })
       } else {
         // Add new customer to the list
-        setCustomers(prev => [...prev, customerData])
+        console.log('[Customers] adding new customer', customerData.id, customerData.name, 'category=', customerData.category)
+        setCustomers(prev => {
+          const next = [...prev, customerData]
+          console.log('[Customers] state after add — count:', next.length)
+          return next
+        })
       }
       
       // Reset form and close modal

@@ -22,10 +22,13 @@ const AppDataSync = () => {
     if (!token) return
 
     const pushSnapshot = async (snapshot: Record<string, string>) => {
-      if (syncingRef.current) return
+      if (syncingRef.current) {
+        console.log('[Sync] push skipped — already syncing')
+        return
+      }
       syncingRef.current = true
       try {
-        await fetch(`${API_BASE}/app-data`, {
+        const res = await fetch(`${API_BASE}/app-data`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -33,8 +36,14 @@ const AppDataSync = () => {
           },
           body: JSON.stringify({ data: snapshot })
         })
+        if (res.ok) {
+          const bytes = Object.values(snapshot).join('').length
+          console.log(`[Sync] ✓ pushed snapshot (${Object.keys(snapshot).length} keys, ${(bytes / 1024).toFixed(1)} KB)`)
+        } else {
+          console.error(`[Sync] ✗ push failed: HTTP ${res.status}`)
+        }
       } catch (error) {
-        console.error('Failed to upload app data:', error)
+        console.error('[Sync] ✗ push exception:', error)
       } finally {
         syncingRef.current = false
       }
@@ -42,10 +51,14 @@ const AppDataSync = () => {
 
     const initialize = async () => {
       try {
+        console.log('[Sync] initialize: fetching server snapshot…')
         const response = await fetch(`${API_BASE}/app-data`, {
           headers: { Authorization: `Bearer ${token}` }
         })
-        if (!response.ok) return
+        if (!response.ok) {
+          console.error(`[Sync] initialize fetch failed: HTTP ${response.status}`)
+          return
+        }
         const payload = (await response.json()) as AppDataResponse
         const serverData = payload?.data
         const serverUpdatedAt = payload?.updatedAt ? Date.parse(payload.updatedAt) : 0
@@ -55,8 +68,19 @@ const AppDataSync = () => {
         const localUpdatedAtRaw = localStorage.getItem(APP_DATA_UPDATED_AT_KEY)
         const localUpdatedAt = localUpdatedAtRaw ? Date.parse(localUpdatedAtRaw) : 0
 
+        const serverCustomersN = serverData ? (() => { try { return JSON.parse(serverData.customers || '[]').length } catch { return '?' } })() : 'n/a'
+        const localCustomersN = (() => { try { return JSON.parse(localSnapshot.customers || '[]').length } catch { return '?' } })()
+        console.log('[Sync] initialize:', {
+          hasLocal,
+          localUpdatedAt: localUpdatedAtRaw,
+          serverUpdatedAt: payload?.updatedAt,
+          localCustomers: localCustomersN,
+          serverCustomers: serverCustomersN,
+        })
+
         if (!serverData) {
           if (hasLocal) {
+            console.log('[Sync] server vacío, pusheando local')
             await pushSnapshot(localSnapshot)
             const now = new Date().toISOString()
             localStorage.setItem(APP_DATA_UPDATED_AT_KEY, now)
@@ -65,7 +89,14 @@ const AppDataSync = () => {
           return
         }
 
-        if (!hasLocal || !localUpdatedAtRaw || localUpdatedAt <= serverUpdatedAt) {
+        // CAMBIO CRÍTICO: en empate o si local no tiene timestamp pero SÍ
+        // tiene datos, preferir LOCAL. Solo aplicar server si:
+        //   - No hay datos locales en absoluto, O
+        //   - Server es ESTRICTAMENTE más nuevo que local (> en vez de >=)
+        // Antes con <=, un empate hacía perder los cambios locales sin push.
+        const shouldApplyServer = !hasLocal || (localUpdatedAtRaw && localUpdatedAt < serverUpdatedAt)
+        if (shouldApplyServer) {
+          console.warn('[Sync] applySnapshot del server — local pierde', { localUpdatedAt, serverUpdatedAt, localCustomersN, serverCustomersN })
           applySnapshot(serverData)
           if (payload.updatedAt) {
             localStorage.setItem(APP_DATA_UPDATED_AT_KEY, payload.updatedAt)
@@ -74,12 +105,13 @@ const AppDataSync = () => {
           return
         }
 
+        console.log('[Sync] local gana, pusheando local al server')
         await pushSnapshot(localSnapshot)
         const now = new Date().toISOString()
         localStorage.setItem(APP_DATA_UPDATED_AT_KEY, now)
         snapshotRef.current = JSON.stringify(localSnapshot)
       } catch (error) {
-        console.error('Failed to initialize app data sync:', error)
+        console.error('[Sync] initialize exception:', error)
       }
     }
 
