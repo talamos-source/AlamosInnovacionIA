@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { Search, ChevronDown, ChevronLeft, ChevronRight, X, Users, Calendar, Clock } from 'lucide-react'
 import ActionsMenu from '../components/ActionsMenu'
 import Modal from '../components/Modal'
+import SearchableSelect from '../components/SearchableSelect'
 import { formatCurrency, formatNumber, parseEuropeanNumber } from '../utils/formatCurrency'
 import './Page.css'
 import './SharedTableLayout.css'
@@ -628,21 +629,17 @@ const Proposals = () => {
         <div className="form-row">
           <div className="form-group">
             <label htmlFor="associatedCall">Associated Call <span className="required">*</span></label>
-            <select
+            <SearchableSelect
               id="associatedCall"
               value={formData.associatedCall}
-              onChange={(e) => handleInputChange('associatedCall', e.target.value)}
+              onChange={(v) => handleInputChange('associatedCall', v)}
+              options={availableCalls.map(c => ({ value: c.id, label: c.name }))}
+              placeholder={availableCalls.length === 0 ? 'No calls available. Please add calls first.' : 'Select a call'}
+              searchPlaceholder="Buscar call…"
+              clearable
+              disabled={availableCalls.length === 0}
               className={errors.associatedCall ? 'error' : ''}
-            >
-              <option value="">Select a call</option>
-              {availableCalls.length === 0 ? (
-                <option value="" disabled>No calls available. Please add calls first.</option>
-              ) : (
-                availableCalls.map(call => (
-                  <option key={call.id} value={call.id}>{call.name}</option>
-                ))
-              )}
-            </select>
+            />
             {errors.associatedCall && <span className="error-message">{errors.associatedCall}</span>}
           </div>
         </div>

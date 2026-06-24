@@ -8,6 +8,7 @@ import ActionsMenu from '../components/ActionsMenu'
 import Modal from '../components/Modal'
 import CallFichaModal, { CallFichaInput } from '../components/CallFichaModal'
 import DateInput from '../components/DateInput'
+import SearchableSelect from '../components/SearchableSelect'
 import { formatCurrency } from '../utils/formatCurrency'
 import { mapDiscoveryToCall, mapFichaToCall } from '../utils/callMapping'
 import './Page.css'
@@ -750,17 +751,16 @@ const Calls = () => {
             <div className="form-row">
               <div className="form-group">
                 <label htmlFor="aidType">Aid Type <span className="required">*</span></label>
-                <select
+                <SearchableSelect
                   id="aidType"
                   value={formData.aidType}
-                  onChange={(e) => handleInputChange('aidType', e.target.value)}
+                  onChange={(v) => handleInputChange('aidType', v)}
+                  options={aidTypes}
+                  placeholder="Select type"
+                  searchPlaceholder="Buscar tipo de ayuda…"
+                  clearable
                   className={errors.aidType ? 'error' : ''}
-                >
-                  <option value="">Select type</option>
-                  {aidTypes.map(type => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
+                />
                 {errors.aidType && <span className="error-message">{errors.aidType}</span>}
               </div>
 
@@ -799,17 +799,16 @@ const Calls = () => {
             <div className="form-row">
               <div className="form-group">
                 <label htmlFor="geographicScope">Geographic Scope <span className="required">*</span></label>
-                <select
+                <SearchableSelect
                   id="geographicScope"
                   value={formData.geographicScope}
-                  onChange={(e) => handleInputChange('geographicScope', e.target.value)}
+                  onChange={(v) => handleInputChange('geographicScope', v)}
+                  options={geographicScopes}
+                  placeholder="Select scope"
+                  searchPlaceholder="Buscar ámbito…"
+                  clearable
                   className={errors.geographicScope ? 'error' : ''}
-                >
-                  <option value="">Select scope</option>
-                  {geographicScopes.map(scope => (
-                    <option key={scope} value={scope}>{scope}</option>
-                  ))}
-                </select>
+                />
                 {errors.geographicScope && <span className="error-message">{errors.geographicScope}</span>}
               </div>
 
@@ -902,15 +901,13 @@ const Calls = () => {
             <div className="form-row">
               <div className="form-group">
                 <label htmlFor="status">Status</label>
-                <select
+                <SearchableSelect
                   id="status"
                   value={formData.status}
-                  onChange={(e) => handleInputChange('status', e.target.value)}
-                >
-                  {statuses.map(status => (
-                    <option key={status} value={status}>{status}</option>
-                  ))}
-                </select>
+                  onChange={(v) => handleInputChange('status', v)}
+                  options={statuses}
+                  placeholder="Select status"
+                />
               </div>
             </div>
 

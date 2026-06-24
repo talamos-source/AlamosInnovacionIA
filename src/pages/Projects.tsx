@@ -4,6 +4,7 @@ import { Search, ChevronDown, Calendar, Users, MoreVertical, Clock, Pencil, Tras
 import { formatCurrency, formatNumber, parseEuropeanNumber } from '../utils/formatCurrency'
 import Modal from '../components/Modal'
 import DateInput from '../components/DateInput'
+import SearchableSelect from '../components/SearchableSelect'
 import { useAuth } from '../contexts/AuthContext'
 import './Page.css'
 import './SharedTableLayout.css'
@@ -1580,20 +1581,16 @@ const Projects = () => {
         <form onSubmit={(e) => { e.preventDefault(); handleAddBilling(); }} className="modal-form">
           <div className="form-group">
             <label htmlFor="billing-project">Associated Project <span className="required">*</span></label>
-            <div className="select-wrapper">
-              <select
-                id="billing-project"
-                value={billingFormData.projectId}
-                onChange={(e) => handleBillingFormChange('projectId', e.target.value)}
-                className={billingErrors.projectId ? 'error' : ''}
-              >
-                <option value="">Select a project</option>
-                {projects.map(project => (
-                  <option key={project.id} value={project.id}>{project.title}</option>
-                ))}
-              </select>
-              <ChevronDown size={16} className="select-chevron" />
-            </div>
+            <SearchableSelect
+              id="billing-project"
+              value={billingFormData.projectId}
+              onChange={(v) => handleBillingFormChange('projectId', v)}
+              options={projects.map(p => ({ value: p.id, label: p.title }))}
+              placeholder="Select a project"
+              searchPlaceholder="Buscar proyecto…"
+              clearable
+              className={billingErrors.projectId ? 'error' : ''}
+            />
             {billingErrors.projectId && <span className="error-message">{billingErrors.projectId}</span>}
           </div>
           <div className="form-group">
@@ -1714,20 +1711,16 @@ const Projects = () => {
         <form onSubmit={(e) => { e.preventDefault(); handleAddTask(); }} className="modal-form">
           <div className="form-group">
             <label htmlFor="task-project">Associated Project <span className="required">*</span></label>
-            <div className="select-wrapper">
-              <select
-                id="task-project"
-                value={taskFormData.projectId}
-                onChange={(e) => handleTaskFormChange('projectId', e.target.value)}
-                className={taskErrors.projectId ? 'error' : ''}
-              >
-                <option value="">Select a project</option>
-                {projects.map(project => (
-                  <option key={project.id} value={project.id}>{project.title}</option>
-                ))}
-              </select>
-              <ChevronDown size={16} className="select-chevron" />
-            </div>
+            <SearchableSelect
+              id="task-project"
+              value={taskFormData.projectId}
+              onChange={(v) => handleTaskFormChange('projectId', v)}
+              options={projects.map(p => ({ value: p.id, label: p.title }))}
+              placeholder="Select a project"
+              searchPlaceholder="Buscar proyecto…"
+              clearable
+              className={taskErrors.projectId ? 'error' : ''}
+            />
             {taskErrors.projectId && <span className="error-message">{taskErrors.projectId}</span>}
           </div>
           <div className="form-group">

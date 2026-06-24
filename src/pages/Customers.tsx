@@ -956,17 +956,14 @@ const Customers = () => {
 
             <div className="form-group">
               <label htmlFor="companySize">Company Size <span className="required">*</span></label>
-              <select
+              <SearchableSelect
                 id="companySize"
                 value={formData.companySize}
-                onChange={(e) => handleInputChange('companySize', e.target.value)}
+                onChange={(v) => handleInputChange('companySize', v)}
+                options={companySizes}
+                placeholder="Select size"
                 className={errors.companySize ? 'error' : ''}
-              >
-                <option value="">Select size</option>
-                {companySizes.map(size => (
-                  <option key={size} value={size}>{size}</option>
-                ))}
-              </select>
+              />
               {errors.companySize && <span className="error-message">{errors.companySize}</span>}
             </div>
           </div>
@@ -1015,18 +1012,14 @@ const Customers = () => {
           <div className="form-row">
             <div className="form-group form-group--full">
               <label htmlFor="memberOf">Member of</label>
-              <select
+              <SearchableSelect
                 id="memberOf"
                 value={memberOfPick}
-                onChange={(e) => addMemberOf(e.target.value)}
-              >
-                <option value="">Select an accelerator, incubator or partner…</option>
-                {accelerators
-                  .filter(a => !formData.memberOf.includes(a))
-                  .map(a => (
-                    <option key={a} value={a}>{a}</option>
-                  ))}
-              </select>
+                onChange={(v) => addMemberOf(v)}
+                options={accelerators.filter(a => !formData.memberOf.includes(a))}
+                placeholder="Select an accelerator, incubator or partner…"
+                searchPlaceholder="Buscar aceleradora, incubadora…"
+              />
 
               {formData.memberOf.length > 0 && (
                 <div className="chip-list">
@@ -1100,30 +1093,27 @@ const Customers = () => {
           <div className="form-row">
             <div className="form-group">
               <label htmlFor="status">Status</label>
-              <select
+              <SearchableSelect
                 id="status"
                 value={formData.status}
-                onChange={(e) => handleInputChange('status', e.target.value)}
-              >
-                {statuses.map(status => (
-                  <option key={status} value={status}>{status}</option>
-                ))}
-              </select>
+                onChange={(v) => handleInputChange('status', v)}
+                options={statuses}
+                placeholder="Select status"
+              />
             </div>
 
             <div className="form-group">
               <label htmlFor="category">Category <span className="required">*</span></label>
-              <select
+              <SearchableSelect
                 id="category"
                 value={formData.category}
-                onChange={(e) => handleInputChange('category', e.target.value)}
+                onChange={(v) => handleInputChange('category', v)}
+                options={categories}
+                placeholder="Select category"
+                searchPlaceholder="Buscar categoría…"
+                clearable
                 className={errors.category ? 'error' : ''}
-              >
-                <option value="">Select category</option>
-                {categories.map(category => (
-                  <option key={category} value={category}>{category}</option>
-                ))}
-              </select>
+              />
               {errors.category && <span className="error-message">{errors.category}</span>}
             </div>
           </div>

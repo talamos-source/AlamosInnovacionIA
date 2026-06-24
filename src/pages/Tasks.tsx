@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { Search, ChevronDown, Pencil, Trash2, Plus, List, Calendar, ChevronLeft, ChevronRight } from 'lucide-react'
 import Modal from '../components/Modal'
 import DateInput from '../components/DateInput'
+import SearchableSelect from '../components/SearchableSelect'
 import './Page.css'
 import './SharedTableLayout.css'
 
@@ -969,17 +970,16 @@ const Tasks = () => {
           <div className="form-group">
             <label htmlFor="new-task-project">Project <span className="required">*</span></label>
             <div className="select-wrapper">
-              <select
+              <SearchableSelect
                 id="new-task-project"
                 value={taskFormData.projectId}
-                onChange={(e) => handleTaskFormChange('projectId', e.target.value)}
+                onChange={(v) => handleTaskFormChange('projectId', v)}
+                options={projects.map(p => ({ value: p.id, label: p.title }))}
+                placeholder="Select a project"
+                searchPlaceholder="Buscar proyecto…"
+                clearable
                 className={taskErrors.projectId ? 'error' : ''}
-              >
-                <option value="">Select a project</option>
-                {projects.map(project => (
-                  <option key={project.id} value={project.id}>{project.title}</option>
-                ))}
-              </select>
+              />
               <ChevronDown size={16} className="select-chevron" />
             </div>
             {taskErrors.projectId && <span className="error-message">{taskErrors.projectId}</span>}
@@ -1113,17 +1113,16 @@ const Tasks = () => {
           <div className="form-group">
             <label htmlFor="edit-task-project">Project <span className="required">*</span></label>
             <div className="select-wrapper">
-              <select
+              <SearchableSelect
                 id="edit-task-project"
                 value={taskFormData.projectId}
-                onChange={(e) => handleTaskFormChange('projectId', e.target.value)}
+                onChange={(v) => handleTaskFormChange('projectId', v)}
+                options={projects.map(p => ({ value: p.id, label: p.title }))}
+                placeholder="Select a project"
+                searchPlaceholder="Buscar proyecto…"
+                clearable
                 className={taskErrors.projectId ? 'error' : ''}
-              >
-                <option value="">Select a project</option>
-                {projects.map(project => (
-                  <option key={project.id} value={project.id}>{project.title}</option>
-                ))}
-              </select>
+              />
               <ChevronDown size={16} className="select-chevron" />
             </div>
             {taskErrors.projectId && <span className="error-message">{taskErrors.projectId}</span>}
