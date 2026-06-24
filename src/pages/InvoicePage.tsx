@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { formatCurrency, parseEuropeanNumber } from '../utils/formatCurrency'
+import { persistAppData } from '../utils/appData'
 import './Page.css'
 
 const formatDate = (iso: string) => {
@@ -91,7 +92,7 @@ const InvoicePage = () => {
         total
       })
     }
-    localStorage.setItem('invoices', JSON.stringify(invoices))
+    persistAppData('invoices', JSON.stringify(invoices))
   }
 
   const updateBillingStatus = (status: string) => {
@@ -106,7 +107,7 @@ const InvoicePage = () => {
       )
       return { ...proj, billingSchedule: updatedSchedule }
     })
-    localStorage.setItem('projects', JSON.stringify(updatedProjects))
+    persistAppData('projects', JSON.stringify(updatedProjects))
   }
 
   const handleSend = () => {
@@ -136,7 +137,7 @@ const InvoicePage = () => {
         total
       })
     }
-    localStorage.setItem('invoices', JSON.stringify(invoices))
+    persistAppData('invoices', JSON.stringify(invoices))
     updateBillingStatus('Invoice_sent')
     // Trigger print dialog for PDF saving
     window.print()

@@ -21,6 +21,7 @@ import {
   Calendar,
 } from 'lucide-react'
 import { formatCurrency, parseEuropeanNumber } from '../utils/formatCurrency'
+import { persistAppData } from '../utils/appData'
 import './Page.css'
 import './CustomerDetail.css'
 
@@ -178,7 +179,7 @@ const CustomerDetail = () => {
           const saved = localStorage.getItem('customers')
           const customers: Customer[] = saved ? JSON.parse(saved) : []
           const next = customers.map(c => c.id === updated.id ? updated : c)
-          localStorage.setItem('customers', JSON.stringify(next))
+          persistAppData('customers', JSON.stringify(next))
         } catch (err) {
           console.error('Error saving logo:', err)
         }
@@ -199,7 +200,7 @@ const CustomerDetail = () => {
       const saved = localStorage.getItem('customers')
       const customers: Customer[] = saved ? JSON.parse(saved) : []
       const next = customers.map(c => c.id === updated.id ? updated : c)
-      localStorage.setItem('customers', JSON.stringify(next))
+      persistAppData('customers', JSON.stringify(next))
     } catch (err) {
       console.error('Error removing logo:', err)
     }

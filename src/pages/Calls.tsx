@@ -10,6 +10,7 @@ import CallFichaModal, { CallFichaInput } from '../components/CallFichaModal'
 import DateInput from '../components/DateInput'
 import SearchableSelect from '../components/SearchableSelect'
 import { formatCurrency } from '../utils/formatCurrency'
+import { persistAppData } from '../utils/appData'
 import { mapDiscoveryToCall, mapFichaToCall } from '../utils/callMapping'
 import './Page.css'
 import './SharedTableLayout.css'
@@ -191,10 +192,12 @@ const Calls = () => {
   // Calls state - load from localStorage
   const [calls, setCalls] = useState<Call[]>(loadCalls)
 
-  // Save calls to localStorage whenever they change
+  // Save calls to localStorage whenever they change.
+  // Usar persistAppData para actualizar appDataUpdatedAt y evitar pérdida
+  // de datos por AppDataSync que pullea snapshot viejo del server.
   useEffect(() => {
     try {
-      localStorage.setItem('calls', JSON.stringify(calls))
+      persistAppData('calls', JSON.stringify(calls))
     } catch (error) {
       console.error('Error saving calls to localStorage:', error)
     }

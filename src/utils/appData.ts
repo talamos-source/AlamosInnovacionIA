@@ -41,3 +41,24 @@ export const applySnapshot = (data: AppDataSnapshot) => {
     }
   })
 }
+
+/**
+ * Helper SEGURO para persistir cualquier APP_DATA_KEY a localStorage.
+ * Actualiza el timestamp `appDataUpdatedAt` automáticamente para que
+ * el próximo AppDataSync.initialize() respete los datos locales y no
+ * los sobrescriba con un snapshot del server más viejo.
+ *
+ * USAR SIEMPRE en lugar de `localStorage.setItem(key, value)` cuando
+ * `key` esté en APP_DATA_KEYS. Si no se actualiza el timestamp, los
+ * datos locales pueden perderse en el próximo refresh de la app.
+ */
+export const persistAppData = (key: string, value: string): void => {
+  try {
+    localStorage.setItem(key, value)
+    if (APP_DATA_KEYS.includes(key)) {
+      localStorage.setItem(APP_DATA_UPDATED_AT_KEY, new Date().toISOString())
+    }
+  } catch (err) {
+    console.error(`[appData] persistAppData failed for ${key}:`, err)
+  }
+}

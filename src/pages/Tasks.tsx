@@ -4,6 +4,7 @@ import { Search, ChevronDown, Pencil, Trash2, Plus, List, Calendar, ChevronLeft,
 import Modal from '../components/Modal'
 import DateInput from '../components/DateInput'
 import SearchableSelect from '../components/SearchableSelect'
+import { persistAppData } from '../utils/appData'
 import './Page.css'
 import './SharedTableLayout.css'
 
@@ -195,7 +196,7 @@ const Tasks = () => {
     )
 
     try {
-      localStorage.setItem('projects', JSON.stringify(updatedProjects))
+      persistAppData('projects', JSON.stringify(updatedProjects))
       setProjects(updatedProjects)
       setAllTasks(prev => [...prev, newTask])
     } catch (error) {
@@ -299,7 +300,7 @@ const Tasks = () => {
     )
 
     try {
-      localStorage.setItem('projects', JSON.stringify(updatedProjects))
+      persistAppData('projects', JSON.stringify(updatedProjects))
       setProjects(updatedProjects)
       setAllTasks(prev => prev.map(t => t.id === selectedTask.id ? updatedTask : t))
     } catch (error) {

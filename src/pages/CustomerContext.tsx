@@ -13,6 +13,7 @@ import {
   Check,
 } from 'lucide-react'
 import { extractDocumentText } from '../utils/extractDocumentText'
+import { persistAppData } from '../utils/appData'
 import './Page.css'
 import './CustomerContext.css'
 
@@ -106,7 +107,7 @@ const loadCustomers = (): Customer[] => {
 }
 
 const saveCustomers = (customers: Customer[]) => {
-  localStorage.setItem('customers', JSON.stringify(customers))
+  persistAppData('customers', JSON.stringify(customers))
   localStorage.setItem('appDataUpdatedAt', new Date().toISOString())
 }
 

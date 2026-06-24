@@ -8,6 +8,7 @@ import Modal from '../components/Modal'
 import ActionsMenu from '../components/ActionsMenu'
 import DateInput from '../components/DateInput'
 import SearchableSelect from '../components/SearchableSelect'
+import { persistAppData } from '../utils/appData'
 import { useAuth } from '../contexts/AuthContext'
 import './Page.css'
 import './Customers.css'
@@ -196,13 +197,12 @@ const Customers = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, customers])
 
-  // Save customers to localStorage whenever they change
+  // Save customers to localStorage whenever they change.
+  // CRÍTICO: usar persistAppData para actualizar appDataUpdatedAt y evitar
+  // que el AppDataSync.initialize() de un próximo refresh sobrescriba los
+  // cambios locales con un snapshot del server más viejo.
   useEffect(() => {
-    try {
-      localStorage.setItem('customers', JSON.stringify(customers))
-    } catch (error) {
-      console.error('Error saving customers to localStorage:', error)
-    }
+    persistAppData('customers', JSON.stringify(customers))
   }, [customers])
 
   const sortedCustomers = [...customers].sort((a, b) =>

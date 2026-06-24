@@ -5,6 +5,7 @@ import { formatCurrency, formatNumber, parseEuropeanNumber } from '../utils/form
 import Modal from '../components/Modal'
 import DateInput from '../components/DateInput'
 import SearchableSelect from '../components/SearchableSelect'
+import { persistAppData } from '../utils/appData'
 import { useAuth } from '../contexts/AuthContext'
 import './Page.css'
 import './SharedTableLayout.css'
@@ -288,7 +289,7 @@ const Projects = () => {
     // Save to localStorage only if there are new projects
     if (newProjects.length > 0) {
       try {
-        localStorage.setItem('projects', JSON.stringify(allProjects))
+        persistAppData('projects', JSON.stringify(allProjects))
       } catch (error) {
         console.error('Error saving projects:', error)
       }
@@ -376,7 +377,7 @@ const Projects = () => {
       // Save to localStorage only if there are new projects
       if (newProjects.length > 0) {
         try {
-          localStorage.setItem('projects', JSON.stringify(allProjects))
+          persistAppData('projects', JSON.stringify(allProjects))
         } catch (error) {
           console.error('Error saving projects:', error)
         }
@@ -506,7 +507,7 @@ const Projects = () => {
     setProjects(prev => {
       const updated = prev.map(p => p.id === selectedProject.id ? updatedProject : p)
       try {
-        localStorage.setItem('projects', JSON.stringify(updated))
+        persistAppData('projects', JSON.stringify(updated))
       } catch (error) {
         console.error('Error saving project:', error)
       }
@@ -633,7 +634,7 @@ const Projects = () => {
     setProjects(prev => {
       const updated = prev.map(p => p.id === resolvedProject.id ? updatedProject : p)
       try {
-        localStorage.setItem('projects', JSON.stringify(updated))
+        persistAppData('projects', JSON.stringify(updated))
       } catch (error) {
         console.error('Error saving billing:', error)
       }
@@ -772,7 +773,7 @@ const Projects = () => {
     setProjects(prev => {
       const updated = prev.map(p => p.id === selectedProject.id ? updatedProject : p)
       try {
-        localStorage.setItem('projects', JSON.stringify(updated))
+        persistAppData('projects', JSON.stringify(updated))
       } catch (error) {
         console.error('Error saving billing:', error)
       }
@@ -866,7 +867,7 @@ const Projects = () => {
     setProjects(prev => {
       const updated = prev.map(p => p.id === resolvedProject.id ? updatedProject : p)
       try {
-        localStorage.setItem('projects', JSON.stringify(updated))
+        persistAppData('projects', JSON.stringify(updated))
       } catch (error) {
         console.error('Error saving task:', error)
       }
@@ -968,7 +969,7 @@ const Projects = () => {
     setProjects(prev => {
       const updated = prev.map(p => p.id === selectedProject.id ? updatedProject : p)
       try {
-        localStorage.setItem('projects', JSON.stringify(updated))
+        persistAppData('projects', JSON.stringify(updated))
       } catch (error) {
         console.error('Error saving task:', error)
       }
