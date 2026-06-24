@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import {
   X, Upload, FileText, Trash2, Sparkles, Download, Loader2,
   Building2, Calendar, Users, Coins, FileSearch, CheckCircle2, AlertCircle,
+  RefreshCw, FileEdit,
 } from 'lucide-react'
 import { extractDocumentText } from '../utils/extractDocumentText'
 import { generateCallFichaPpt } from '../utils/callFichaPpt'
@@ -93,6 +94,106 @@ const API_BASE =
 const MAX_FILE_SIZE = 12 * 1024 * 1024 // 12MB por doc
 const MAX_DOCS = 6
 
+/* ── Persistencia de fichas generadas ─────────────────────
+   Cada ficha se guarda en localStorage['callBriefs'] como un map:
+   { [callId]: { ficha, generatedAt } }
+   Al reabrir el modal con la misma call, cargamos la ficha
+   directamente en preview (sin obligar a re-subir docs). */
+
+interface StoredBrief {
+  ficha: CallFicha
+  generatedAt: string
+}
+
+function loadBrief(callId: string | undefined): StoredBrief | null {
+  if (!callId) return null
+  try {
+    const all = JSON.parse(localStorage.getItem('callBriefs') || '{}')
+    const b = all[callId]
+    if (b && b.ficha) return b as StoredBrief
+  } catch { /* ignore */ }
+  return null
+}
+
+function saveBrief(callId: string | undefined, ficha: CallFicha): void {
+  if (!callId) return
+  try {
+    const all = JSON.parse(localStorage.getItem('callBriefs') || '{}')
+    all[callId] = { ficha, generatedAt: new Date().toISOString() }
+    localStorage.setItem('callBriefs', JSON.stringify(all))
+    localStorage.setItem('appDataUpdatedAt', new Date().toISOString())
+  } catch (err) {
+    console.warn('Failed to persist brief:', err)
+  }
+}
+
+/** Construye un bloque de "requirements" en bullets a partir de la ficha,
+ *  listo para volcar al campo additionalRequirements de la Call. */
+function fichaToRequirements(ficha: CallFicha): string {
+  const lines: string[] = []
+  if (ficha.aboutCall) lines.push(`📌 OBJETO\n${ficha.aboutCall.trim()}`)
+
+  if (ficha.beneficiaries.length > 0) {
+    lines.push(`\n👥 BENEFICIARIOS`)
+    ficha.beneficiaries.forEach(b => lines.push(`  • ${b}`))
+  }
+  if (ficha.excludedBeneficiaries.length > 0) {
+    lines.push(`\n🚫 NO ELEGIBLES`)
+    ficha.excludedBeneficiaries.forEach(b => lines.push(`  • ${b}`))
+  }
+
+  const pf = ficha.projectFeatures
+  const projParts: string[] = []
+  if (pf.duration) projParts.push(`Duración: ${pf.duration}`)
+  if (pf.budgetMin || pf.budgetMax) {
+    projParts.push(`Presupuesto: ${pf.budgetMin || '—'} – ${pf.budgetMax || '—'}`)
+  }
+  if (pf.consortium) projParts.push(`Consorcio: ${pf.consortium}`)
+  if (pf.geographic) projParts.push(`Ámbito: ${pf.geographic}`)
+  if (pf.trl) projParts.push(`TRL: ${pf.trl}`)
+  if (projParts.length > 0) {
+    lines.push(`\n🧪 PROYECTO\n  • ${projParts.join('\n  • ')}`)
+  }
+
+  const af = ficha.aidFeatures
+  const aidParts: string[] = []
+  if (af.type) aidParts.push(`Tipo: ${af.type}`)
+  if (af.intensity) aidParts.push(`Intensidad: ${af.intensity}`)
+  if (af.maxAmount) aidParts.push(`Máximo: ${af.maxAmount}`)
+  if (af.minAmount) aidParts.push(`Mínimo: ${af.minAmount}`)
+  if (af.advancePayment) aidParts.push(`Anticipo: ${af.advancePayment}`)
+  if (aidParts.length > 0) {
+    lines.push(`\n💰 AYUDA\n  • ${aidParts.join('\n  • ')}`)
+  }
+
+  if (ficha.eligibleCosts.length > 0) {
+    lines.push(`\n✅ COSTES ELEGIBLES\n  • ${ficha.eligibleCosts.join('\n  • ')}`)
+  }
+  if (ficha.nonEligibleCosts.length > 0) {
+    lines.push(`\n❌ NO FINANCIABLES\n  • ${ficha.nonEligibleCosts.join('\n  • ')}`)
+  }
+
+  if (ficha.evaluationCriteria.minScore || ficha.evaluationCriteria.criteria.length > 0) {
+    lines.push(`\n📊 EVALUACIÓN`)
+    if (ficha.evaluationCriteria.minScore) {
+      lines.push(`  • Mínimo para ser financiable: ${ficha.evaluationCriteria.minScore}`)
+    }
+    ficha.evaluationCriteria.criteria.forEach(c => {
+      const weight = c.weight ? ` (${c.weight})` : ''
+      lines.push(`  • ${c.name}${weight}${c.description ? ': ' + c.description : ''}`)
+    })
+  }
+
+  if (ficha.novelties.length > 0) {
+    lines.push(`\n🆕 NOVEDADES\n  • ${ficha.novelties.join('\n  • ')}`)
+  }
+  if (ficha.alamosCommentary) {
+    lines.push(`\n💬 ANÁLISIS ÁLAMOS\n${ficha.alamosCommentary}`)
+  }
+
+  return lines.join('\n').trim()
+}
+
 /* ── Componente ────────────────────────────────────────── */
 
 const CallFichaModal = ({ call, onClose }: CallFichaModalProps) => {
@@ -101,8 +202,26 @@ const CallFichaModal = ({ call, onClose }: CallFichaModalProps) => {
   const [ficha, setFicha] = useState<CallFicha | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
   const [exporting, setExporting] = useState(false)
+  /** Si hay ficha previamente guardada para esta call, la cargamos en
+   *  preview directo. La usuaria puede editarla, exportar PPT, o regenerar. */
+  const [storedAt, setStoredAt] = useState<string | null>(null)
+  const [updateCallStatus, setUpdateCallStatus] = useState<'idle' | 'updated'>('idle')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropRef = useRef<HTMLDivElement>(null)
+
+  /* ── Cargar ficha persistida al abrir ── */
+  useEffect(() => {
+    const stored = loadBrief(call?.id)
+    if (stored) {
+      setFicha(stored.ficha)
+      setStoredAt(stored.generatedAt)
+      setStep('preview')
+    } else {
+      setFicha(null)
+      setStoredAt(null)
+      setStep('upload')
+    }
+  }, [call?.id])
 
   /* ── Lock scroll body ── */
   useEffect(() => {
@@ -218,7 +337,11 @@ const CallFichaModal = ({ call, onClose }: CallFichaModalProps) => {
       if (!data.ficha) {
         throw new Error('La respuesta del agente no contiene "ficha".')
       }
-      setFicha(data.ficha as CallFicha)
+      const newFicha = data.ficha as CallFicha
+      setFicha(newFicha)
+      // Auto-persiste: la ficha queda guardada y se cargará al reabrir
+      saveBrief(call?.id, newFicha)
+      setStoredAt(new Date().toISOString())
       setStep('preview')
     } catch (err) {
       console.error('generate-call-ficha error:', err)
@@ -241,9 +364,65 @@ const CallFichaModal = ({ call, onClose }: CallFichaModalProps) => {
     }
   }
 
-  /* ── Editar campos en preview ── */
+  /* ── Editar campos en preview (auto-save) ── */
   const updateFichaField = <K extends keyof CallFicha>(key: K, value: CallFicha[K]) => {
-    setFicha(prev => (prev ? { ...prev, [key]: value } : prev))
+    setFicha(prev => {
+      if (!prev) return prev
+      const next = { ...prev, [key]: value }
+      saveBrief(call?.id, next)
+      return next
+    })
+  }
+
+  /* ── Update Call: volcar requisitos extraídos al campo
+        additionalRequirements de la call original ── */
+  const handleUpdateCall = () => {
+    if (!ficha || !call?.id) return
+    try {
+      const allCalls = JSON.parse(localStorage.getItem('calls') || '[]')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const idx = allCalls.findIndex((c: any) => c.id === call.id)
+      if (idx < 0) {
+        alert('No se ha encontrado la call original en /calls. Quizá fue eliminada.')
+        return
+      }
+      const requirements = fichaToRequirements(ficha)
+      const current = allCalls[idx]
+
+      // Merge: solo rellena campos vacíos (no sobrescribe lo que ya tenga la usuaria).
+      // additionalRequirements SÍ se reemplaza porque es el campo objetivo.
+      const updated = {
+        ...current,
+        additionalRequirements: requirements,
+        // Solo rellena si están vacíos:
+        aidType: current.aidType || ficha.aidFeatures.type || current.aidType,
+        budget: current.budget || ficha.callBudget || current.budget,
+        program: current.program || ficha.title || current.program,
+        fundingBody: current.fundingBody || ficha.organism || current.fundingBody,
+        // Marca cuándo se actualizó desde la ficha
+        internalNotes: [
+          current.internalNotes,
+          `[Updated from AI brief on ${new Date().toLocaleDateString('es-ES')}]`,
+        ].filter(Boolean).join('\n'),
+      }
+      allCalls[idx] = updated
+      localStorage.setItem('calls', JSON.stringify(allCalls))
+      localStorage.setItem('appDataUpdatedAt', new Date().toISOString())
+      setUpdateCallStatus('updated')
+      // Reset el indicador a los 4s
+      setTimeout(() => setUpdateCallStatus('idle'), 4000)
+    } catch (err) {
+      console.error('Failed to update call:', err)
+      alert('Error al actualizar la call: ' + (err instanceof Error ? err.message : 'desconocido'))
+    }
+  }
+
+  /* ── Regenerar: limpia preview y vuelve al upload ── */
+  const handleRegenerate = () => {
+    setFicha(null)
+    setStoredAt(null)
+    setDocs([])
+    setStep('upload')
   }
 
   const readyCount = docs.filter(d => d.status === 'ready').length
@@ -369,7 +548,12 @@ const CallFichaModal = ({ call, onClose }: CallFichaModalProps) => {
           <div className="cfm-body cfm-preview">
             <div className="cfm-preview-banner">
               <CheckCircle2 size={18} />
-              Ficha generada. Revisa los campos clave antes de exportar — son editables.
+              <span>
+                {storedAt
+                  ? `Ficha guardada · última actualización ${new Date(storedAt).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' })}`
+                  : 'Ficha generada.'}
+                {' '}Los campos clave son editables (se guardan automáticamente).
+              </span>
             </div>
 
             {/* Identificación */}
@@ -544,11 +728,26 @@ const CallFichaModal = ({ call, onClose }: CallFichaModalProps) => {
           {step === 'preview' && (
             <>
               <span className="cfm-doc-count">
-                Ficha lista — revisa y exporta
+                {updateCallStatus === 'updated'
+                  ? <span className="cfm-update-ok"><CheckCircle2 size={14} /> Call actualizada con los requisitos</span>
+                  : 'Ficha guardada · revisa, actualiza la call o exporta el PPT'}
               </span>
               <div className="cfm-footer-actions">
-                <button className="cfm-btn cfm-btn--secondary" onClick={() => setStep('upload')}>
-                  ← Subir otros docs
+                <button
+                  className="cfm-btn cfm-btn--secondary"
+                  onClick={handleRegenerate}
+                  title="Subir otros documentos y regenerar la ficha desde cero"
+                >
+                  <RefreshCw size={14} />
+                  Regenerar
+                </button>
+                <button
+                  className="cfm-btn cfm-btn--secondary cfm-btn--update"
+                  onClick={handleUpdateCall}
+                  title="Vuelca los requisitos extraídos al campo 'Additional requirements' de la call original (no sobrescribe lo que ya tenga)"
+                >
+                  <FileEdit size={14} />
+                  Update call
                 </button>
                 <button
                   className="cfm-btn cfm-btn--primary"

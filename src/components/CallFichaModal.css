@@ -383,6 +383,27 @@
 }
 .cfm-btn--secondary:hover { background: var(--color-bg-muted); }
 
+/* Botón Update Call — destacado pero secundario al export PPT.
+   Color brand muted para indicar acción importante sin competir con primary. */
+.cfm-btn--update {
+  color: var(--color-brand-700) !important;
+  border-color: var(--color-brand-300, #C8B1E0) !important;
+  background: var(--color-brand-50) !important;
+}
+.cfm-btn--update:hover {
+  background: var(--color-brand-100) !important;
+  border-color: var(--color-brand-500) !important;
+}
+
+/* Feedback "Call actualizada" en el footer */
+.cfm-update-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-success-700, #2E7D5A);
+  font-weight: var(--font-weight-semibold);
+}
+
 /* ── Responsive ─────────────────────────────────────── */
 
 @media (max-width: 720px) {
