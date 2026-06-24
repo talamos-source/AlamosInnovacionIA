@@ -51,6 +51,12 @@ const AppDataSync = () => {
 
     const initialize = async () => {
       try {
+        // 1) Snapshot del localUpdatedAt AL INICIO del fetch.
+        //    Si después de la respuesta este valor ha cambiado, significa que
+        //    el usuario creó/editó algo durante el fetch — NO podemos
+        //    aplicar el snapshot del server porque pisaría esos cambios.
+        const localUpdatedAtBeforeFetch = localStorage.getItem(APP_DATA_UPDATED_AT_KEY)
+
         console.log('[Sync] initialize: fetching server snapshot…')
         const response = await fetch(`${API_BASE}/app-data`, {
           headers: { Authorization: `Bearer ${token}` }
@@ -63,10 +69,18 @@ const AppDataSync = () => {
         const serverData = payload?.data
         const serverUpdatedAt = payload?.updatedAt ? Date.parse(payload.updatedAt) : 0
 
+        // 2) RE-LEER localStorage TRAS la fetch.
+        //    Durante los 1-2s del network, el usuario puede haber creado
+        //    un cliente, editado algo, etc. Esos cambios actualizaron
+        //    appDataUpdatedAt y los datos locales.
         const localSnapshot = getLocalSnapshot()
         const hasLocal = Object.keys(localSnapshot).length > 0
         const localUpdatedAtRaw = localStorage.getItem(APP_DATA_UPDATED_AT_KEY)
         const localUpdatedAt = localUpdatedAtRaw ? Date.parse(localUpdatedAtRaw) : 0
+
+        // 3) DETECTAR RACE: ¿cambió localUpdatedAt durante el fetch?
+        const localChangedDuringFetch =
+          localUpdatedAtRaw !== localUpdatedAtBeforeFetch
 
         const serverCustomersN = serverData ? (() => { try { return JSON.parse(serverData.customers || '[]').length } catch { return '?' } })() : 'n/a'
         const localCustomersN = (() => { try { return JSON.parse(localSnapshot.customers || '[]').length } catch { return '?' } })()
@@ -76,6 +90,7 @@ const AppDataSync = () => {
           serverUpdatedAt: payload?.updatedAt,
           localCustomers: localCustomersN,
           serverCustomers: serverCustomersN,
+          localChangedDuringFetch,
         })
 
         if (!serverData) {
@@ -89,11 +104,19 @@ const AppDataSync = () => {
           return
         }
 
-        // CAMBIO CRÍTICO: en empate o si local no tiene timestamp pero SÍ
-        // tiene datos, preferir LOCAL. Solo aplicar server si:
+        // 4) CRÍTICO: si local cambió durante el fetch, NUNCA aplicar
+        //    el snapshot del server — pisaría los cambios. Push local.
+        if (localChangedDuringFetch) {
+          console.warn('[Sync] RACE detectada: localStorage cambió durante el fetch — preservando local y pusheando')
+          await pushSnapshot(localSnapshot)
+          snapshotRef.current = JSON.stringify(localSnapshot)
+          return
+        }
+
+        // En empate o si local tiene datos pero sin timestamp, preferir
+        // LOCAL (más seguro). Solo aplicar server si:
         //   - No hay datos locales en absoluto, O
-        //   - Server es ESTRICTAMENTE más nuevo que local (> en vez de >=)
-        // Antes con <=, un empate hacía perder los cambios locales sin push.
+        //   - Server es ESTRICTAMENTE más nuevo que local
         const shouldApplyServer = !hasLocal || (localUpdatedAtRaw && localUpdatedAt < serverUpdatedAt)
         if (shouldApplyServer) {
           console.warn('[Sync] applySnapshot del server — local pierde', { localUpdatedAt, serverUpdatedAt, localCustomersN, serverCustomersN })
@@ -102,6 +125,10 @@ const AppDataSync = () => {
             localStorage.setItem(APP_DATA_UPDATED_AT_KEY, payload.updatedAt)
           }
           snapshotRef.current = JSON.stringify(serverData)
+          // 5) Notificar a las páginas montadas que el localStorage cambió
+          //    para que re-lean su state. Sin esto, el state de React
+          //    sigue con los datos viejos aunque localStorage tenga los nuevos.
+          window.dispatchEvent(new Event('appDataSyncApplied'))
           return
         }
 
