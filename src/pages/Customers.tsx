@@ -7,6 +7,7 @@ import {
 import Modal from '../components/Modal'
 import ActionsMenu from '../components/ActionsMenu'
 import DateInput from '../components/DateInput'
+import SearchableSelect from '../components/SearchableSelect'
 import { useAuth } from '../contexts/AuthContext'
 import './Page.css'
 import './Customers.css'
@@ -741,47 +742,35 @@ const Customers = () => {
               </select>
               <ChevronDown size={16} className="select-chevron" style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
             </div>
-            <div className="select-wrapper" style={{ position: 'relative' }}>
-              <select
-                value={filters.country}
-                onChange={(e) => setFilters(prev => ({ ...prev, country: e.target.value }))}
-                className={`filter-btn ${filters.country !== 'All' ? 'active' : ''}`}
-                style={{ appearance: 'none', paddingRight: '2rem', cursor: 'pointer' }}
-              >
-                <option value="All">All Countries</option>
-                {uniqueCountries.map(country => (
-                  <option key={country} value={country}>{country}</option>
-                ))}
-              </select>
-              <ChevronDown size={16} className="select-chevron" style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+            <div style={{ minWidth: 180 }}>
+              <SearchableSelect
+                value={filters.country === 'All' ? '' : filters.country}
+                onChange={(v) => setFilters(prev => ({ ...prev, country: v || 'All' }))}
+                options={uniqueCountries}
+                placeholder="All Countries"
+                searchPlaceholder="Buscar país…"
+                clearable
+              />
             </div>
-            <div className="select-wrapper" style={{ position: 'relative' }}>
-              <select
-                value={filters.region}
-                onChange={(e) => setFilters(prev => ({ ...prev, region: e.target.value }))}
-                className={`filter-btn ${filters.region !== 'All' ? 'active' : ''}`}
-                style={{ appearance: 'none', paddingRight: '2rem', cursor: 'pointer' }}
-              >
-                <option value="All">All Regions</option>
-                {uniqueRegions.map(region => (
-                  <option key={region} value={region}>{region}</option>
-                ))}
-              </select>
-              <ChevronDown size={16} className="select-chevron" style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+            <div style={{ minWidth: 180 }}>
+              <SearchableSelect
+                value={filters.region === 'All' ? '' : filters.region}
+                onChange={(v) => setFilters(prev => ({ ...prev, region: v || 'All' }))}
+                options={uniqueRegions}
+                placeholder="All Regions"
+                searchPlaceholder="Buscar región…"
+                clearable
+              />
             </div>
-            <div className="select-wrapper" style={{ position: 'relative' }}>
-              <select
-                value={filters.category}
-                onChange={(e) => setFilters(prev => ({ ...prev, category: e.target.value }))}
-                className={`filter-btn ${filters.category !== 'All' ? 'active' : ''}`}
-                style={{ appearance: 'none', paddingRight: '2rem', cursor: 'pointer' }}
-              >
-                <option value="All">All Categories</option>
-                {uniqueCategories.map(category => (
-                  <option key={category} value={category}>{category}</option>
-                ))}
-              </select>
-              <ChevronDown size={16} className="select-chevron" style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+            <div style={{ minWidth: 180 }}>
+              <SearchableSelect
+                value={filters.category === 'All' ? '' : filters.category}
+                onChange={(v) => setFilters(prev => ({ ...prev, category: v || 'All' }))}
+                options={uniqueCategories}
+                placeholder="All Categories"
+                searchPlaceholder="Buscar categoría…"
+                clearable
+              />
             </div>
           </div>
         </div>
@@ -1066,34 +1055,32 @@ const Customers = () => {
           <div className="form-row">
             <div className="form-group">
               <label htmlFor="country">Country <span className="required">*</span></label>
-              <select
+              <SearchableSelect
                 id="country"
                 value={formData.country}
-                onChange={(e) => handleInputChange('country', e.target.value)}
+                onChange={(v) => handleInputChange('country', v)}
+                options={countries}
+                placeholder="Select country"
+                searchPlaceholder="Buscar país…"
+                clearable
                 className={errors.country ? 'error' : ''}
-              >
-                <option value="">Select country</option>
-                {countries.map(country => (
-                  <option key={country} value={country}>{country}</option>
-                ))}
-              </select>
+              />
               {errors.country && <span className="error-message">{errors.country}</span>}
             </div>
 
             <div className="form-group">
               <label htmlFor="region">Region/State</label>
-              <select
+              <SearchableSelect
                 id="region"
                 value={formData.region}
-                onChange={(e) => handleInputChange('region', e.target.value)}
+                onChange={(v) => handleInputChange('region', v)}
+                options={formData.country === 'España' ? spanishRegions : []}
+                placeholder={formData.country === 'España' ? 'Select region' : 'Solo aplicable a España'}
+                searchPlaceholder="Buscar comunidad autónoma…"
+                clearable
                 disabled={formData.country !== 'España'}
                 className={errors.region ? 'error' : ''}
-              >
-                <option value="">Select region</option>
-                {formData.country === 'España' && spanishRegions.map(region => (
-                  <option key={region} value={region}>{region}</option>
-                ))}
-              </select>
+              />
               {errors.region && <span className="error-message">{errors.region}</span>}
             </div>
           </div>

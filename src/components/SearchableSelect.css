@@ -1,0 +1,199 @@
+/* ============================================================
+   SEARCHABLE SELECT — desplegable con búsqueda integrada
+   ============================================================ */
+
+.ss-wrap {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  font-family: var(--font-family-base);
+}
+
+/* ── Trigger (botón que muestra el valor seleccionado) ── */
+
+.ss-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--color-bg-default);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family-base);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  min-height: 36px;
+}
+.ss-trigger:hover:not(:disabled) {
+  border-color: var(--color-brand-500);
+}
+.ss-trigger:focus,
+.ss-wrap--open .ss-trigger {
+  outline: none;
+  border-color: var(--color-brand-500);
+  box-shadow: 0 0 0 3px var(--color-brand-100);
+}
+.ss-wrap--disabled .ss-trigger,
+.ss-trigger:disabled {
+  background: var(--color-bg-muted);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.ss-trigger-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ss-trigger-label--placeholder {
+  color: var(--color-text-muted);
+}
+
+.ss-trigger-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ss-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 50%;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  transition: background var(--transition-fast);
+}
+.ss-clear:hover {
+  background: var(--color-bg-muted);
+  color: var(--color-error-700, #C44343);
+}
+
+.ss-chev {
+  color: var(--color-text-muted);
+  transition: transform var(--transition-fast);
+}
+.ss-wrap--open .ss-chev {
+  transform: rotate(180deg);
+  color: var(--color-brand-700);
+}
+
+/* ── Dropdown ── */
+
+.ss-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg, 0 12px 24px rgba(0, 0, 0, 0.12));
+  z-index: 1000;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: ss-fade 120ms ease-out;
+}
+
+@keyframes ss-fade {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Buscador ── */
+
+.ss-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-default);
+}
+.ss-search svg { color: var(--color-text-muted); flex-shrink: 0; }
+.ss-search input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family-base);
+  color: var(--color-text-primary);
+  padding: 2px 0;
+}
+.ss-search input::placeholder { color: var(--color-text-muted); }
+
+/* ── Lista ── */
+
+.ss-list {
+  list-style: none;
+  padding: 4px;
+  margin: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.ss-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  user-select: none;
+  transition: background var(--transition-fast);
+}
+.ss-option--active,
+.ss-option:hover {
+  background: var(--color-brand-50);
+}
+.ss-option--selected {
+  background: var(--color-brand-100);
+  color: var(--color-brand-700);
+  font-weight: var(--font-weight-medium);
+}
+.ss-option--selected.ss-option--active {
+  background: var(--color-brand-100);
+}
+.ss-option--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ss-option-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--color-brand-700);
+}
+
+.ss-option-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ss-empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+}
