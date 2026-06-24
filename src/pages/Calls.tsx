@@ -1105,19 +1105,21 @@ const ImportFromDiscovery = ({
   }, [])
 
   // Set robusto de identificadores ya importados desde Discovery.
-  // Probamos varias señales (en orden de fiabilidad):
-  //   1) discoveryExternalId — campo persistido al importar
-  //   2) id que empieza por `disc-<externalId>` — formato anterior
-  //   3) sourceUrl idéntico al url de la call externa
+  // Probamos varias señales (cualquier match cuenta):
+  //   · discoveryExternalId (canónico)
+  //   · externalId (legacy de DiscoveryImport.tsx)
+  //   · id con formato 'disc-<externalId>[-timestamp]'
+  //   · sourceUrl o url (legacy) idéntica al url externo
   const existingDiscoveryIds = useMemo(() => {
     const ids = new Set<string>()
     const urls = new Set<string>()
-    for (const c of existing) {
-      if (c.discoveryExternalId) ids.add(c.discoveryExternalId)
-      if (c.id?.startsWith('disc-')) {
-        // Extrae el externalId del ID antiguo `disc-<id>[-timestamp]`
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const cAny of existing as any[]) {
+      const c = cAny
+      if (c.discoveryExternalId) ids.add(String(c.discoveryExternalId))
+      if (c.externalId) ids.add(String(c.externalId))
+      if (typeof c.id === 'string' && c.id.startsWith('disc-')) {
         const rest = c.id.slice(5)
-        // Si tiene timestamp al final (formato nuevo), quita el último segmento numérico
         const parts = rest.split('-')
         if (parts.length > 1 && /^\d{10,}$/.test(parts[parts.length - 1])) {
           parts.pop()
@@ -1126,7 +1128,8 @@ const ImportFromDiscovery = ({
           ids.add(rest)
         }
       }
-      if (c.sourceUrl) urls.add(c.sourceUrl)
+      if (c.sourceUrl) urls.add(String(c.sourceUrl))
+      if (c.url) urls.add(String(c.url))
     }
     return { ids, urls }
   }, [existing])

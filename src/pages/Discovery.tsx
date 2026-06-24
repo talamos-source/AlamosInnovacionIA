@@ -253,14 +253,17 @@ const Discovery = () => {
       const userCalls: any[] = JSON.parse(userCallsRaw)
       if (!Array.isArray(userCalls) || userCalls.length === 0) return
 
-      // Indices rápidos para matching robusto:
-      const byExtId = new Map<string, string>()    // externalId → user call id
-      const byUrl = new Map<string, string>()      // sourceUrl → user call id
+      // Indices rápidos para matching robusto contra TODAS las variantes
+      // de cómo se ha podido guardar la call importada históricamente:
+      //   · discoveryExternalId (canónico, fix nuevo)
+      //   · externalId (campo legacy de DiscoveryImport.tsx)
+      //   · id con prefix 'disc-<extId>[-timestamp]' (formato antiguo)
+      //   · sourceUrl (canónico) o url (legacy)
+      const byExtId = new Map<string, string>()
+      const byUrl = new Map<string, string>()
       for (const uc of userCalls) {
-        if (uc?.discoveryExternalId) {
-          byExtId.set(String(uc.discoveryExternalId), uc.id)
-        }
-        // ID antiguo formato `disc-<externalId>[-timestamp]`
+        if (uc?.discoveryExternalId) byExtId.set(String(uc.discoveryExternalId), uc.id)
+        if (uc?.externalId) byExtId.set(String(uc.externalId), uc.id)
         if (typeof uc?.id === 'string' && uc.id.startsWith('disc-')) {
           const rest = uc.id.slice(5)
           const parts = rest.split('-')
@@ -272,6 +275,7 @@ const Discovery = () => {
           }
         }
         if (uc?.sourceUrl) byUrl.set(String(uc.sourceUrl), uc.id)
+        if (uc?.url) byUrl.set(String(uc.url), uc.id)
       }
 
       let changed = false

@@ -35,10 +35,13 @@ interface ExistingCall {
   program?: string
   budget?: string
   url?: string
+  sourceUrl?: string
   description?: string
   createdAt?: string
   source?: string
   externalId?: string
+  /** Ancla canónica para detectar duplicados desde el modal y el backfill. */
+  discoveryExternalId?: string
 }
 
 /* ============================================================
@@ -169,21 +172,29 @@ const DiscoveryImport = () => {
       return
     }
 
-    // 1) Create new entry in 'calls' module
+    // 1) Create new entry in 'calls' module — usando los nombres de campo
+    // canónicos que espera Calls.tsx (sourceUrl, discoveryExternalId) para
+    // que el matching de duplicados funcione tanto aquí como en el modal
+    // y en el backfill de /discovery.
     const existing = loadCalls()
     const newCall: ExistingCall = {
-      id: `call-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: `disc-${call.externalId}-${Date.now()}`,
       name: form.name.trim(),
       status: form.status,
       deadline: form.closeDate || undefined,
       fundingBody: form.fundingBody.trim() || undefined,
       program: form.program.trim() || undefined,
       budget: form.budget.trim() || undefined,
+      // Canónico: sourceUrl (también guardo url como compat por si Calls.tsx legacy lo lee)
+      sourceUrl: form.sourceUrl.trim() || undefined,
       url: form.sourceUrl.trim() || undefined,
       description: form.description.trim() || undefined,
       createdAt: new Date().toISOString(),
       source: call.source,
       externalId: call.externalId,
+      // Ancla canónica para detección de duplicados — la que Calls.tsx y el
+      // backfill de /discovery buscan.
+      discoveryExternalId: call.externalId,
     }
     saveCalls([...existing, newCall])
 
