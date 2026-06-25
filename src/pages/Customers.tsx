@@ -8,7 +8,7 @@ import Modal from '../components/Modal'
 import ActionsMenu from '../components/ActionsMenu'
 import DateInput from '../components/DateInput'
 import SearchableSelect from '../components/SearchableSelect'
-import { persistAppData, APP_DATA_SYNC_APPLIED_EVENT, isQuotaExceededError, tryFreeStorage, getStorageReport } from '../utils/appData'
+import { persistAppData, APP_DATA_SYNC_APPLIED_EVENT, isQuotaExceededError, tryFreeStorage, getStorageReport, moveHeavyFieldsToIdb } from '../utils/appData'
 import { useAuth } from '../contexts/AuthContext'
 import './Page.css'
 import './Customers.css'
@@ -320,7 +320,7 @@ const Customers = () => {
     return Object.keys(newErrors).length === 0
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (validateForm()) {
       const customerData: Customer = {
@@ -374,52 +374,56 @@ const Customers = () => {
       })
 
       // 1) Persistir AHORA mismo a localStorage con manejo de QuotaExceeded
-      const trySave = (): boolean => {
+      const trySave = async (): Promise<boolean> => {
         try {
           persistAppData('customers', JSON.stringify(nextCustomers))
           return true
         } catch (err) {
           if (isQuotaExceededError(err)) {
-            const report = getStorageReport()
-            const top = report.perKey.slice(0, 5).map(k => `  • ${k.key}: ${k.kb.toFixed(0)} KB`).join('\n')
-            console.warn('[Customers] QuotaExceeded — top storage:\n' + top)
+            // Paso 1: AUTO-MOVER archivos pesados (logos, contratos) a IndexedDB
+            // (sin pedir permiso — es seguro, no se pierde nada).
+            console.log('[Customers] QuotaExceeded — intentando mover archivos pesados a IndexedDB')
+            const moved = await moveHeavyFieldsToIdb()
+            console.log('[Customers] moveHeavyFieldsToIdb:', moved.actions, `(${(moved.movedBytes / 1024).toFixed(0)} KB)`)
 
-            const ok = window.confirm(
-              '⚠️ Almacenamiento del navegador LLENO (~5 MB tope).\n\n' +
-              `Tu cliente no se ha podido guardar porque no queda espacio.\n\n` +
-              `Top consumo actual:\n${top}\n\n` +
-              `¿Liberar espacio automáticamente?\n\n` +
-              `SOLO eliminará cosas regenerables/cache (no toca tus datos):\n` +
-              `  ✓ Calls de Discovery que descartaste\n` +
-              `  ✓ Calls de Discovery con deadline pasada >30 días\n` +
-              `  ✓ Descripciones largas truncadas en Discovery\n` +
-              `  ✓ Fichas IA guardadas (regenerables con un click)\n\n` +
-              `NO se borrarán:\n` +
-              `  • Tus clientes, calls, projects, proposals\n` +
-              `  • Logos ni PDFs de contrato\n\n` +
-              `OK = liberar y guardar · Cancelar = no guardar`
-            )
-            if (!ok) return false
-
-            const result = tryFreeStorage()
-            console.log('[Customers] tryFreeStorage liberó', (result.freedBytes / 1024).toFixed(0), 'KB:', result.actions)
+            // Reintenta tras mover
             try {
               persistAppData('customers', JSON.stringify(nextCustomers))
-              alert(
-                `✓ Liberados ${(result.freedBytes / 1024).toFixed(0)} KB. Cliente guardado.\n\n` +
-                (result.actions.length > 0 ? 'Acciones:\n' + result.actions.map(a => '  • ' + a).join('\n') : '')
-              )
+              if (moved.movedBytes > 0) {
+                console.log(`[Customers] ✓ guardado tras mover ${(moved.movedBytes / 1024).toFixed(0)} KB a IndexedDB`)
+              }
               return true
             } catch {
-              alert(
-                'No ha sido posible liberar espacio suficiente.\n\n' +
-                'Acción manual recomendada:\n' +
-                '1. Abre la consola del navegador (F12 → Console)\n' +
-                '2. Escribe y pulsa Enter:\n' +
-                '   localStorage.removeItem("discoveryCalls")\n' +
-                '3. Refresca la página y vuelve a intentar guardar'
+              // Paso 2: si AÚN no cabe, ofrecer cleanup de cache (discovery, briefs)
+              const report = getStorageReport()
+              const top = report.perKey.slice(0, 5).map(k => `  • ${k.key}: ${k.kb.toFixed(0)} KB`).join('\n')
+              const ok = window.confirm(
+                '⚠️ Almacenamiento del navegador LLENO.\n\n' +
+                `Ya se han movido ${(moved.movedBytes / 1024).toFixed(0)} KB de logos/PDFs a IndexedDB pero aún no cabe.\n\n` +
+                `Top consumo actual:\n${top}\n\n` +
+                `¿Liberar también espacio del cache?\n\n` +
+                `Eliminará SOLO regenerables (no toca tus datos):\n` +
+                `  ✓ Calls de Discovery que descartaste\n` +
+                `  ✓ Calls de Discovery con deadline pasada >30 días\n` +
+                `  ✓ Fichas IA guardadas (regenerables)\n\n` +
+                `OK = liberar y guardar · Cancelar = no guardar`
               )
-              return false
+              if (!ok) return false
+              const result = tryFreeStorage()
+              try {
+                persistAppData('customers', JSON.stringify(nextCustomers))
+                alert(`✓ Cliente guardado.\n\nLiberados: ${((result.freedBytes + moved.movedBytes) / 1024).toFixed(0)} KB en total.`)
+                return true
+              } catch {
+                alert(
+                  'No ha sido posible liberar espacio suficiente.\n\n' +
+                  'Acción manual:\n' +
+                  '1. Abre F12 → Console\n' +
+                  '2. Ejecuta: localStorage.removeItem("discoveryCalls")\n' +
+                  '3. Refresca la página'
+                )
+                return false
+              }
             }
           }
           alert('Error al guardar el cliente: ' + (err instanceof Error ? err.message : 'desconocido'))
@@ -427,7 +431,8 @@ const Customers = () => {
         }
       }
 
-      if (!trySave()) return
+      const saved = await trySave()
+      if (!saved) return
 
       // 2) Verify post-write — leer de vuelta para confirmar
       const verify = localStorage.getItem('customers')

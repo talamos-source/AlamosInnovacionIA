@@ -205,6 +205,59 @@ export const isQuotaExceededError = (err: unknown): boolean => {
 }
 
 /**
+ * Mueve los campos base64 grandes (logos, contractPdf) a IndexedDB
+ * para liberar espacio en localStorage SIN borrar los datos del usuario.
+ * Devuelve cuántos bytes libera.
+ *
+ * Tras esto, el campo `logoBase64` o `contractPdf.base64` queda vacío
+ * en localStorage pero con un flag `logoInIdb: true` / `contractInIdb: true`.
+ * Los componentes pueden cargarlos on-demand desde IDB con el id del
+ * customer como key.
+ */
+export const moveHeavyFieldsToIdb = async (): Promise<{ movedBytes: number; actions: string[] }> => {
+  const actions: string[] = []
+  let movedBytes = 0
+
+  try {
+    // Import dinámico para evitar circular deps
+    const { idbSet } = await import('./idbStorage')
+    const raw = localStorage.getItem('customers') || '[]'
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const customers: any[] = JSON.parse(raw)
+    let logosMoved = 0
+    let pdfsMoved = 0
+
+    for (const c of customers) {
+      // Logo > 50 KB
+      if (typeof c.logoBase64 === 'string' && c.logoBase64.length > 50_000 && !c.logoInIdb) {
+        await idbSet('project-blobs', `customer-logo-${c.id}`, c.logoBase64)
+        movedBytes += c.logoBase64.length * 2
+        c.logoBase64 = ''
+        c.logoInIdb = true
+        logosMoved++
+      }
+      // ContractPdf cualquier tamaño
+      if (c.contractPdf?.dataUrl && typeof c.contractPdf.dataUrl === 'string' && c.contractPdf.dataUrl.length > 50_000 && !c.contractInIdb) {
+        await idbSet('project-blobs', `customer-contract-${c.id}`, c.contractPdf.dataUrl)
+        movedBytes += c.contractPdf.dataUrl.length * 2
+        c.contractPdf = { ...c.contractPdf, dataUrl: '' }
+        c.contractInIdb = true
+        pdfsMoved++
+      }
+    }
+    if (logosMoved > 0 || pdfsMoved > 0) {
+      localStorage.setItem('customers', JSON.stringify(customers))
+      if (logosMoved > 0) actions.push(`${logosMoved} logo(s) movidos a IndexedDB (siguen accesibles)`)
+      if (pdfsMoved > 0) actions.push(`${pdfsMoved} contrato(s) movidos a IndexedDB (siguen accesibles)`)
+    }
+  } catch (err) {
+    console.warn('[appData] moveHeavyFieldsToIdb failed:', err)
+  }
+
+  return { movedBytes, actions }
+}
+
+/**
  * Estrategia QUIRÚRGICA de auto-cleanup. Borra solo cosas seguras o
  * regenerables. NUNCA toca tus customers, calls, projects, proposals,
  * invoices, fundingProfiles o roadmaps activos.

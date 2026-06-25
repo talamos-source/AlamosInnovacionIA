@@ -6,6 +6,7 @@ import {
   FileCheck, MessageSquare, Plus, Sparkles, Edit,
 } from 'lucide-react'
 import { formatCurrency } from '../utils/formatCurrency'
+import { idbSet, idbGet, idbRemove, idbUsageReport } from '../utils/idbStorage'
 import './Page.css'
 import './ProjectDetail.css'
 
@@ -859,13 +860,23 @@ const ProposalDocumentsBlock = ({ project }: { project: Project }) => {
   const [docs, setDocs] = useState<ProposalDocument[]>(project.proposalDocuments || [])
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [usageMsg, setUsageMsg] = useState<string>('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const MAX_FILE_SIZE = 8 * 1024 * 1024 // 8 MB por archivo
-  const MAX_TOTAL_SIZE = 30 * 1024 * 1024 // 30 MB total (límite localStorage)
+  // Con IndexedDB el límite es enorme (GB). Solo limitamos por archivo
+  // para evitar uploads accidentales monstruosos.
+  const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50 MB por archivo
 
-  // Persiste los docs en localStorage['projects']
-  const persistDocs = (next: ProposalDocument[]) => {
+  // Cargar uso al montar
+  useEffect(() => {
+    idbUsageReport().then(r => {
+      if (r) setUsageMsg(`${r.usageMB.toFixed(1)} / ${r.quotaMB.toFixed(0)} MB usado`)
+    })
+  }, [])
+
+  // Persiste SOLO METADATA (sin base64) en localStorage['projects'].
+  // El base64 va a IndexedDB indexado por docId.
+  const persistDocsMeta = (next: ProposalDocument[]) => {
     try {
       const raw = localStorage.getItem('projects') || '[]'
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -875,19 +886,24 @@ const ProposalDocumentsBlock = ({ project }: { project: Project }) => {
         setError('Proyecto no encontrado en localStorage')
         return false
       }
-      all[idx] = { ...all[idx], proposalDocuments: next }
+      // Despoja base64 — solo metadata se sincroniza con backend / sigue en
+      // localStorage para que app pueda listar sin abrir IndexedDB.
+      const metaOnly = next.map(d => ({
+        id: d.id,
+        name: d.name,
+        size: d.size,
+        type: d.type,
+        uploadedAt: d.uploadedAt,
+        // base64 vacío en localStorage → se lee desde IDB al descargar
+        base64: '',
+      }))
+      all[idx] = { ...all[idx], proposalDocuments: metaOnly }
       localStorage.setItem('projects', JSON.stringify(all))
       localStorage.setItem('appDataUpdatedAt', new Date().toISOString())
       return true
     } catch (err) {
       console.error('[ProposalDocs] persist failed:', err)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const e = err as any
-      if (e?.name === 'QuotaExceededError' || e?.code === 22) {
-        setError('Almacenamiento lleno. Borra algún archivo grande antes de subir más.')
-      } else {
-        setError('Error al guardar: ' + (err instanceof Error ? err.message : 'desconocido'))
-      }
+      setError('Error al guardar metadata: ' + (err instanceof Error ? err.message : 'desconocido'))
       return false
     }
   }
@@ -898,51 +914,71 @@ const ProposalDocumentsBlock = ({ project }: { project: Project }) => {
     setUploading(true)
     setError(null)
 
-    const totalNow = docs.reduce((acc, d) => acc + d.size, 0)
-    let totalNew = 0
     const valid: File[] = []
     for (const f of Array.from(files)) {
       if (f.size > MAX_FILE_SIZE) {
-        setError(`"${f.name}" supera 8 MB. Saltado.`)
+        setError(`"${f.name}" supera 50 MB. Saltado.`)
         continue
       }
-      totalNew += f.size
       valid.push(f)
     }
-    if (totalNow + totalNew > MAX_TOTAL_SIZE) {
-      setError(`Subir esto excedería el límite de 30 MB total. Sube archivos más pequeños o borra alguno.`)
+
+    const newDocs: ProposalDocument[] = []
+    try {
+      for (const f of valid) {
+        const base64 = await fileToBase64(f)
+        const id = `pd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        // Guarda base64 en IndexedDB (sin límite práctico)
+        await idbSet('proposal-docs', id, base64)
+        newDocs.push({
+          id,
+          name: f.name,
+          size: f.size,
+          type: f.type || 'application/octet-stream',
+          base64: '', // vacío en state — se carga on-demand desde IDB
+          uploadedAt: new Date().toISOString(),
+        })
+      }
+    } catch (err) {
+      console.error('[ProposalDocs] IDB write failed:', err)
+      setError('Error al guardar archivo en IndexedDB: ' + (err instanceof Error ? err.message : 'desconocido'))
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
       return
     }
 
-    const newDocs: ProposalDocument[] = []
-    for (const f of valid) {
-      const base64 = await fileToBase64(f)
-      newDocs.push({
-        id: `pd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        name: f.name,
-        size: f.size,
-        type: f.type || 'application/octet-stream',
-        base64,
-        uploadedAt: new Date().toISOString(),
-      })
-    }
     const next = [...docs, ...newDocs]
-    if (persistDocs(next)) setDocs(next)
+    if (persistDocsMeta(next)) setDocs(next)
     setUploading(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
+    // Actualiza uso
+    const r = await idbUsageReport()
+    if (r) setUsageMsg(`${r.usageMB.toFixed(1)} / ${r.quotaMB.toFixed(0)} MB usado`)
   }
 
-  const handleRemove = (id: string) => {
+  const handleRemove = async (id: string) => {
     if (!window.confirm('¿Eliminar este documento? También dejará de alimentar el contexto del cliente.')) return
+    try {
+      await idbRemove('proposal-docs', id)
+    } catch (err) {
+      console.warn('[ProposalDocs] IDB remove failed:', err)
+    }
     const next = docs.filter(d => d.id !== id)
-    if (persistDocs(next)) setDocs(next)
+    if (persistDocsMeta(next)) setDocs(next)
   }
 
-  const handleDownload = (d: ProposalDocument) => {
+  const handleDownload = async (d: ProposalDocument) => {
+    // Lee base64 desde IDB (o usa state si está poblado)
+    let base64 = d.base64
+    if (!base64) {
+      base64 = (await idbGet<string>('proposal-docs', d.id)) || ''
+    }
+    if (!base64) {
+      alert('No se ha podido recuperar el contenido del archivo. Quizá fue subido en otro dispositivo y aún no se ha sincronizado.')
+      return
+    }
     const link = document.createElement('a')
-    link.href = d.base64
+    link.href = base64
     link.download = d.name
     link.click()
   }
@@ -1019,6 +1055,7 @@ const ProposalDocumentsBlock = ({ project }: { project: Project }) => {
           </ul>
           <div className="pd-docs-footer">
             {docs.length} doc{docs.length !== 1 ? 's' : ''} · {(totalSize / 1024).toFixed(0)} KB total
+            {usageMsg && <span> · {usageMsg} (IndexedDB)</span>}
           </div>
         </>
       )}
