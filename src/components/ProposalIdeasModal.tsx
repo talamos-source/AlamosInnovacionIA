@@ -471,15 +471,57 @@ const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClo
           </div>
         )}
 
-        {/* Step: ERROR */}
+        {/* Step: ERROR — con fallback "continuar sin IA" */}
         {step === 'error' && (
           <div className="pi-body pi-error">
             <AlertCircle size={40} />
-            <h3>Error al mejorar la propuesta</h3>
-            <p>{errorMsg}</p>
-            <button className="pi-btn pi-btn--secondary" onClick={() => setStep('form')}>
-              Volver al formulario
-            </button>
+            <h3>El agente IA no respondió</h3>
+            <p style={{ whiteSpace: 'pre-line' }}>{errorMsg}</p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginTop: 12 }}>
+              <button className="pi-btn pi-btn--secondary" onClick={() => setStep('form')}>
+                ← Volver al formulario
+              </button>
+              <button
+                className="pi-btn pi-btn--primary"
+                onClick={() => {
+                  // Continuar al preview con la idea ORIGINAL y persistirla.
+                  // Permite descargar Word y guardar incluso sin IA.
+                  setImproved(idea)
+                  if (customer?.id) {
+                    try {
+                      const raw = localStorage.getItem('proposalIdeas') || '{}'
+                      const all = JSON.parse(raw) as Record<string, Array<ProposalIdea & { id: string; createdAt: string; updatedAt: string }>>
+                      const list = all[customer.id] || []
+                      if (ideaId) {
+                        all[customer.id] = list.map(it => it.id === ideaId
+                          ? { ...idea, id: ideaId, createdAt: it.createdAt, updatedAt: new Date().toISOString() }
+                          : it
+                        )
+                      } else {
+                        all[customer.id] = [...list, {
+                          ...idea,
+                          id: `pi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                          createdAt: new Date().toISOString(),
+                          updatedAt: new Date().toISOString(),
+                        }]
+                      }
+                      persistAppData('proposalIdeas', JSON.stringify(all))
+                      if (onSaved) onSaved()
+                    } catch (err) {
+                      console.warn('[ProposalIdea] persist failed:', err)
+                    }
+                  }
+                  setStep('preview')
+                }}
+              >
+                Continuar sin IA →
+              </button>
+            </div>
+            <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: 12, maxWidth: 500 }}>
+              "Continuar sin IA" guarda la idea tal cual la rellenaste y te lleva al preview
+              para que puedas descargar el Word. Podrás re-mejorarla más tarde cuando el agente
+              responda.
+            </p>
           </div>
         )}
 
@@ -572,10 +614,17 @@ const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClo
           )}
           {step === 'preview' && (
             <>
-              <span className="pi-footer-hint">Versión mejorada · editable</span>
+              <span className="pi-footer-hint">{isEditing ? 'Idea guardada · editable' : 'Versión mejorada · editable'}</span>
               <div className="pi-footer-actions">
                 <button className="pi-btn pi-btn--secondary" onClick={() => setStep('form')}>
-                  <ChevronLeft size={14} /> Volver al form
+                  <ChevronLeft size={14} /> Editar campos
+                </button>
+                <button
+                  className="pi-btn pi-btn--secondary"
+                  onClick={handleGenerate}
+                  title="Volver a pasar por el agente para mejorar más"
+                >
+                  <Sparkles size={14} /> Re-mejorar con IA
                 </button>
                 <button className="pi-btn pi-btn--primary" onClick={handleExport} disabled={exporting}>
                   {exporting ? <Loader2 size={14} className="pi-spin" /> : <Download size={14} />}
