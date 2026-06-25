@@ -2197,46 +2197,20 @@ Devuelve el JSON con la estructura exacta del system prompt.`
    si está incompleta. Devuelve la misma estructura mejorada.
    ============================================================ */
 
-const PROPOSAL_IDEA_PROMPT = `Eres un consultor senior de Álamos Innovación, experto en redactar propuestas
-de I+D+i para convocatorias públicas (CDTI, AEI, EIC, Horizon Europe, etc.).
+const PROPOSAL_IDEA_PROMPT = `Eres consultor senior I+D+i en Álamos Innovación.
+Mejora la redacción de una IDEA DE PROPUESTA y devuelve JSON con misma estructura.
 
-Recibes una IDEA DE PROPUESTA preliminar de un cliente y debes:
+Reglas estrictas:
+- Mejora 'objective' y 'mainInnovation' a tono profesional español.
+- Si workPackages está vacío, propón 3-4 WPs coherentes (nombre "WPN: ...", 3-4 tasks "T1.1: ...", 2-3 deliverables "D1.1: ...").
+- Si workPackages ya tiene contenido, solo mejora la redacción CONSERVANDO ids y orden.
+- NO inventes partners (devuélvelos tal cual).
+- NO cambies durationMonths ni initialTrl.
+- Para WPs nuevos generados por ti usa ids "wp-new-1", "wp-new-2".
+- Devuelve SOLO JSON, sin markdown, sin texto extra.
 
-1. Mejorar la redacción del OBJETIVO y MAIN INNOVATION — más profesional, claro,
-   evaluable. Mantén el sentido original pero formaliza el lenguaje. ESPAÑOL.
-2. Si los WORK PACKAGES están vacíos o muy pobres, propón una estructura de
-   3-5 WPs coherente con el objetivo, el TRL inicial y la duración.
-   Cada WP debe tener:
-     - Nombre claro (formato "WPN: Título descriptivo")
-     - 3-5 tareas (T) específicas y accionables
-     - 2-4 entregables (D) cuantificables (informes, prototipos, validaciones)
-3. Si los WPs YA están definidos por el usuario, MEJORA el lenguaje pero NO
-   cambies la estructura ni los IDs. Conserva el orden.
-4. NO inventes partners — devuelve la lista tal cual la enviaron.
-5. NO cambies durationMonths ni initialTrl.
-
-Devuelve un JSON con la MISMA estructura del input:
-{
-  "objective": "...",
-  "mainInnovation": "...",
-  "initialTrl": <number>,
-  "partners": [...idéntico al input...],
-  "durationMonths": <number>,
-  "workPackages": [
-    {
-      "id": "...",
-      "name": "WP1: ...",
-      "tasks": ["T1.1: ...", "T1.2: ...", ...],
-      "deliverables": ["D1.1: ...", "D1.2: ...", ...]
-    }
-  ]
-}
-
-Reglas:
-- Devuelve SOLO el JSON, sin texto fuera, sin markdown, sin \`\`\`.
-- Conserva los ids existentes de partners y WPs.
-- Para WPs nuevos generados por ti, usa ids "wp-new-1", "wp-new-2", etc.
-- Lenguaje técnico-empresarial, en español.`
+Schema:
+{ "objective": "...", "mainInnovation": "...", "initialTrl": N, "partners": [...], "durationMonths": N, "workPackages": [{"id":"...","name":"...","tasks":["..."],"deliverables":["..."]}] }`
 
 app.post('/ai/improve-proposal-idea', requireAuth, async (req, res) => {
   if (!anthropic) {
@@ -2268,9 +2242,13 @@ ${JSON.stringify(idea, null, 2)}
 Mejora los textos según las reglas del system prompt y devuelve el JSON
 con la misma estructura.`
 
+    // Usar Haiku (FAST) para mantener el response time bajo. Sonnet tarda
+    // 25-50s con payloads completos y Cloudflare/Render tira 502 Bad Gateway.
+    // Haiku 4.5 responde en ~8-12s y la calidad para redacción comercial es
+    // más que suficiente.
     const message = await anthropic.messages.create({
-      model: CLAUDE_MODEL, // Sonnet — buena redacción
-      max_tokens: 4000,
+      model: CLAUDE_MODEL_FAST,
+      max_tokens: 2500,
       system: PROPOSAL_IDEA_PROMPT,
       messages: [{ role: 'user', content: userMsg }],
     })
