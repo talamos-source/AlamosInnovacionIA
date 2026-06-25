@@ -963,10 +963,10 @@
 }
 
 .customers-table tbody td {
-  padding: 1.25rem 1rem;
-  border-bottom: 1px solid #f1f5f9;
+  padding: 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
   color: var(--color-text-primary);
-  font-size: 0.95rem;
+  font-size: var(--font-size-sm);
 }
 
 .customer-row:hover {
@@ -1394,9 +1394,11 @@
 }
 
 .form-group label {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 /* Profile settings layout */
@@ -1636,13 +1638,14 @@
 .form-group input,
 .form-group select,
 .form-group textarea {
-  padding: 0.75rem;
+  padding: 8px 10px;
   border: 1px solid var(--color-border-default);
-  border-radius: 0.5rem;
-  font-size: 0.95rem;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
   color: var(--color-text-primary);
   font-family: inherit;
-  transition: all 0.2s ease;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  background: var(--color-bg-surface);
 }
 
 .input-with-suffix {
