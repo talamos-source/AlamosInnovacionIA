@@ -2088,6 +2088,125 @@ Devuelve el JSON con la estructura exacta del system prompt.`
 })
 
 /* ============================================================
+   POST /ai/improve-proposal-idea
+   Mejora textos de una idea de propuesta + sugiere estructura WPs
+   si está incompleta. Devuelve la misma estructura mejorada.
+   ============================================================ */
+
+const PROPOSAL_IDEA_PROMPT = `Eres un consultor senior de Álamos Innovación, experto en redactar propuestas
+de I+D+i para convocatorias públicas (CDTI, AEI, EIC, Horizon Europe, etc.).
+
+Recibes una IDEA DE PROPUESTA preliminar de un cliente y debes:
+
+1. Mejorar la redacción del OBJETIVO y MAIN INNOVATION — más profesional, claro,
+   evaluable. Mantén el sentido original pero formaliza el lenguaje. ESPAÑOL.
+2. Si los WORK PACKAGES están vacíos o muy pobres, propón una estructura de
+   3-5 WPs coherente con el objetivo, el TRL inicial y la duración.
+   Cada WP debe tener:
+     - Nombre claro (formato "WPN: Título descriptivo")
+     - 3-5 tareas (T) específicas y accionables
+     - 2-4 entregables (D) cuantificables (informes, prototipos, validaciones)
+3. Si los WPs YA están definidos por el usuario, MEJORA el lenguaje pero NO
+   cambies la estructura ni los IDs. Conserva el orden.
+4. NO inventes partners — devuelve la lista tal cual la enviaron.
+5. NO cambies durationMonths ni initialTrl.
+
+Devuelve un JSON con la MISMA estructura del input:
+{
+  "objective": "...",
+  "mainInnovation": "...",
+  "initialTrl": <number>,
+  "partners": [...idéntico al input...],
+  "durationMonths": <number>,
+  "workPackages": [
+    {
+      "id": "...",
+      "name": "WP1: ...",
+      "tasks": ["T1.1: ...", "T1.2: ...", ...],
+      "deliverables": ["D1.1: ...", "D1.2: ...", ...]
+    }
+  ]
+}
+
+Reglas:
+- Devuelve SOLO el JSON, sin texto fuera, sin markdown, sin \`\`\`.
+- Conserva los ids existentes de partners y WPs.
+- Para WPs nuevos generados por ti, usa ids "wp-new-1", "wp-new-2", etc.
+- Lenguaje técnico-empresarial, en español.`
+
+app.post('/ai/improve-proposal-idea', requireAuth, async (req, res) => {
+  if (!anthropic) {
+    return res.status(503).json({ error: 'AI not configured.' })
+  }
+  const { customer, idea } = (req.body || {}) as {
+    customer?: { id?: string; name?: string }
+    idea?: {
+      objective?: string
+      mainInnovation?: string
+      initialTrl?: number
+      partners?: unknown[]
+      durationMonths?: number
+      workPackages?: unknown[]
+    }
+  }
+
+  if (!idea || !idea.objective || !idea.mainInnovation) {
+    return res.status(400).json({ error: 'idea.objective and idea.mainInnovation are required.' })
+  }
+
+  try {
+    const userMsg = `Cliente: ${customer?.name || '(sin cliente especificado)'}
+
+IDEA DE PROPUESTA actual (en bruto, por mejorar):
+
+${JSON.stringify(idea, null, 2)}
+
+Mejora los textos según las reglas del system prompt y devuelve el JSON
+con la misma estructura.`
+
+    const message = await anthropic.messages.create({
+      model: CLAUDE_MODEL, // Sonnet — buena redacción
+      max_tokens: 4000,
+      system: PROPOSAL_IDEA_PROMPT,
+      messages: [{ role: 'user', content: userMsg }],
+    })
+
+    const firstBlock = message.content[0]
+    const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : ''
+    let jsonText = text.trim()
+    if (jsonText.startsWith('```')) {
+      jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+    }
+
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(jsonText)
+    } catch {
+      console.error('improve-proposal-idea: invalid JSON from Claude', text.slice(0, 500))
+      return res.status(502).json({
+        error: 'AI returned invalid JSON',
+        raw: text.slice(0, 1000),
+      })
+    }
+
+    return res.json({
+      idea: parsed,
+      improvedAt: new Date().toISOString(),
+      model: CLAUDE_MODEL,
+      tokensUsed: {
+        input: message.usage?.input_tokens ?? 0,
+        output: message.usage?.output_tokens ?? 0,
+      },
+    })
+  } catch (err: unknown) {
+    console.error('improve-proposal-idea error:', err)
+    return res.status(500).json({
+      error: err instanceof Error ? err.message : 'improve failed',
+    })
+  }
+})
+
+/* ============================================================
    DISCOVERY — Sync de calls desde EU Funding Portal y BDNS
    ============================================================ */
 

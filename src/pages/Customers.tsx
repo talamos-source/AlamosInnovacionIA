@@ -8,6 +8,7 @@ import Modal from '../components/Modal'
 import ActionsMenu from '../components/ActionsMenu'
 import DateInput from '../components/DateInput'
 import SearchableSelect from '../components/SearchableSelect'
+import ProposalIdeasModal from '../components/ProposalIdeasModal'
 import { persistAppData, APP_DATA_SYNC_APPLIED_EVENT, isQuotaExceededError, tryFreeStorage, getStorageReport, moveHeavyFieldsToIdb } from '../utils/appData'
 import { useAuth } from '../contexts/AuthContext'
 import './Page.css'
@@ -182,6 +183,7 @@ const Customers = () => {
 
   // Customers state - load from localStorage
   const [customers, setCustomers] = useState<Customer[]>(loadCustomers)
+  const [proposalIdeaForId, setProposalIdeaForId] = useState<string | null>(null)
 
   // Re-leer localStorage cuando AppDataSync fusiona datos del server.
   // Sin esto, React muestra clientes "fantasma" que ya no están en storage
@@ -1472,6 +1474,7 @@ const Customers = () => {
                         onEdit={() => handleEdit(customer.id)}
                         onEditContext={() => navigate(`/customers/${customer.id}/context`)}
                         onGenerateRoadmap={() => navigate(`/customers/${customer.id}/funding-profile`)}
+                        onNewProposalIdea={() => setProposalIdeaForId(customer.id)}
                         onDelete={isWorker ? undefined : () => handleDelete(customer.id)}
                       />
                     </td>
@@ -1538,6 +1541,15 @@ const Customers = () => {
           </div>
         )}
       </div>
+
+      {/* New Proposal Idea modal */}
+      {proposalIdeaForId && (
+        <ProposalIdeasModal
+          customer={customers.find(c => c.id === proposalIdeaForId) || null}
+          allCustomers={customers.filter(c => c.id !== proposalIdeaForId)}
+          onClose={() => setProposalIdeaForId(null)}
+        />
+      )}
     </div>
   )
 }
