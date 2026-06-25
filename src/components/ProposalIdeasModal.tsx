@@ -60,6 +60,19 @@ const API_BASE =
   (import.meta.env.VITE_API_URL as string | undefined) ||
   'https://alamosinnovacionia.onrender.com'
 
+/**
+ * URL específica para llamadas pesadas al agente IA.
+ * Si VITE_AI_API_URL está configurada, la usa (para bypass Cloudflare).
+ * Si no, cae al API_BASE general.
+ *
+ * Workaround: si api.alamosinnovacion.com está detrás de Cloudflare y
+ * éste tira timeout a los 100s (free tier), podemos apuntar /ai/* a
+ * la URL directa de Render que no tiene ese límite.
+ */
+const AI_API_BASE =
+  (import.meta.env.VITE_AI_API_URL as string | undefined) ||
+  API_BASE
+
 /* ── Componente ─────────────────────────────────────── */
 
 const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClose, onSaved }: ProposalIdeasModalProps) => {
@@ -173,11 +186,11 @@ const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClo
       // 1) WARMUP DOBLE: dos pings con espera para asegurar que Render
       //    está despierto. El primer ping arranca el server (puede tardar
       //    30-50s en free tier); el segundo confirma que ya está listo.
-      console.log(`[ProposalIdea] warmup 1/2 — ${API_BASE}/health`)
+      console.log(`[ProposalIdea] warmup 1/2 — ${AI_API_BASE}/health`)
       let healthOk = false
       try {
         const t0 = Date.now()
-        const healthRes = await fetch(`${API_BASE}/health`, { method: 'GET' })
+        const healthRes = await fetch(`${AI_API_BASE}/health`, { method: 'GET' })
         healthOk = healthRes.ok
         console.log(`[ProposalIdea] /health ${healthRes.status} (tardó ${Date.now() - t0}ms)`)
       } catch (e) {
@@ -188,7 +201,7 @@ const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClo
       if (healthOk) {
         try {
           const t0 = Date.now()
-          await fetch(`${API_BASE}/health`, { method: 'GET' })
+          await fetch(`${AI_API_BASE}/health`, { method: 'GET' })
           console.log(`[ProposalIdea] warmup 2/2 confirmado (tardó ${Date.now() - t0}ms)`)
         } catch { /* ignore */ }
       }
@@ -199,7 +212,7 @@ const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClo
         const controller = new AbortController()
         const timeout = setTimeout(() => controller.abort(), 90_000)
         try {
-          res = await fetch(`${API_BASE}/ai/improve-proposal-idea`, {
+          res = await fetch(`${AI_API_BASE}/ai/improve-proposal-idea`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
