@@ -671,6 +671,103 @@
 .pd-task--overdue { border-left: 3px solid var(--color-error-700, #C44343); }
 .pd-task:hover:not(.pd-task--done) { background: var(--color-brand-50); }
 
+.pd-task-check--btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.pd-task-check--btn:hover { background: var(--color-brand-100); color: var(--color-brand-700); }
+
+/* ── Header stat editable (period) ── */
+.pd-header-stat--editable {
+  cursor: pointer;
+  transition: color var(--transition-fast);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  margin: -2px -6px;
+}
+.pd-header-stat--editable:hover {
+  color: var(--color-brand-700);
+  background: var(--color-brand-50);
+}
+.pd-edit-icon { margin-left: 4px; opacity: 0.5; }
+.pd-header-stat--editable:hover .pd-edit-icon { opacity: 1; }
+
+.pd-period-editor {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pd-period-editor > * { flex-shrink: 0; }
+
+/* ── Inline forms (add billing / add task) ── */
+.pd-inline-form {
+  background: var(--color-brand-50);
+  border: 1px solid var(--color-brand-100);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.pd-inline-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.pd-inline-form-wide {
+  grid-column: 1 / -1;
+}
+.pd-inline-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pd-inline-form label > span {
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pd-inline-form input,
+.pd-inline-form select {
+  padding: 7px 10px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  background: white;
+  font-family: var(--font-family-base);
+}
+.pd-inline-form input:focus,
+.pd-inline-form select:focus {
+  outline: none;
+  border-color: var(--color-brand-500);
+  box-shadow: 0 0 0 3px var(--color-brand-100);
+}
+.pd-inline-form-error {
+  margin: 0 0 var(--space-2) 0;
+  padding: 6px 10px;
+  background: var(--color-warning-50, #FDF6EF);
+  border-left: 3px solid var(--color-warning-700, #B5651D);
+  color: var(--color-warning-700, #B5651D);
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-sm);
+}
+.pd-inline-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.pd-mini-action--delete { color: var(--color-error-700, #C44343); }
+.pd-mini-action--delete:hover { background: var(--color-warning-50, #FDF6EF); }
+
 /* ── Mini-table (billing) ── */
 .pd-mini-table-wrap {
   background: var(--color-bg-default);

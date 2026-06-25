@@ -7,6 +7,8 @@ import {
 } from 'lucide-react'
 import { formatCurrency } from '../utils/formatCurrency'
 import { idbSet, idbGet, idbRemove, idbUsageReport } from '../utils/idbStorage'
+import { persistAppData } from '../utils/appData'
+import DateInput from '../components/DateInput'
 import './Page.css'
 import './ProjectDetail.css'
 
@@ -103,6 +105,23 @@ const loadProject = (id: string): Project | null => {
     const list: Project[] = JSON.parse(raw)
     return list.find(p => p.id === id) || null
   } catch { return null }
+}
+
+/** Persiste un project actualizado en localStorage['projects']. Devuelve
+ *  true si se guardó; el caller debería refrescar el state local. */
+const saveProject = (updated: Project): boolean => {
+  try {
+    const raw = localStorage.getItem('projects') || '[]'
+    const list: Project[] = JSON.parse(raw)
+    const idx = list.findIndex(p => p.id === updated.id)
+    if (idx < 0) return false
+    list[idx] = updated
+    persistAppData('projects', JSON.stringify(list))
+    return true
+  } catch (err) {
+    console.error('[ProjectDetail] saveProject failed:', err)
+    return false
+  }
 }
 
 const loadCustomers = (): Customer[] => {
@@ -302,12 +321,7 @@ const ProjectDetail = () => {
               {project.fundingBody && <span> · {project.fundingBody}</span>}
             </div>
             <div className="pd-header-stats">
-              {(project.startDate || project.endDate) && (
-                <div className="pd-header-stat">
-                  <Calendar size={13} />
-                  PERIOD {formatDateShort(project.startDate)} → {formatDateShort(project.endDate)}
-                </div>
-              )}
+              <EditablePeriod project={project} onUpdate={setProject} />
               {project.budgetFunding && (
                 <div className="pd-header-stat">
                   <Coins size={13} />
@@ -319,7 +333,12 @@ const ProjectDetail = () => {
 
           {/* CONTENIDO según sección activa */}
           {activeSection === 'overview' && overviewKpis && (
-            <OverviewSection project={project} clientName={clientName} kpis={overviewKpis} />
+            <OverviewSection
+              project={project}
+              clientName={clientName}
+              kpis={overviewKpis}
+              onUpdate={setProject}
+            />
           )}
           {activeSection === 'execution' && <ExecutionSection project={project} />}
           {activeSection === 'annuities' && <AnnuitiesSection project={project} />}
@@ -347,10 +366,11 @@ interface OverviewKpis {
   end: Date | null
 }
 
-const OverviewSection = ({ project, clientName, kpis }: {
+const OverviewSection = ({ project, clientName, kpis, onUpdate }: {
   project: Project
   clientName: string
   kpis: OverviewKpis
+  onUpdate: (next: Project) => void
 }) => {
   const healthLabel = kpis.health >= 80 ? 'Good health'
     : kpis.health >= 60 ? 'At risk' : 'Critical'
@@ -476,10 +496,10 @@ const OverviewSection = ({ project, clientName, kpis }: {
       </section>
 
       {/* BILLING SCHEDULE */}
-      <BillingBlock project={project} />
+      <BillingBlock project={project} onUpdate={onUpdate} />
 
       {/* TASKS */}
-      <TasksBlock project={project} />
+      <TasksBlock project={project} onUpdate={onUpdate} />
 
       {/* ORIGIN */}
       <section className="pd-section">
@@ -497,12 +517,76 @@ const OverviewSection = ({ project, clientName, kpis }: {
 }
 
 /* ============================================================
+   EDITABLE PERIOD — fechas inicio/fin editables inline en el header
+   ============================================================ */
+
+const EditablePeriod = ({ project, onUpdate }: {
+  project: Project
+  onUpdate: (next: Project) => void
+}) => {
+  const [editing, setEditing] = useState(false)
+  const [start, setStart] = useState(project.startDate || '')
+  const [end, setEnd] = useState(project.endDate || '')
+
+  useEffect(() => {
+    setStart(project.startDate || '')
+    setEnd(project.endDate || '')
+  }, [project.id, project.startDate, project.endDate])
+
+  const save = () => {
+    const updated = { ...project, startDate: start || undefined, endDate: end || undefined }
+    if (saveProject(updated)) {
+      onUpdate(updated)
+      setEditing(false)
+    } else {
+      alert('No se ha podido guardar las fechas')
+    }
+  }
+
+  const cancel = () => {
+    setStart(project.startDate || '')
+    setEnd(project.endDate || '')
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <div className="pd-header-stat pd-period-editor">
+        <Calendar size={13} />
+        <span>PERIOD</span>
+        <DateInput value={start} onChange={setStart} />
+        <span>→</span>
+        <DateInput value={end} onChange={setEnd} />
+        <button type="button" className="pd-btn pd-btn--primary pd-btn--sm" onClick={save}>Save</button>
+        <button type="button" className="pd-btn pd-btn--secondary pd-btn--sm" onClick={cancel}>Cancel</button>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="pd-header-stat pd-header-stat--editable"
+      onClick={() => setEditing(true)}
+      title="Click para editar fechas"
+      role="button"
+      tabIndex={0}
+    >
+      <Calendar size={13} />
+      <span>
+        PERIOD {formatDateShort(project.startDate)} → {formatDateShort(project.endDate)}
+      </span>
+      <Edit size={11} className="pd-edit-icon" />
+    </div>
+  )
+}
+
+/* ============================================================
    BILLING BLOCK — tabla de billing schedule del proyecto
    ============================================================ */
 
-const BillingBlock = ({ project }: { project: Project }) => {
-  const navigate = useNavigate()
+const BillingBlock = ({ project, onUpdate }: { project: Project; onUpdate: (next: Project) => void }) => {
   const items = project.billingSchedule || []
+  const [adding, setAdding] = useState(false)
   const totalAmount = items.reduce((acc, b) => {
     const n = parseFloat((b.amount || '0').replace(/[^\d.,-]/g, '').replace(',', '.'))
     return acc + (Number.isFinite(n) ? n : 0)
@@ -512,29 +596,56 @@ const BillingBlock = ({ project }: { project: Project }) => {
     return acc + (Number.isFinite(n) ? n : 0)
   }, 0)
 
+  const handleRemove = (id: string) => {
+    if (!window.confirm('¿Eliminar este tramo de facturación?')) return
+    const next: Project = {
+      ...project,
+      billingSchedule: items.filter(b => b.id !== id),
+    }
+    if (saveProject(next)) onUpdate(next)
+  }
+
   return (
     <section className="pd-section">
       <div className="pd-section-header-row">
         <div>
           <h2 className="pd-section-title">Billing schedule</h2>
           <p className="pd-section-sub">
-            {items.length} tranche{items.length !== 1 ? 's' : ''}
-            {items.length > 0 && ` · ${formatCurrency(String(paidAmount))} paid of ${formatCurrency(String(totalAmount))}`}
+            {items.length} tramo{items.length !== 1 ? 's' : ''}
+            {items.length > 0 && ` · ${formatCurrency(String(paidAmount))} pagado de ${formatCurrency(String(totalAmount))}`}
+            <small style={{ marginLeft: 8, color: 'var(--color-text-muted)' }}>
+              · aparece automáticamente en /billing
+            </small>
           </p>
         </div>
-        <button
-          type="button"
-          className="pd-btn pd-btn--primary"
-          onClick={() => navigate(`/projects?bill=${project.id}`)}
-        >
-          <Plus size={13} /> Add billing tranche
-        </button>
+        {!adding && (
+          <button
+            type="button"
+            className="pd-btn pd-btn--primary"
+            onClick={() => setAdding(true)}
+          >
+            <Plus size={13} /> Add billing tranche
+          </button>
+        )}
       </div>
 
+      {adding && (
+        <AddBillingForm
+          project={project}
+          onCancel={() => setAdding(false)}
+          onSaved={(next) => {
+            onUpdate(next)
+            setAdding(false)
+          }}
+        />
+      )}
+
       {items.length === 0 ? (
-        <div className="pd-empty-box pd-empty-box--sm">
-          <p>No billing tranches yet.</p>
-        </div>
+        !adding && (
+          <div className="pd-empty-box pd-empty-box--sm">
+            <p>No billing tranches yet.</p>
+          </div>
+        )
       ) : (
         <div className="pd-mini-table-wrap">
           <table className="pd-mini-table">
@@ -574,11 +685,12 @@ const BillingBlock = ({ project }: { project: Project }) => {
                     <td>
                       <button
                         type="button"
-                        className="pd-mini-action"
-                        onClick={() => navigate(`/projects?bill=${project.id}&billId=${b.id}`)}
-                        aria-label="Edit billing"
+                        className="pd-mini-action pd-mini-action--delete"
+                        onClick={() => handleRemove(b.id)}
+                        aria-label="Delete billing"
+                        title="Eliminar tramo"
                       >
-                        <Edit size={13} />
+                        ×
                       </button>
                     </td>
                   </tr>
@@ -592,14 +704,138 @@ const BillingBlock = ({ project }: { project: Project }) => {
   )
 }
 
+/* Form inline para añadir un billing tranche al proyecto */
+const AddBillingForm = ({ project, onCancel, onSaved }: {
+  project: Project
+  onCancel: () => void
+  onSaved: (next: Project) => void
+}) => {
+  const [form, setForm] = useState({
+    percentage: '',
+    clientName: '',
+    dueDate: '',
+    amount: '',
+    invoiceStatus: 'Pending' as 'Pending' | 'Sent' | 'Paid',
+    description: '',
+  })
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSave = () => {
+    setError(null)
+    if (!form.dueDate) { setError('La fecha de vencimiento es obligatoria.'); return }
+    if (!form.amount.trim()) { setError('El importe es obligatorio.'); return }
+    const newItem: BillingItem = {
+      id: `bill-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      percentage: form.percentage,
+      clientName: form.clientName,
+      dueDate: form.dueDate,
+      amount: form.amount,
+      invoiceStatus: form.invoiceStatus,
+      description: form.description || undefined,
+    }
+    const next: Project = {
+      ...project,
+      billingSchedule: [...(project.billingSchedule || []), newItem],
+    }
+    if (saveProject(next)) {
+      onSaved(next)
+    } else {
+      setError('No se ha podido guardar.')
+    }
+  }
+
+  return (
+    <div className="pd-inline-form">
+      <div className="pd-inline-form-grid">
+        <label>
+          <span>%</span>
+          <input
+            type="text"
+            placeholder="30"
+            value={form.percentage}
+            onChange={e => setForm({ ...form, percentage: e.target.value })}
+          />
+        </label>
+        <label>
+          <span>Cliente</span>
+          <input
+            type="text"
+            placeholder="Nombre cliente"
+            value={form.clientName}
+            onChange={e => setForm({ ...form, clientName: e.target.value })}
+          />
+        </label>
+        <label>
+          <span>Vencimiento *</span>
+          <DateInput value={form.dueDate} onChange={(v) => setForm({ ...form, dueDate: v })} />
+        </label>
+        <label>
+          <span>Importe *</span>
+          <input
+            type="text"
+            placeholder="5000"
+            value={form.amount}
+            onChange={e => setForm({ ...form, amount: e.target.value })}
+          />
+        </label>
+        <label>
+          <span>Estado</span>
+          <select
+            value={form.invoiceStatus}
+            onChange={e => setForm({ ...form, invoiceStatus: e.target.value as 'Pending' | 'Sent' | 'Paid' })}
+          >
+            <option value="Pending">Pending</option>
+            <option value="Sent">Sent</option>
+            <option value="Paid">Paid</option>
+          </select>
+        </label>
+        <label className="pd-inline-form-wide">
+          <span>Descripción (opcional)</span>
+          <input
+            type="text"
+            placeholder="Hito de pago tras entregable E1"
+            value={form.description}
+            onChange={e => setForm({ ...form, description: e.target.value })}
+          />
+        </label>
+      </div>
+      {error && <p className="pd-inline-form-error">{error}</p>}
+      <div className="pd-inline-form-actions">
+        <button type="button" className="pd-btn pd-btn--secondary pd-btn--sm" onClick={onCancel}>Cancel</button>
+        <button type="button" className="pd-btn pd-btn--primary pd-btn--sm" onClick={handleSave}>
+          <Plus size={12} /> Add tranche
+        </button>
+      </div>
+    </div>
+  )
+}
+
 /* ============================================================
    TASKS BLOCK
    ============================================================ */
 
-const TasksBlock = ({ project }: { project: Project }) => {
-  const navigate = useNavigate()
+const TasksBlock = ({ project, onUpdate }: { project: Project; onUpdate: (next: Project) => void }) => {
   const tasks = project.tasks || []
   const completed = tasks.filter(t => t.status === 'Completed').length
+  const [adding, setAdding] = useState(false)
+
+  const toggleDone = (taskId: string) => {
+    const next: Project = {
+      ...project,
+      tasks: tasks.map(t => t.id === taskId
+        ? { ...t, status: t.status === 'Completed' ? 'Pending' : 'Completed' }
+        : t
+      ),
+    }
+    if (saveProject(next)) onUpdate(next)
+  }
+
+  const handleRemove = (taskId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!window.confirm('¿Eliminar esta task?')) return
+    const next: Project = { ...project, tasks: tasks.filter(t => t.id !== taskId) }
+    if (saveProject(next)) onUpdate(next)
+  }
 
   return (
     <section className="pd-section">
@@ -608,22 +844,40 @@ const TasksBlock = ({ project }: { project: Project }) => {
           <h2 className="pd-section-title">Tasks</h2>
           <p className="pd-section-sub">
             {tasks.length} task{tasks.length !== 1 ? 's' : ''}
-            {tasks.length > 0 && ` · ${completed} completed`}
+            {tasks.length > 0 && ` · ${completed} completadas`}
+            <small style={{ marginLeft: 8, color: 'var(--color-text-muted)' }}>
+              · aparecen automáticamente en /tasks
+            </small>
           </p>
         </div>
-        <button
-          type="button"
-          className="pd-btn pd-btn--primary"
-          onClick={() => navigate(`/projects?task=${project.id}`)}
-        >
-          <Plus size={13} /> Add task
-        </button>
+        {!adding && (
+          <button
+            type="button"
+            className="pd-btn pd-btn--primary"
+            onClick={() => setAdding(true)}
+          >
+            <Plus size={13} /> Add task
+          </button>
+        )}
       </div>
 
+      {adding && (
+        <AddTaskForm
+          project={project}
+          onCancel={() => setAdding(false)}
+          onSaved={(next) => {
+            onUpdate(next)
+            setAdding(false)
+          }}
+        />
+      )}
+
       {tasks.length === 0 ? (
-        <div className="pd-empty-box pd-empty-box--sm">
-          <p>No tasks yet.</p>
-        </div>
+        !adding && (
+          <div className="pd-empty-box pd-empty-box--sm">
+            <p>No tasks yet.</p>
+          </div>
+        )
       ) : (
         <ul className="pd-tasks-list">
           {tasks.map(t => {
@@ -635,12 +889,16 @@ const TasksBlock = ({ project }: { project: Project }) => {
               <li
                 key={t.id}
                 className={`pd-task ${done ? 'pd-task--done' : ''} ${overdue ? 'pd-task--overdue' : ''}`}
-                onClick={() => navigate(`/projects?task=${project.id}&taskId=${t.id}`)}
-                style={{ cursor: 'pointer' }}
               >
-                <span className="pd-task-check">
+                <button
+                  type="button"
+                  className="pd-task-check pd-task-check--btn"
+                  onClick={() => toggleDone(t.id)}
+                  aria-label={done ? 'Marcar como pendiente' : 'Marcar como completada'}
+                  title={done ? 'Marcar como pendiente' : 'Marcar como completada'}
+                >
                   {done ? <CheckCircle2 size={16} /> : <Clock size={16} />}
-                </span>
+                </button>
                 <div className="pd-task-content">
                   <strong>{t.title}</strong>
                   {t.description && <small>{t.description}</small>}
@@ -658,12 +916,117 @@ const TasksBlock = ({ project }: { project: Project }) => {
                     </small>
                   )}
                 </span>
+                <button
+                  type="button"
+                  className="pd-mini-action pd-mini-action--delete"
+                  onClick={(e) => handleRemove(t.id, e)}
+                  title="Eliminar"
+                >
+                  ×
+                </button>
               </li>
             )
           })}
         </ul>
       )}
     </section>
+  )
+}
+
+/* Form inline para añadir una task al proyecto */
+const AddTaskForm = ({ project, onCancel, onSaved }: {
+  project: Project
+  onCancel: () => void
+  onSaved: (next: Project) => void
+}) => {
+  const [form, setForm] = useState({
+    title: '',
+    description: '',
+    dueDate: '',
+    priority: 'Medium' as 'Low' | 'Medium' | 'High',
+    status: 'Pending' as 'Pending' | 'In progress' | 'Completed',
+  })
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSave = () => {
+    setError(null)
+    if (!form.title.trim()) { setError('El título es obligatorio.'); return }
+    const newTask: Task = {
+      id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      title: form.title.trim(),
+      description: form.description.trim() || undefined,
+      dueDate: form.dueDate,
+      priority: form.priority,
+      status: form.status,
+    }
+    const next: Project = {
+      ...project,
+      tasks: [...(project.tasks || []), newTask],
+    }
+    if (saveProject(next)) {
+      onSaved(next)
+    } else {
+      setError('No se ha podido guardar.')
+    }
+  }
+
+  return (
+    <div className="pd-inline-form">
+      <div className="pd-inline-form-grid">
+        <label className="pd-inline-form-wide">
+          <span>Título *</span>
+          <input
+            type="text"
+            placeholder="Ej: Revisar memoria técnica"
+            value={form.title}
+            onChange={e => setForm({ ...form, title: e.target.value })}
+            autoFocus
+          />
+        </label>
+        <label>
+          <span>Vencimiento</span>
+          <DateInput value={form.dueDate} onChange={(v) => setForm({ ...form, dueDate: v })} />
+        </label>
+        <label>
+          <span>Prioridad</span>
+          <select
+            value={form.priority}
+            onChange={e => setForm({ ...form, priority: e.target.value as 'Low' | 'Medium' | 'High' })}
+          >
+            <option value="Low">Low</option>
+            <option value="Medium">Medium</option>
+            <option value="High">High</option>
+          </select>
+        </label>
+        <label>
+          <span>Estado</span>
+          <select
+            value={form.status}
+            onChange={e => setForm({ ...form, status: e.target.value as 'Pending' | 'In progress' | 'Completed' })}
+          >
+            <option value="Pending">Pending</option>
+            <option value="In progress">In progress</option>
+            <option value="Completed">Completed</option>
+          </select>
+        </label>
+        <label className="pd-inline-form-wide">
+          <span>Descripción (opcional)</span>
+          <input
+            type="text"
+            placeholder="Notas adicionales"
+            value={form.description}
+            onChange={e => setForm({ ...form, description: e.target.value })}
+          />
+        </label>
+      </div>
+      {error && <p className="pd-inline-form-error">{error}</p>}
+      <div className="pd-inline-form-actions">
+        <button type="button" className="pd-btn pd-btn--secondary pd-btn--sm" onClick={onCancel}>Cancel</button>
+        <button type="button" className="pd-btn pd-btn--primary pd-btn--sm" onClick={handleSave}>
+          <Plus size={12} /> Add task
+        </button>
+      </div>
+    </div>
   )
 }
 
