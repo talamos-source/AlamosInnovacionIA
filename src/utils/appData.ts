@@ -23,6 +23,11 @@ export const APP_DATA_KEYS = [
   // Se sincronizan con backend para que estén disponibles desde cualquier
   // device y no se pierdan tras un applySnapshot con datos del server.
   'callBriefs',
+  // Proposal ideas creadas desde Customers → "New Proposal Idea".
+  // Indexadas por customerId — un cliente puede tener varias ideas en
+  // exploración antes de convertirlas en una propuesta formal.
+  // Alimentan Customer Context y posteriormente Funding Profile / Roadmap.
+  'proposalIdeas',
 ]
 
 export type AppDataSnapshot = Record<string, string>

@@ -6,6 +6,7 @@ import {
   Globe,
   FileText,
   Briefcase,
+  Lightbulb,
   Upload,
   X,
   AlertCircle,
@@ -132,6 +133,7 @@ const CustomerContext = () => {
   const [analyzeError, setAnalyzeError] = useState<string | null>(null)
   const [projectsCount, setProjectsCount] = useState(0)
   const [proposalDocsCount, setProposalDocsCount] = useState(0)
+  const [proposalIdeasCount, setProposalIdeasCount] = useState(0)
   const [lastTrace, setLastTrace] = useState<{
     documentsReceived: number
     documentsChars: number
@@ -163,6 +165,20 @@ const CustomerContext = () => {
     } catch {
       setProjectsCount(0)
       setProposalDocsCount(0)
+    }
+
+    // Count proposal ideas para este customer
+    try {
+      const raw = localStorage.getItem('proposalIdeas')
+      if (raw) {
+        const map = JSON.parse(raw) as Record<string, unknown[]>
+        const list = id ? (map[id] || []) : []
+        setProposalIdeasCount(list.length)
+      } else {
+        setProposalIdeasCount(0)
+      }
+    } catch {
+      setProposalIdeasCount(0)
     }
   }, [id])
 
@@ -275,32 +291,40 @@ const CustomerContext = () => {
       const customers = loadCustomers()
       const fullCustomer = customers.find(c => c.id === customer.id) as Record<string, unknown> | undefined
 
+      // === PROJECTS GANADOS — con status calculado por fechas ===
       let relatedProjects: Array<Record<string, unknown>> = []
       try {
         const rawProjects = localStorage.getItem('projects')
         if (rawProjects) {
           const allProjects: Array<Record<string, unknown>> = JSON.parse(rawProjects)
+          const today = Date.now()
           relatedProjects = allProjects
             .filter(p => {
               const primary = (p.primaryClients as string[] | undefined) || []
               const secondary = (p.secondaryClients as string[] | undefined) || []
               return primary.includes(customer.id) || secondary.includes(customer.id)
             })
-            .slice(0, 10) // limita por seguridad de tokens
-            // Enriquecer cada project para que el agente sepa que son
-            // PROYECTOS YA GANADOS Y EJECUTADOS, y conozca los proposal docs
-            // disponibles (memoria técnica, anexos, etc.).
+            .slice(0, 10)
             .map(p => {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const proposalDocs: any[] = (p.proposalDocuments as any[]) || []
+              // Calcula status real basado en fechas startDate/endDate
+              const startMs = p.startDate ? new Date(p.startDate as string).getTime() : NaN
+              const endMs = p.endDate ? new Date(p.endDate as string).getTime() : NaN
+              let executionStatus = 'unknown'
+              if (!Number.isNaN(endMs) && endMs < today) {
+                executionStatus = 'completed' // ya terminado
+              } else if (!Number.isNaN(startMs) && startMs <= today && (Number.isNaN(endMs) || endMs >= today)) {
+                executionStatus = 'in_execution' // en curso ahora mismo
+              } else if (!Number.isNaN(startMs) && startMs > today) {
+                executionStatus = 'upcoming' // ganado pero aún no iniciado
+              }
               return {
                 ...p,
-                // Quita base64 para no inflar el payload
-                proposalDocuments: undefined,
-                // Marca explícita para el agente
+                proposalDocuments: undefined, // quita base64
                 _wonProject: true,
-                _executedProject: true,
-                _note: 'Este es un proyecto ya GANADO y EN EJECUCIÓN o EJECUTADO por el cliente. Úsalo como evidencia de capacidad técnica y trayectoria.',
+                _executionStatus: executionStatus, // completed / in_execution / upcoming / unknown
+                _note: `Proyecto YA GANADO por el cliente. Status: ${executionStatus}. Úsalo como evidencia de track record y capacidad técnica. Para el ROADMAP I+D+i: si está completed, cuenta como hito ya logrado (TRL avanzado). Si está in_execution, considera la convocatoria de la que viene como ya cubierta — propón complementarias o de siguiente fase.`,
                 proposalDocumentNames: proposalDocs.map(d => d.name).filter(Boolean),
                 proposalDocumentsCount: proposalDocs.length,
               }
@@ -309,6 +333,19 @@ const CustomerContext = () => {
       } catch {
         // ignore
       }
+
+      // === NEW PROPOSAL IDEAS — alimentan exploración del cliente ===
+      let proposalIdeas: Array<Record<string, unknown>> = []
+      try {
+        const rawIdeas = localStorage.getItem('proposalIdeas')
+        if (rawIdeas) {
+          const map = JSON.parse(rawIdeas) as Record<string, Array<Record<string, unknown>>>
+          proposalIdeas = (map[customer.id] || []).slice(0, 8).map(idea => ({
+            ...idea,
+            _note: 'IDEA DE PROPUESTA en exploración (aún no presentada). Considérala para el ROADMAP I+D+i — el cliente quiere explorar esta línea. Usa el TRL inicial y las temáticas para emparejar con convocatorias adecuadas.',
+          }))
+        }
+      } catch { /* ignore */ }
 
       const API_BASE =
         (import.meta.env.VITE_API_URL as string | undefined) ||
@@ -344,6 +381,7 @@ const CustomerContext = () => {
       const requestBody = JSON.stringify({
         customer: lightCustomer,
         projects: relatedProjects,
+        proposalIdeas,
         documents,
       })
 
@@ -619,8 +657,26 @@ const CustomerContext = () => {
               </span>
               <span className="cc-source-hint">
                 {proposalDocsCount > 0
-                  ? `+ ${proposalDocsCount} proposal doc${proposalDocsCount !== 1 ? 's' : ''} (auto-incluidos como proyectos ganados)`
-                  : 'Auto-included in analysis'}
+                  ? `+ ${proposalDocsCount} doc${proposalDocsCount !== 1 ? 's' : ''} (proyectos ganados ya ejecutados / en curso)`
+                  : 'Won projects — auto-included as track record'}
+              </span>
+            </div>
+          </div>
+
+          {/* New Proposal Ideas */}
+          <div className="cc-source-card">
+            <div className="cc-source-icon cc-source-icon--brand">
+              <Lightbulb size={20} />
+            </div>
+            <div className="cc-source-body">
+              <span className="cc-source-label">New Proposal Ideas</span>
+              <span className="cc-source-value">
+                {proposalIdeasCount} idea{proposalIdeasCount !== 1 ? 's' : ''} en exploración
+              </span>
+              <span className="cc-source-hint">
+                {proposalIdeasCount > 0
+                  ? 'Alimentan Funding Profile y Roadmap I+D+i'
+                  : 'Crea con "New proposal idea" desde Customers'}
               </span>
             </div>
           </div>

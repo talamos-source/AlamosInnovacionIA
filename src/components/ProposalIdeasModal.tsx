@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import SearchableSelect from './SearchableSelect'
 import { generateProposalIdeaDocx } from '../utils/proposalIdeasDocx'
+import { persistAppData } from '../utils/appData'
 import './ProposalIdeasModal.css'
 
 /* ── Tipos ─────────────────────────────────────────── */
@@ -173,7 +174,28 @@ const ProposalIdeasModal = ({ customer, allCustomers, onClose }: ProposalIdeasMo
       }
       const data = await res.json()
       if (!data.idea) throw new Error('Respuesta del agente sin campo "idea"')
-      setImproved(data.idea as ProposalIdea)
+      const finalIdea = data.idea as ProposalIdea
+      setImproved(finalIdea)
+      // Persistir en localStorage indexed por customerId → alimenta
+      // Customer Context y el Funding Profile / Roadmap.
+      if (customer?.id) {
+        try {
+          const raw = localStorage.getItem('proposalIdeas') || '{}'
+          const all = JSON.parse(raw) as Record<string, Array<ProposalIdea & { id: string; createdAt: string; updatedAt: string }>>
+          const list = all[customer.id] || []
+          const ideaWithMeta = {
+            ...finalIdea,
+            id: `pi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }
+          all[customer.id] = [...list, ideaWithMeta]
+          persistAppData('proposalIdeas', JSON.stringify(all))
+          console.log(`[ProposalIdea] saved for customer ${customer.id} — total: ${all[customer.id].length}`)
+        } catch (err) {
+          console.warn('[ProposalIdea] failed to persist:', err)
+        }
+      }
       setStep('preview')
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Error desconocido')

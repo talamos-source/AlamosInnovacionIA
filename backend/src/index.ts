@@ -506,15 +506,20 @@ app.post('/ai/analyze-client-context', requireAuth, async (req, res) => {
 
     const projectsSection =
       projects && projects.length > 0
-        ? `\n\n=== WON PROJECTS (already executed or in execution) BY THIS CLIENT ===\n` +
-          `These are projects ALREADY GRANTED to the client — evidence of technical capacity and track record.\n\n` +
+        ? `\n\n=== WON PROJECTS BY THIS CLIENT (track record) ===\n` +
+          `These are projects ALREADY GRANTED to the client. For each one we mark the execution status:\n` +
+          `  · completed     = ya terminado, cuenta como hito logrado y TRL avanzado\n` +
+          `  · in_execution  = en curso ahora mismo, la convocatoria está cubierta — proponer complementarias o de siguiente fase\n` +
+          `  · upcoming      = ganado pero aún no iniciado\n` +
+          `  · unknown       = sin fechas claras\n\n` +
           projects
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             .map((p: any, i) => {
               const proposalDocs: string[] = Array.isArray(p.proposalDocumentNames) ? p.proposalDocumentNames : []
+              const execStatus = p._executionStatus || 'unknown'
               return [
-                `Project ${i + 1}: ${p.title || 'Untitled'}  [WON · ${p.status || 'unknown status'}]`,
-                p.call && `  Call: ${p.call}${p.callYear ? ` (${p.callYear})` : ''}`,
+                `Project ${i + 1}: ${p.title || 'Untitled'}  [WON · execution: ${execStatus}]`,
+                p.call && `  Call/program: ${p.call}${p.callYear ? ` (${p.callYear})` : ''}`,
                 p.fundingBody && `  Funding body: ${p.fundingBody}`,
                 p.budgetFunding && `  Budget granted: ${p.budgetFunding}`,
                 p.startDate && p.endDate && `  Period: ${p.startDate} → ${p.endDate}`,
@@ -525,7 +530,35 @@ app.post('/ai/analyze-client-context', requireAuth, async (req, res) => {
                 .join('\n')
             })
             .join('\n\n')
-        : '\n\n=== PROJECTS ===\n(No funded projects with this client yet)'
+        : '\n\n=== WON PROJECTS ===\n(No funded projects with this client yet)'
+
+    // Proposal Ideas en exploración — alimentan el roadmap
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const proposalIdeas = (req.body as any)?.proposalIdeas as any[] | undefined
+    const ideasSection =
+      proposalIdeas && proposalIdeas.length > 0
+        ? `\n\n=== PROPOSAL IDEAS IN EXPLORATION (not yet submitted) ===\n` +
+          `These are ideas the client wants to explore — they should inform the R+D+i roadmap:\n\n` +
+          proposalIdeas
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .map((idea: any, i) => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const partners: any[] = Array.isArray(idea.partners) ? idea.partners : []
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const wps: any[] = Array.isArray(idea.workPackages) ? idea.workPackages : []
+              return [
+                `Idea ${i + 1}: ${(idea.objective || 'Untitled').slice(0, 100)}`,
+                idea.mainInnovation && `  Main innovation: ${(idea.mainInnovation as string).slice(0, 500)}`,
+                idea.initialTrl && `  Initial TRL: ${idea.initialTrl}`,
+                idea.durationMonths && `  Duration: ${idea.durationMonths} months`,
+                partners.length > 0 && `  Partners (${partners.length}): ${partners.map(p => `${p.name} [${p.role}]`).slice(0, 6).join(', ')}`,
+                wps.length > 0 && `  Work packages (${wps.length}): ${wps.map(w => w.name).slice(0, 6).join('; ')}`,
+              ]
+                .filter(Boolean)
+                .join('\n')
+            })
+            .join('\n\n')
+        : ''
 
     const documentsSection =
       documents && documents.length > 0
@@ -538,7 +571,7 @@ app.post('/ai/analyze-client-context', requireAuth, async (req, res) => {
             .join('\n\n')
         : ''
 
-    const fullSources = clientSection + websiteSection + projectsSection + documentsSection
+    const fullSources = clientSection + websiteSection + projectsSection + ideasSection + documentsSection
 
     // 3. Call Claude
     const message = await anthropic.messages.create({
