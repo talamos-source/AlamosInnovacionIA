@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Search, ChevronDown, Calendar, Users, MoreVertical, Clock, Pencil, Trash2, Plus, Edit, FileText, ListTodo, Copy } from 'lucide-react'
+import { Search, ChevronDown, MoreVertical, Activity, AlertTriangle, Clock, Pencil, Trash2, Plus, Copy, ListTodo } from 'lucide-react'
 import { formatCurrency, formatNumber, parseEuropeanNumber } from '../utils/formatCurrency'
 import Modal from '../components/Modal'
 import DateInput from '../components/DateInput'
@@ -449,7 +449,18 @@ const Projects = () => {
   const uniqueCalls = calls.filter(call => 
     projects.some(p => p.callId === call.id)
   )
-  const uniqueProjectNames = Array.from(new Set(projects.map(p => p.title).filter(Boolean))).sort()
+  const syncSelectedProjectAfterSave = (updatedProject: Project) => {
+    if (isEditModalOpen) setSelectedProject(updatedProject)
+    else setSelectedProject(null)
+  }
+
+  const formatDisplayDate = (dateString: string) => {
+    if (!dateString) return '—'
+    const date = new Date(dateString)
+    if (Number.isNaN(date.getTime())) return dateString
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`
+  }
 
   // Handle Edit Project
   const handleEditProject = (project: Project) => {
@@ -652,7 +663,7 @@ const Projects = () => {
     })
     setBillingErrors({})
     setIsAddBillingModalOpen(false)
-    setSelectedProject(null)
+    syncSelectedProjectAfterSave(updatedProject)
   }
 
   const handleDuplicateBilling = (project: Project, billing: BillingItem) => {
@@ -781,7 +792,7 @@ const Projects = () => {
     })
 
     setIsEditBillingModalOpen(false)
-    setSelectedProject(null)
+    syncSelectedProjectAfterSave(updatedProject)
     setSelectedBillingItem(null)
     setEditBillingFormData({
       clientId: '',
@@ -885,7 +896,7 @@ const Projects = () => {
     })
     setTaskErrors({})
     setIsAddTaskModalOpen(false)
-    setSelectedProject(null)
+    syncSelectedProjectAfterSave(updatedProject)
   }
 
   const handleDuplicateTask = (project: Project, task: Task) => {
@@ -977,7 +988,7 @@ const Projects = () => {
     })
 
     setIsEditTaskModalOpen(false)
-    setSelectedProject(null)
+    syncSelectedProjectAfterSave(updatedProject)
     setSelectedTask(null)
     setTaskFormData({
       projectId: '',
@@ -1045,422 +1056,398 @@ const Projects = () => {
         </div>
       </div>
 
-      <div className="customers-toolbar">
-        <div className="search-bar-inline">
-          <Search size={18} className="search-icon" />
+      {/* ─── KPI CARDS ─── */}
+      <div className="prj-kpis">
+        {(() => {
+          // Calcular métricas en runtime
+          const activeCount = projects.filter(p => p.status === 'Ongoing').length
+          const filingWindows = projects.filter(p => {
+            if (!p.endDate) return false
+            const days = Math.floor((new Date(p.endDate).getTime() - Date.now()) / 86400000)
+            return days >= 0 && days <= 90
+          }).length
+          const needAttention = projects.filter(p => {
+            if (p.status !== 'Ongoing') return false
+            // Necesita atención si: deadline próximo o sin billing actualizado
+            if (p.endDate) {
+              const days = Math.floor((new Date(p.endDate).getTime() - Date.now()) / 86400000)
+              if (days >= 0 && days <= 30) return true
+            }
+            return false
+          }).length
+          const avgHealth = projects.length > 0
+            ? Math.round(projects.reduce((acc, p) => {
+                // Score basado en status y deadline
+                if (p.status === 'Ended') return acc + 100
+                if (!p.endDate) return acc + 70
+                const days = Math.floor((new Date(p.endDate).getTime() - Date.now()) / 86400000)
+                if (days < 0) return acc + 30 // pasado
+                if (days <= 30) return acc + 60
+                if (days <= 90) return acc + 80
+                return acc + 90
+              }, 0) / projects.length)
+            : 0
+          const uniqueClients = new Set(projects.flatMap(p => p.primaryClients)).size
+          const totalFunding = projects.reduce((acc, p) => {
+            const n = parseEuropeanNumber(p.budgetFunding || '0')
+            return acc + (Number.isFinite(n) ? n : 0)
+          }, 0)
+          const formatM = (n: number) => {
+            if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} M€`
+            if (n >= 1000) return `${(n / 1000).toFixed(0)}k€`
+            return `${n} €`
+          }
+          return (
+            <>
+              <div className="prj-kpi">
+                <div className="prj-kpi-label">ACTIVE PROJECTS</div>
+                <div className="prj-kpi-value">{activeCount}</div>
+              </div>
+              <div className="prj-kpi">
+                <div className="prj-kpi-label">FILING WINDOWS</div>
+                <div className="prj-kpi-value">{filingWindows}</div>
+                <div className="prj-kpi-hint">Next 90 days</div>
+              </div>
+              <div className="prj-kpi prj-kpi--warn">
+                <div className="prj-kpi-label">NEED ATTENTION</div>
+                <div className="prj-kpi-value">{needAttention}</div>
+                <div className="prj-kpi-hint">Health &lt; 70</div>
+              </div>
+              <div className="prj-kpi">
+                <div className="prj-kpi-label">AVG HEALTH</div>
+                <div className="prj-kpi-value">{avgHealth}</div>
+              </div>
+              <div className="prj-kpi">
+                <div className="prj-kpi-label">CLIENTS</div>
+                <div className="prj-kpi-value">{uniqueClients}</div>
+              </div>
+              <div className="prj-kpi prj-kpi--brand">
+                <div className="prj-kpi-label">TOTAL FUNDING</div>
+                <div className="prj-kpi-value">{formatM(totalFunding)}</div>
+              </div>
+            </>
+          )
+        })()}
+      </div>
+
+      {/* ─── TOOLBAR: search + filtros secundarios + tabs ─── */}
+      <div className="prj-toolbar">
+        <div className="search-bar-inline" style={{ flex: 1, minWidth: 240 }}>
+          <Search size={16} className="search-icon" />
           <input
             type="text"
-            placeholder="Search projects..."
+            placeholder="Search projects…"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="search-input-inline"
           />
         </div>
-
-        <div className="filter-buttons">
-          <div className="filter-button-group">
-            <div className="select-wrapper" style={{ position: 'relative' }}>
-              <select
-                value={filters.projectName}
-                onChange={(e) => setFilters(prev => ({ ...prev, projectName: e.target.value }))}
-                className={`filter-btn ${filters.projectName !== 'All' ? 'active' : ''}`}
-                style={{ appearance: 'none', paddingRight: '2rem', cursor: 'pointer' }}
-              >
-                <option value="All">All Projects</option>
-                {uniqueProjectNames.map(projectName => (
-                  <option key={projectName} value={projectName}>{projectName}</option>
-                ))}
-              </select>
-              <ChevronDown size={16} className="select-chevron" style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-            </div>
-            <div className="select-wrapper" style={{ position: 'relative' }}>
-              <select
-                value={filters.service}
-                onChange={(e) => setFilters(prev => ({ ...prev, service: e.target.value }))}
-                className={`filter-btn ${filters.service !== 'All' ? 'active' : ''}`}
-                style={{ appearance: 'none', paddingRight: '2rem', cursor: 'pointer' }}
-              >
-                <option value="All">All Services</option>
-                <option value="Proposals">Proposals</option>
-                {uniqueServices.map(service => (
-                  <option key={service} value={service}>{service}</option>
-                ))}
-              </select>
-              <ChevronDown size={16} className="select-chevron" style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-            </div>
-            <div className="select-wrapper" style={{ position: 'relative' }}>
-              <select
-                value={filters.call}
-                onChange={(e) => setFilters(prev => ({ ...prev, call: e.target.value }))}
-                className={`filter-btn ${filters.call !== 'All' ? 'active' : ''}`}
-                style={{ appearance: 'none', paddingRight: '2rem', cursor: 'pointer' }}
-              >
-                <option value="All">All Calls</option>
-                {uniqueCalls.map(call => (
-                  <option key={call.id} value={call.id}>{call.name}</option>
-                ))}
-              </select>
-              <ChevronDown size={16} className="select-chevron" style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-            </div>
-            <div className="select-wrapper" style={{ position: 'relative' }}>
-              <select
-                value={filters.status}
-                onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-                className={`filter-btn ${filters.status !== 'All' ? 'active' : ''}`}
-                style={{ appearance: 'none', paddingRight: '2rem', cursor: 'pointer' }}
-              >
-                <option value="All">All Status</option>
-                <option value="Ongoing">Ongoing</option>
-                <option value="Ended">Ended</option>
-              </select>
-              <ChevronDown size={16} className="select-chevron" style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-            </div>
-          </div>
+        <div className="prj-filter-group">
+          <select
+            value={filters.call}
+            onChange={(e) => setFilters(prev => ({ ...prev, call: e.target.value }))}
+            className="prj-mini-select"
+          >
+            <option value="All">All Calls</option>
+            {uniqueCalls.map(call => (
+              <option key={call.id} value={call.id}>{call.name}</option>
+            ))}
+          </select>
+          <select
+            value={filters.service}
+            onChange={(e) => setFilters(prev => ({ ...prev, service: e.target.value }))}
+            className="prj-mini-select"
+          >
+            <option value="All">All Services</option>
+            <option value="Proposals">Proposals</option>
+            {uniqueServices.map(service => (
+              <option key={service} value={service}>{service}</option>
+            ))}
+          </select>
         </div>
       </div>
 
-      <div className="content-section">
-        {filteredProjects.length === 0 ? (
-          <div className="empty-row" style={{ padding: '3rem', textAlign: 'center' }}>
-            {searchTerm || filters.service !== 'All' || filters.call !== 'All' || filters.status !== 'All' || filters.projectName !== 'All'
-              ? 'No projects match your filters' 
-              : 'No projects found. Projects are automatically created from Granted proposals and services.'}
-          </div>
-        ) : (
-          <div className="projects-grid">
-            {filteredProjects.map(project => {
-              const formatDate = (dateString: string) => {
-                if (!dateString) return ''
-                const date = new Date(dateString)
-                const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
-                const day = date.getDate()
-                const month = months[date.getMonth()]
-                const year = date.getFullYear()
-                return `${day} ${month} ${year}`
-              }
+      {/* ─── TABS por status ─── */}
+      <div className="prj-tabs">
+        {[
+          { key: 'All', label: 'All', count: projects.length },
+          { key: 'Ongoing', label: 'In execution', count: projects.filter(p => p.status === 'Ongoing').length },
+          { key: 'Ended', label: 'Closed', count: projects.filter(p => p.status === 'Ended').length },
+        ].map(tab => (
+          <button
+            key={tab.key}
+            type="button"
+            className={`prj-tab ${filters.status === tab.key ? 'prj-tab--active' : ''}`}
+            onClick={() => setFilters(prev => ({ ...prev, status: tab.key }))}
+          >
+            {tab.label}
+            <span className="prj-tab-count">{tab.count}</span>
+          </button>
+        ))}
+      </div>
 
-              const projectIdentifier = project.callYear && project.fundingBody 
-                ? `${project.call} ${project.callYear} - ${project.fundingBody}`
-                : project.call || project.service || ''
+      {/* ─── LAYOUT principal: tabla a la izquierda + sidebar a la derecha ─── */}
+      <div className="prj-layout">
+        {/* TABLA MODERNA */}
+        <div className="prj-main">
+          {filteredProjects.length === 0 ? (
+            <div className="prj-empty">
+              {searchTerm || filters.service !== 'All' || filters.call !== 'All' || filters.status !== 'All' || filters.projectName !== 'All'
+                ? 'No projects match your filters'
+                : 'No projects yet. They are auto-created from Granted proposals and services.'}
+            </div>
+          ) : (
+            <div className="prj-table-wrap">
+              <table className="prj-table">
+                <thead>
+                  <tr>
+                    <th>Project</th>
+                    <th>Client</th>
+                    <th>Status</th>
+                    <th>Health</th>
+                    <th>Next milestone</th>
+                    <th>Alerts</th>
+                    <th style={{ textAlign: 'right' }}>Funding</th>
+                    <th style={{ width: 40 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredProjects.map(project => {
+                    // Identificador secundario (call + año + organismo)
+                    const projectIdentifier = project.callYear && project.fundingBody
+                      ? `${project.call || ''} ${project.callYear} · ${project.fundingBody}`
+                      : project.call || project.service || ''
 
-              const totalClients = project.primaryClients.length + (project.secondaryClients?.length || 0)
-              const totalPartners = 1 // Default, can be enhanced later
+                    // Health score (0-100)
+                    let health = 90
+                    if (project.status === 'Ended') {
+                      health = 100
+                    } else if (project.endDate) {
+                      const days = Math.floor((new Date(project.endDate).getTime() - Date.now()) / 86400000)
+                      if (days < 0) health = 30
+                      else if (days <= 30) health = 60
+                      else if (days <= 90) health = 80
+                      else health = 90
+                    }
+                    const healthClass = health >= 80 ? 'ok' : health >= 60 ? 'warn' : 'bad'
 
-              return (
-                <div key={project.id} className="project-card">
-                  <div className="project-card-header">
-                    <div className="project-header-left">
-                      <h3 className="project-title">{project.title}</h3>
-                      {projectIdentifier && (
-                        <div className="project-identifier">{projectIdentifier}</div>
-                      )}
-                      <div className="project-meta-row">
-                        {project.startDate && (
-                          <div className="project-meta-item">
-                            <Calendar size={16} />
-                            <span>{formatDate(project.startDate)} - {project.status}</span>
-                          </div>
-                        )}
-                        <div className="project-meta-item">
-                          <Users size={16} />
-                          <span>{totalClients} clients, {totalPartners} partners</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="project-header-right">
-                      <span className={`status-badge status-${project.status.toLowerCase().replace(/\s+/g, '-')}`}>
-                        {project.status}
-                      </span>
-                      {project.budgetFunding && (
-                        <div className="project-amount">{formatCurrency(project.budgetFunding)}</div>
-                      )}
-                      {project.fee && (
-                        <div className="project-fee">Fee: {formatCurrency(project.fee)}</div>
-                      )}
-                      <div 
-                        className="actions-menu-container" 
-                        data-menu-id={project.id}
-                        style={{ position: 'relative' }}
+                    // Next milestone — próximo billing pendiente o próxima task pendiente
+                    let nextMilestone = '—'
+                    let nextMilestoneDate: Date | null = null
+                    const upcomingBilling = (project.billingSchedule || [])
+                      .filter(b => b.invoiceStatus !== 'Paid' && b.dueDate)
+                      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0]
+                    const upcomingTask = (project.tasks || [])
+                      .filter(t => t.status !== 'Completed' && t.dueDate)
+                      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0]
+                    if (upcomingBilling) {
+                      nextMilestone = `Bill ${upcomingBilling.percentage || ''}`
+                      nextMilestoneDate = new Date(upcomingBilling.dueDate)
+                    } else if (upcomingTask) {
+                      nextMilestone = upcomingTask.title.slice(0, 30)
+                      nextMilestoneDate = new Date(upcomingTask.dueDate)
+                    } else if (project.endDate) {
+                      nextMilestone = 'End of project'
+                      nextMilestoneDate = new Date(project.endDate)
+                    }
+                    const daysToMilestone = nextMilestoneDate
+                      ? Math.floor((nextMilestoneDate.getTime() - Date.now()) / 86400000)
+                      : null
+
+                    // Alerts count — health bajo + task overdue
+                    let alerts = 0
+                    if (health < 70) alerts++
+                    const overdueTasks = (project.tasks || []).filter(t =>
+                      t.status !== 'Completed' && t.dueDate && new Date(t.dueDate).getTime() < Date.now()
+                    ).length
+                    alerts += overdueTasks
+
+                    // Client name (primer cliente principal)
+                    const firstClient = project.primaryClients[0]
+                      ? getClientName(project.primaryClients[0])
+                      : '—'
+                    const extraClients = project.primaryClients.length - 1
+
+                    // Status badge
+                    const statusLabel = project.status === 'Ongoing' ? 'In execution' : project.status
+                    const statusClass = project.status === 'Ongoing' ? 'ok'
+                      : project.status === 'Ended' ? 'muted' : 'warn'
+
+                    return (
+                      <tr
+                        key={project.id}
+                        className="prj-row"
+                        onClick={() => handleEditProject(project)}
                       >
-                        <button 
-                          className="project-menu-btn" 
-                          type="button"
-                          onClick={() => setOpenMenuId(openMenuId === project.id ? null : project.id)}
-                        >
-                          <MoreVertical size={20} />
-                        </button>
-                        {openMenuId === project.id && (
-                          <div className="actions-menu-dropdown" style={{ right: 0, top: '100%', marginTop: '0.5rem' }}>
-                            <button 
-                              className="actions-menu-item" 
-                              onClick={() => {
-                                handleEditProject(project)
-                                setOpenMenuId(null)
-                              }}
-                            >
-                              <Edit size={16} />
-                              <span>Edit Project</span>
-                            </button>
-                            <button 
-                              className="actions-menu-item" 
-                              onClick={() => {
-                                setSelectedProject(project)
-                                setBillingFormData({
-                                  projectId: project.id,
-                                  clientId: '',
-                                  description: '',
-                                  amount: '',
-                                  dueDate: '',
-                                  notes: ''
-                                })
-                                setBillingErrors({})
-                                setIsAddBillingModalOpen(true)
-                                setOpenMenuId(null)
-                              }}
-                            >
-                              <FileText size={16} />
-                              <span>Add Billing</span>
-                            </button>
-                            <button 
-                              className="actions-menu-item" 
-                              onClick={() => {
-                                setSelectedProject(project)
-                                setTaskFormData({
-                                  projectId: project.id,
-                                  title: '',
-                                  description: '',
-                                  dueDate: '',
-                                  priority: 'Medium',
-                                  status: 'Pending'
-                                })
-                                setTaskErrors({})
-                                setIsAddTaskModalOpen(true)
-                                setOpenMenuId(null)
-                              }}
-                            >
-                              <Plus size={16} />
-                              <span>Add Task</span>
-                            </button>
-                            <button 
-                              className="actions-menu-item" 
-                              onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                setOpenMenuId(null)
-                                navigate(`/tasks?project=${project.id}`)
-                              }}
-                            >
-                              <ListTodo size={16} />
-                              <span>View Tasks</span>
-                            </button>
-                            {!isWorker && (
-                              <button 
-                                className="actions-menu-item" 
-                                onClick={() => {
-                                  setProjectToDelete(project)
-                                  setIsDeleteProjectModalOpen(true)
-                                  setOpenMenuId(null)
-                                }}
-                                style={{ color: '#F44336' }}
-                              >
-                                <Trash2 size={16} />
-                                <span>Delete</span>
-                              </button>
-                            )}
+                        <td className="prj-cell-project">
+                          <div className="prj-project-name">{project.title}</div>
+                          {projectIdentifier && (
+                            <div className="prj-project-sub">{projectIdentifier}</div>
+                          )}
+                        </td>
+                        <td>
+                          <div className="prj-client">
+                            {firstClient}
+                            {extraClients > 0 && <span className="prj-client-more">+{extraClients}</span>}
                           </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {project.billingSchedule && project.billingSchedule.length > 0 && (
-                    <div className="project-section">
-                      <h4 className="project-section-title">Billing Schedule</h4>
-                      {project.billingSchedule.map(billing => (
-                        <div key={billing.id} className="billing-item">
-                          <div className="billing-left">
-                            <div className="billing-percentage">{billing.percentage} payment</div>
-                            <div className="billing-client">
-                              {billing.clientName} - Due: {formatDate(billing.dueDate)}
+                        </td>
+                        <td>
+                          <span className={`prj-badge prj-badge--${statusClass}`}>
+                            {statusLabel}
+                          </span>
+                        </td>
+                        <td>
+                          <div className={`prj-health prj-health--${healthClass}`}>
+                            <svg viewBox="0 0 36 36" className="prj-health-svg">
+                              <circle cx="18" cy="18" r="15" className="prj-health-bg" />
+                              <circle
+                                cx="18" cy="18" r="15"
+                                className="prj-health-fg"
+                                strokeDasharray={`${(health / 100) * 94.25} 94.25`}
+                                transform="rotate(-90 18 18)"
+                              />
+                            </svg>
+                            <span className="prj-health-value">{health}</span>
+                          </div>
+                        </td>
+                        <td className="prj-cell-milestone">
+                          <div>{nextMilestone}</div>
+                          {daysToMilestone !== null && (
+                            <div className={`prj-days ${daysToMilestone < 0 ? 'overdue' : daysToMilestone <= 30 ? 'soon' : ''}`}>
+                              {daysToMilestone < 0
+                                ? `${Math.abs(daysToMilestone)} d atrás`
+                                : daysToMilestone === 0 ? 'Hoy'
+                                : `en ${daysToMilestone} d`}
                             </div>
-                          </div>
-                          <div className="billing-right">
-                            <div className="billing-amount">{formatCurrency(billing.amount)}</div>
-                            <span className={`invoice-status invoice-${billing.invoiceStatus.toLowerCase().replace(/_/g, '-')}`}>
-                              <Clock size={14} />
-                              {billing.invoiceStatus}
-                            </span>
+                          )}
+                        </td>
+                        <td>
+                          {alerts > 0 ? (
+                            <span className="prj-alerts">{alerts}</span>
+                          ) : (
+                            <span className="prj-alerts prj-alerts--zero">—</span>
+                          )}
+                        </td>
+                        <td className="prj-cell-funding">
+                          {project.budgetFunding
+                            ? formatCurrency(project.budgetFunding)
+                            : <span style={{ color: 'var(--color-text-muted)' }}>—</span>}
+                        </td>
+                        <td>
                           <button
-                            className="billing-action-btn"
                             type="button"
-                            title="Duplicate"
-                            onClick={() => handleDuplicateBilling(project, billing)}
+                            className="prj-row-action"
+                            onClick={(e) => { e.stopPropagation(); handleEditProject(project) }}
+                            aria-label="Open"
                           >
-                            <Copy size={16} />
+                            <MoreVertical size={16} />
                           </button>
-                            <button 
-                              className="billing-action-btn" 
-                              type="button" 
-                              title="Edit"
-                              onClick={() => handleEditBilling(project, billing)}
-                            >
-                              <Pencil size={16} />
-                            </button>
-                            <button 
-                              className="billing-action-btn" 
-                              type="button" 
-                              title="Delete"
-                              onClick={() => handleDeleteBilling(project, billing.id)}
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                      {(() => {
-                        const projectFee = parseEuropeanNumber(project.fee) || 0
-                        const totalBilling = project.billingSchedule.reduce((sum, billing) => {
-                          const amount = parseEuropeanNumber(billing.amount) || 0
-                          return sum + amount
-                        }, 0)
-                        
-                        // Check if totals match (with small tolerance for floating point comparison)
-                        const tolerance = 0.01
-                        const isEqual = Math.abs(totalBilling - projectFee) < tolerance
-                        
-                        if (projectFee > 0) {
-                          if (totalBilling > projectFee) {
-                            // Overpassed fee - red warning
-                            return (
-                              <div className="billing-warning" style={{
-                                marginTop: '1rem',
-                                padding: '0.75rem',
-                                backgroundColor: '#fef2f2',
-                                border: '1px solid #fecaca',
-                                borderRadius: '0.5rem',
-                                color: '#dc2626',
-                                fontSize: '0.875rem',
-                                fontWeight: '500'
-                              }}>
-                                Overpassed agreed fee
-                              </div>
-                            )
-                          } else if (isEqual) {
-                            // Successfully planned - green message
-                            return (
-                              <div style={{
-                                marginTop: '1rem',
-                                padding: '0.75rem',
-                                backgroundColor: '#f0fdf4',
-                                border: '1px solid #86efac',
-                                borderRadius: '0.5rem',
-                                color: '#166534',
-                                fontSize: '0.875rem',
-                                fontWeight: '500'
-                              }}>
-                                Billing Schedule Successfully Planned
-                              </div>
-                            )
-                          } else {
-                            // Outstanding billing milestones - yellow message
-                            return (
-                              <div style={{
-                                marginTop: '1rem',
-                                padding: '0.75rem',
-                                backgroundColor: '#fefce8',
-                                border: '1px solid #fde047',
-                                borderRadius: '0.5rem',
-                                color: '#854d0e',
-                                fontSize: '0.875rem',
-                                fontWeight: '500'
-                              }}>
-                                Outstanding billing milestones
-                              </div>
-                            )
-                          }
-                        }
-                        return null
-                      })()}
-                    </div>
-                  )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
 
-                  {project.tasks && project.tasks.length > 0 && (
-                    <div className="project-section">
-                      <div className="project-section-header">
-                        <h4 className="project-section-title">Upcoming Tasks</h4>
-                        <button 
-                          className="add-task-btn" 
-                          type="button"
-                          onClick={() => {
-                            setSelectedProject(project)
-                            setTaskFormData({
-                              projectId: project.id,
-                              title: '',
-                              description: '',
-                              dueDate: '',
-                              priority: 'Medium',
-                              status: 'Pending'
-                            })
-                            setTaskErrors({})
-                            setIsAddTaskModalOpen(true)
-                          }}
-                        >
-                          <Plus size={16} />
-                          Add Task
-                        </button>
-                      </div>
-                      {[...(project.tasks || [])]
-                        .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
-                        .map(task => (
-                        <div key={task.id} className="task-item">
-                          <div 
-                            className="task-dot" 
-                            style={{ backgroundColor: getTaskDotColor(task.priority) }}
-                          ></div>
-                          <div className="task-content">
-                            <span className="task-description">{task.title || task.description}</span>
-                            <span 
-                              className="task-date" 
-                              style={{ color: getTaskDateColor(task.dueDate, task.status) }}
-                            >
-                              {formatDate(task.dueDate)}
-                            </span>
+        {/* SIDEBAR — Próximos hitos + Atención requerida */}
+        <aside className="prj-sidebar">
+          {(() => {
+            // Recopilar todos los milestones próximos
+            const allMilestones: Array<{ project: string; type: 'bill' | 'task' | 'end'; label: string; date: Date; days: number }> = []
+            filteredProjects.forEach(p => {
+              ;(p.billingSchedule || []).forEach(b => {
+                if (b.invoiceStatus === 'Paid' || !b.dueDate) return
+                const date = new Date(b.dueDate)
+                if (Number.isNaN(date.getTime())) return
+                const days = Math.floor((date.getTime() - Date.now()) / 86400000)
+                if (days > 90) return
+                allMilestones.push({
+                  project: p.title,
+                  type: 'bill',
+                  label: `Factura ${b.percentage || ''}`,
+                  date,
+                  days,
+                })
+              })
+              ;(p.tasks || []).forEach(t => {
+                if (t.status === 'Completed' || !t.dueDate) return
+                const date = new Date(t.dueDate)
+                if (Number.isNaN(date.getTime())) return
+                const days = Math.floor((date.getTime() - Date.now()) / 86400000)
+                if (days > 90) return
+                allMilestones.push({
+                  project: p.title,
+                  type: 'task',
+                  label: t.title.slice(0, 40),
+                  date,
+                  days,
+                })
+              })
+            })
+            const sorted = allMilestones.sort((a, b) => a.date.getTime() - b.date.getTime()).slice(0, 8)
+
+            const overdueProjects = filteredProjects.filter(p => {
+              if (p.status !== 'Ongoing' || !p.endDate) return false
+              return new Date(p.endDate).getTime() < Date.now()
+            })
+
+            return (
+              <>
+                <div className="prj-side-card">
+                  <div className="prj-side-header">
+                    <Activity size={14} />
+                    <span>Próximos hitos</span>
+                    <span className="prj-side-count">{sorted.length}</span>
+                  </div>
+                  {sorted.length === 0 ? (
+                    <p className="prj-side-empty">Sin hitos en los próximos 90 días.</p>
+                  ) : (
+                    <ul className="prj-side-list">
+                      {sorted.map((m, i) => (
+                        <li key={i} className={`prj-side-item ${m.days < 0 ? 'overdue' : m.days <= 7 ? 'soon' : ''}`}>
+                          <div className="prj-side-item-main">
+                            <strong>{m.label}</strong>
+                            <small>{m.project}</small>
                           </div>
-                          <div className="task-actions">
-                            <button
-                              className="task-action-btn"
-                              type="button"
-                              title="Duplicate"
-                              onClick={() => handleDuplicateTask(project, task)}
-                            >
-                              <Copy size={16} />
-                            </button>
-                            <button 
-                              className="task-action-btn" 
-                              type="button" 
-                              title="Edit"
-                              onClick={() => handleEditTask(project, task)}
-                            >
-                              <Pencil size={16} />
-                            </button>
-                            <button 
-                              className="task-action-btn" 
-                              type="button" 
-                              title="Delete"
-                              onClick={() => handleDeleteTask(project, task.id)}
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </div>
+                          <span className="prj-side-item-days">
+                            {m.days < 0 ? `${Math.abs(m.days)}d atrás` : m.days === 0 ? 'Hoy' : `${m.days}d`}
+                          </span>
+                        </li>
                       ))}
-                    </div>
+                    </ul>
                   )}
                 </div>
-              )
-            })}
-          </div>
-        )}
+
+                {overdueProjects.length > 0 && (
+                  <div className="prj-side-card prj-side-card--warn">
+                    <div className="prj-side-header">
+                      <AlertTriangle size={14} />
+                      <span>Atención requerida</span>
+                      <span className="prj-side-count">{overdueProjects.length}</span>
+                    </div>
+                    <ul className="prj-side-list">
+                      {overdueProjects.slice(0, 5).map(p => (
+                        <li
+                          key={p.id}
+                          className="prj-side-item prj-side-item--clickable overdue"
+                          onClick={() => handleEditProject(p)}
+                        >
+                          <div className="prj-side-item-main">
+                            <strong>{p.title}</strong>
+                            <small>Deadline pasada</small>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            )
+          })()}
+        </aside>
       </div>
 
       {/* Edit Project Modal */}
@@ -1536,7 +1523,183 @@ const Projects = () => {
             />
           </div>
 
+          {selectedProject && (() => {
+            const project = projects.find(p => p.id === selectedProject.id) ?? selectedProject
+            return (
+              <>
+                <div className="project-section" style={{ marginTop: '1.5rem' }}>
+                  <div className="project-section-header">
+                    <h4 className="project-section-title">Billing Schedule</h4>
+                    <button
+                      type="button"
+                      className="add-task-btn"
+                      onClick={() => {
+                        setBillingFormData({
+                          projectId: project.id,
+                          clientId: '',
+                          description: '',
+                          amount: '',
+                          dueDate: '',
+                          notes: ''
+                        })
+                        setBillingErrors({})
+                        setIsAddBillingModalOpen(true)
+                      }}
+                    >
+                      <Plus size={16} />
+                      Add Billing
+                    </button>
+                  </div>
+                  {(project.billingSchedule || []).length === 0 ? (
+                    <p className="prj-side-empty">No billing milestones yet.</p>
+                  ) : (
+                    project.billingSchedule!.map(billing => (
+                      <div key={billing.id} className="billing-item">
+                        <div className="billing-left">
+                          <div className="billing-percentage">{billing.percentage} payment</div>
+                          <div className="billing-client">
+                            {billing.clientName} - Due: {formatDisplayDate(billing.dueDate)}
+                          </div>
+                        </div>
+                        <div className="billing-right">
+                          <div className="billing-amount">{formatCurrency(billing.amount)}</div>
+                          <span className={`invoice-status invoice-${billing.invoiceStatus.toLowerCase().replace(/_/g, '-')}`}>
+                            <Clock size={14} />
+                            {billing.invoiceStatus}
+                          </span>
+                          <button
+                            className="billing-action-btn"
+                            type="button"
+                            title="Duplicate"
+                            onClick={() => handleDuplicateBilling(project, billing)}
+                          >
+                            <Copy size={16} />
+                          </button>
+                          <button
+                            className="billing-action-btn"
+                            type="button"
+                            title="Edit"
+                            onClick={() => handleEditBilling(project, billing)}
+                          >
+                            <Pencil size={16} />
+                          </button>
+                          <button
+                            className="billing-action-btn"
+                            type="button"
+                            title="Delete"
+                            onClick={() => handleDeleteBilling(project, billing.id)}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="project-section">
+                  <div className="project-section-header">
+                    <h4 className="project-section-title">Tasks</h4>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="add-task-btn"
+                        onClick={() => {
+                          setTaskFormData({
+                            projectId: project.id,
+                            title: '',
+                            description: '',
+                            dueDate: '',
+                            priority: 'Medium',
+                            status: 'Pending'
+                          })
+                          setTaskErrors({})
+                          setIsAddTaskModalOpen(true)
+                        }}
+                      >
+                        <Plus size={16} />
+                        Add Task
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ padding: '0.35rem 0.75rem', fontSize: '0.8125rem' }}
+                        onClick={() => navigate(`/tasks?project=${project.id}`)}
+                      >
+                        <ListTodo size={14} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                        View all
+                      </button>
+                    </div>
+                  </div>
+                  {(project.tasks || []).length === 0 ? (
+                    <p className="prj-side-empty">No tasks yet.</p>
+                  ) : (
+                    [...(project.tasks || [])]
+                      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+                      .map(task => (
+                        <div key={task.id} className="task-item">
+                          <div
+                            className="task-dot"
+                            style={{ backgroundColor: getTaskDotColor(task.priority) }}
+                          />
+                          <div className="task-content">
+                            <span className="task-description">{task.title || task.description}</span>
+                            <span
+                              className="task-date"
+                              style={{ color: getTaskDateColor(task.dueDate, task.status) }}
+                            >
+                              {formatDisplayDate(task.dueDate)}
+                            </span>
+                          </div>
+                          <div className="task-actions">
+                            <button
+                              className="task-action-btn"
+                              type="button"
+                              title="Duplicate"
+                              onClick={() => handleDuplicateTask(project, task)}
+                            >
+                              <Copy size={16} />
+                            </button>
+                            <button
+                              className="task-action-btn"
+                              type="button"
+                              title="Edit"
+                              onClick={() => handleEditTask(project, task)}
+                            >
+                              <Pencil size={16} />
+                            </button>
+                            <button
+                              className="task-action-btn"
+                              type="button"
+                              title="Delete"
+                              onClick={() => handleDeleteTask(project, task.id)}
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                  )}
+                </div>
+              </>
+            )
+          })()}
+
           <div className="modal-actions">
+            {!isWorker && selectedProject && (
+              <button
+                type="button"
+                className="btn-secondary"
+                style={{ marginRight: 'auto', color: '#F44336', borderColor: '#fecaca' }}
+                onClick={() => {
+                  setProjectToDelete(selectedProject)
+                  setIsDeleteProjectModalOpen(true)
+                }}
+              >
+                <Trash2 size={16} style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                Delete Project
+              </button>
+            )}
             <button 
               type="button" 
               className="btn-secondary" 
