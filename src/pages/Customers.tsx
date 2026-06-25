@@ -8,7 +8,7 @@ import Modal from '../components/Modal'
 import ActionsMenu from '../components/ActionsMenu'
 import DateInput from '../components/DateInput'
 import SearchableSelect from '../components/SearchableSelect'
-import { persistAppData, APP_DATA_SYNC_APPLIED_EVENT } from '../utils/appData'
+import { persistAppData, APP_DATA_SYNC_APPLIED_EVENT, isQuotaExceededError, tryFreeStorage, getStorageReport } from '../utils/appData'
 import { useAuth } from '../contexts/AuthContext'
 import './Page.css'
 import './Customers.css'
@@ -373,8 +373,61 @@ const Customers = () => {
         nextCount: nextCustomers.length,
       })
 
-      // 1) Persistir AHORA mismo a localStorage
-      persistAppData('customers', JSON.stringify(nextCustomers))
+      // 1) Persistir AHORA mismo a localStorage con manejo de QuotaExceeded
+      const trySave = (): boolean => {
+        try {
+          persistAppData('customers', JSON.stringify(nextCustomers))
+          return true
+        } catch (err) {
+          if (isQuotaExceededError(err)) {
+            const report = getStorageReport()
+            const top = report.perKey.slice(0, 5).map(k => `  • ${k.key}: ${k.kb.toFixed(0)} KB`).join('\n')
+            console.warn('[Customers] QuotaExceeded — top storage:\n' + top)
+
+            const ok = window.confirm(
+              '⚠️ Almacenamiento del navegador LLENO (~5 MB tope).\n\n' +
+              `Tu cliente no se ha podido guardar porque no queda espacio.\n\n` +
+              `Top consumo actual:\n${top}\n\n` +
+              `¿Liberar espacio automáticamente?\n\n` +
+              `SOLO eliminará cosas regenerables/cache (no toca tus datos):\n` +
+              `  ✓ Calls de Discovery que descartaste\n` +
+              `  ✓ Calls de Discovery con deadline pasada >30 días\n` +
+              `  ✓ Descripciones largas truncadas en Discovery\n` +
+              `  ✓ Fichas IA guardadas (regenerables con un click)\n\n` +
+              `NO se borrarán:\n` +
+              `  • Tus clientes, calls, projects, proposals\n` +
+              `  • Logos ni PDFs de contrato\n\n` +
+              `OK = liberar y guardar · Cancelar = no guardar`
+            )
+            if (!ok) return false
+
+            const result = tryFreeStorage()
+            console.log('[Customers] tryFreeStorage liberó', (result.freedBytes / 1024).toFixed(0), 'KB:', result.actions)
+            try {
+              persistAppData('customers', JSON.stringify(nextCustomers))
+              alert(
+                `✓ Liberados ${(result.freedBytes / 1024).toFixed(0)} KB. Cliente guardado.\n\n` +
+                (result.actions.length > 0 ? 'Acciones:\n' + result.actions.map(a => '  • ' + a).join('\n') : '')
+              )
+              return true
+            } catch {
+              alert(
+                'No ha sido posible liberar espacio suficiente.\n\n' +
+                'Acción manual recomendada:\n' +
+                '1. Abre la consola del navegador (F12 → Console)\n' +
+                '2. Escribe y pulsa Enter:\n' +
+                '   localStorage.removeItem("discoveryCalls")\n' +
+                '3. Refresca la página y vuelve a intentar guardar'
+              )
+              return false
+            }
+          }
+          alert('Error al guardar el cliente: ' + (err instanceof Error ? err.message : 'desconocido'))
+          return false
+        }
+      }
+
+      if (!trySave()) return
 
       // 2) Verify post-write — leer de vuelta para confirmar
       const verify = localStorage.getItem('customers')

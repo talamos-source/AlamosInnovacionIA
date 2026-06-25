@@ -136,18 +136,173 @@ export const notifyAppDataChanged = (): void => {
  * el próximo AppDataSync.initialize() respete los datos locales y no
  * los sobrescriba con un snapshot del server más viejo.
  *
+ * Devuelve `true` si se persistió, `false` si falló (p.ej. QuotaExceeded).
+ *
  * USAR SIEMPRE en lugar de `localStorage.setItem(key, value)` cuando
  * `key` esté en APP_DATA_KEYS. Si no se actualiza el timestamp, los
  * datos locales pueden perderse en el próximo refresh de la app.
  */
-export const persistAppData = (key: string, value: string): void => {
+export const persistAppData = (key: string, value: string): boolean => {
   try {
     localStorage.setItem(key, value)
     if (APP_DATA_KEYS.includes(key)) {
       localStorage.setItem(APP_DATA_UPDATED_AT_KEY, new Date().toISOString())
       notifyAppDataChanged()
     }
+    return true
   } catch (err) {
     console.error(`[appData] persistAppData failed for ${key}:`, err)
+    // Re-throw para que los handlers puedan distinguir QuotaExceeded de otros
+    throw err
   }
+}
+
+/* ============================================================
+   STORAGE DIAGNOSTICS — tamaño por key y limpieza
+   ============================================================ */
+
+export interface StorageReport {
+  totalBytes: number
+  totalKB: number
+  perKey: Array<{ key: string; bytes: number; kb: number; isAppData: boolean }>
+}
+
+/** Calcula el tamaño en bytes de cada key de localStorage, ordenado por
+ *  mayor a menor. Útil para diagnosticar de dónde viene un QuotaExceeded. */
+export const getStorageReport = (): StorageReport => {
+  const perKey: StorageReport['perKey'] = []
+  let totalBytes = 0
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (!key) continue
+    const value = localStorage.getItem(key) || ''
+    // Cada char en UTF-16 ocupa 2 bytes en localStorage
+    const bytes = (key.length + value.length) * 2
+    totalBytes += bytes
+    perKey.push({
+      key,
+      bytes,
+      kb: bytes / 1024,
+      isAppData: APP_DATA_KEYS.includes(key),
+    })
+  }
+  perKey.sort((a, b) => b.bytes - a.bytes)
+  return { totalBytes, totalKB: totalBytes / 1024, perKey }
+}
+
+/** Detecta si un error es QuotaExceededError de cualquier navegador. */
+export const isQuotaExceededError = (err: unknown): boolean => {
+  if (!err) return false
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const e = err as any
+  return (
+    e instanceof DOMException &&
+    (e.name === 'QuotaExceededError' ||
+      e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      e.code === 22 ||
+      e.code === 1014)
+  )
+}
+
+/**
+ * Estrategia QUIRÚRGICA de auto-cleanup. Borra solo cosas seguras o
+ * regenerables. NUNCA toca tus customers, calls, projects, proposals,
+ * invoices, fundingProfiles o roadmaps activos.
+ *
+ * Orden de prioridad (lo más inocuo primero):
+ *   1. discoveryCalls dismissed (descartadas — basura del cache)
+ *   2. discoveryCalls con closeDate ya pasada hace >30 días (caducadas)
+ *   3. discoveryCalls cuya description sea muy larga → la trunca a 200 chars
+ *   4. callBriefs (fichas IA — REGENERABLES con un click)
+ *   5. discoveryCalls completas (solo si tras 1-4 sigue lleno)
+ *
+ * NO toca:
+ *   - logoBase64 ni contractPdf de customers (datos del usuario)
+ *   - Calls importadas a /calls
+ *   - Customers, projects, proposals, invoices
+ */
+export const tryFreeStorage = (): { freedBytes: number; actions: string[] } => {
+  const actions: string[] = []
+  let freedBytes = 0
+
+  const bytesOf = (s: string | null) => (s ? s.length * 2 : 0)
+
+  // 1. discoveryCalls dismissed
+  try {
+    const raw = localStorage.getItem('discoveryCalls')
+    if (raw) {
+      const before = bytesOf(raw)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const all: any[] = JSON.parse(raw)
+      const kept = all.filter(c => c?.userStatus !== 'dismissed')
+      const removed = all.length - kept.length
+      if (removed > 0) {
+        const after = bytesOf(JSON.stringify(kept))
+        localStorage.setItem('discoveryCalls', JSON.stringify(kept))
+        freedBytes += before - after
+        actions.push(`${removed} call(s) descartadas eliminadas del caché de Discovery`)
+      }
+    }
+  } catch { /* ignore */ }
+
+  // 2. discoveryCalls con closeDate pasada hace >30 días
+  try {
+    const raw = localStorage.getItem('discoveryCalls')
+    if (raw) {
+      const before = bytesOf(raw)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const all: any[] = JSON.parse(raw)
+      const threshold = Date.now() - 30 * 86400_000
+      const kept = all.filter(c => {
+        if (!c?.closeDate) return true // sin deadline — conservar
+        const t = new Date(c.closeDate).getTime()
+        if (Number.isNaN(t)) return true
+        return t >= threshold // futura o cerró hace <30 días
+      })
+      const removed = all.length - kept.length
+      if (removed > 0) {
+        const after = bytesOf(JSON.stringify(kept))
+        localStorage.setItem('discoveryCalls', JSON.stringify(kept))
+        freedBytes += before - after
+        actions.push(`${removed} call(s) caducadas (>30 días) del caché de Discovery`)
+      }
+    }
+  } catch { /* ignore */ }
+
+  // 3. Truncar descripciones muy largas en discoveryCalls
+  try {
+    const raw = localStorage.getItem('discoveryCalls')
+    if (raw) {
+      const before = bytesOf(raw)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const all: any[] = JSON.parse(raw)
+      let truncated = 0
+      const cleaned = all.map(c => {
+        if (typeof c?.description === 'string' && c.description.length > 200) {
+          truncated++
+          return { ...c, description: c.description.slice(0, 200) + '…' }
+        }
+        return c
+      })
+      if (truncated > 0) {
+        const after = bytesOf(JSON.stringify(cleaned))
+        localStorage.setItem('discoveryCalls', JSON.stringify(cleaned))
+        freedBytes += before - after
+        actions.push(`${truncated} descripciones largas de Discovery truncadas a 200 chars`)
+      }
+    }
+  } catch { /* ignore */ }
+
+  // 4. callBriefs (regenerables — la usuaria puede re-generar con el botón)
+  try {
+    const raw = localStorage.getItem('callBriefs')
+    if (raw && raw.length > 10_000) {
+      const bytes = bytesOf(raw)
+      localStorage.removeItem('callBriefs')
+      freedBytes += bytes
+      actions.push(`Fichas IA guardadas eliminadas (${(bytes / 1024).toFixed(0)} KB — regenerables con un click)`)
+    }
+  } catch { /* ignore */ }
+
+  return { freedBytes, actions }
 }
