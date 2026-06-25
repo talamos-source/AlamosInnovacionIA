@@ -49,18 +49,28 @@ app.use(cors(corsOptions))
 // Responde al preflight OPTIONS para CUALQUIER ruta
 app.options('*', cors(corsOptions))
 
-// Fallback: si por alguna razón un middleware previo no ha puesto los
-// headers CORS (proxy raro, error interno), los añadimos siempre.
+// Fallback CORS HARD — fuerza headers en TODAS las respuestas,
+// incluso si algún proxy/CDN delante interceptó algo. Evita
+// 'Vary: Origin' que pueden hacer cache problems.
 app.use((req, res, next) => {
   const origin = req.headers.origin
-  if (origin && (ALLOWED_ORIGINS.includes(origin) || /alamosinnovacion\.com$/.test(origin))) {
-    res.header('Access-Control-Allow-Origin', origin)
-    res.header('Access-Control-Allow-Credentials', 'true')
-    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS')
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-admin-key')
+  const isAllowed = origin && (
+    ALLOWED_ORIGINS.includes(origin) ||
+    /^https:\/\/.*\.alamosinnovacion\.com$/.test(origin) ||
+    /^https:\/\/.*\.vercel\.app$/.test(origin)
+  )
+  if (isAllowed && origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin)
+    res.setHeader('Access-Control-Allow-Credentials', 'true')
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-admin-key, Accept, Origin')
+    res.setHeader('Access-Control-Max-Age', '600') // cache preflight 10 min en browser
+    // Vary para que CDNs cacheen por origin
+    res.setHeader('Vary', 'Origin')
   }
+  // Responde al preflight inmediatamente sin pasar por otros middlewares
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(204)
+    return res.status(204).end()
   }
   next()
 })
@@ -167,6 +177,27 @@ const sendPasswordResetEmail = async (to: string, resetLink: string) => {
     requestBody: { raw: encodedMessage }
   })
 }
+
+// Test público de CORS — devuelve los headers + origin sin auth.
+// Para diagnosticar si CORS funciona / si hay cache de proxy.
+app.get('/cors-test', (req, res) => {
+  res.json({
+    ok: true,
+    origin: req.headers.origin || null,
+    method: req.method,
+    timestamp: new Date().toISOString(),
+    note: 'Si ves esto desde el browser sin CORS error, CORS está OK.',
+  })
+})
+app.post('/cors-test', (req, res) => {
+  res.json({
+    ok: true,
+    origin: req.headers.origin || null,
+    method: req.method,
+    timestamp: new Date().toISOString(),
+    bodyReceived: !!req.body,
+  })
+})
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true })

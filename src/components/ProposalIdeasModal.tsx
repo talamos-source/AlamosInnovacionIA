@@ -170,57 +170,83 @@ const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClo
     try {
       const token = localStorage.getItem('authToken') || ''
 
-      // 1) WARMUP: ping a /health primero. Si /health funciona pero
-      //    /ai/improve-proposal-idea da CORS, el endpoint NO existe en
-      //    el backend desplegado (Render no ha redeployado).
-      console.log(`[ProposalIdea] warmup ping ${API_BASE}/health`)
+      // 1) WARMUP DOBLE: dos pings con espera para asegurar que Render
+      //    está despierto. El primer ping arranca el server (puede tardar
+      //    30-50s en free tier); el segundo confirma que ya está listo.
+      console.log(`[ProposalIdea] warmup 1/2 — ${API_BASE}/health`)
       let healthOk = false
       try {
+        const t0 = Date.now()
         const healthRes = await fetch(`${API_BASE}/health`, { method: 'GET' })
         healthOk = healthRes.ok
-        console.log(`[ProposalIdea] /health ${healthRes.status}`)
+        console.log(`[ProposalIdea] /health ${healthRes.status} (tardó ${Date.now() - t0}ms)`)
       } catch (e) {
-        console.warn(`[ProposalIdea] /health falló:`, e)
+        console.warn(`[ProposalIdea] /health 1 falló:`, e)
       }
 
+      // Segundo ping para confirmar warm (solo si el primero tardó)
+      if (healthOk) {
+        try {
+          const t0 = Date.now()
+          await fetch(`${API_BASE}/health`, { method: 'GET' })
+          console.log(`[ProposalIdea] warmup 2/2 confirmado (tardó ${Date.now() - t0}ms)`)
+        } catch { /* ignore */ }
+      }
+
+      // 2) POST real con timeout explícito de 90s (Claude puede tardar 30-60s)
       let res: Response
       try {
-        res = await fetch(`${API_BASE}/ai/improve-proposal-idea`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            customer: customer ? { id: customer.id, name: customer.name } : null,
-            idea,
-          }),
-        })
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 90_000)
+        try {
+          res = await fetch(`${API_BASE}/ai/improve-proposal-idea`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({
+              customer: customer ? { id: customer.id, name: customer.name } : null,
+              idea,
+            }),
+            signal: controller.signal,
+          })
+        } finally {
+          clearTimeout(timeout)
+        }
       } catch (fetchErr) {
-        // Si /health funcionó pero éste falla → el ENDPOINT no existe en
-        // el backend desplegado. Pasaste por CORS para /health, no para
-        // /ai/improve-proposal-idea → 404 sin CORS headers → "CORS error".
         const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr)
+        // AbortError = timeout interno (>90s)
+        if (fetchErr instanceof DOMException && fetchErr.name === 'AbortError') {
+          throw new Error(
+            `Timeout: el agente IA tardó más de 90 segundos sin responder.\n\n` +
+            `Causa probable: Claude está saturado o el backend tarda mucho.\n\n` +
+            `Usa "Continuar sin IA →" para descargar el Word sin la mejora,\n` +
+            `o vuelve a probar en unos minutos.`
+          )
+        }
+        // Si /health funcionó pero el POST falla → 99% es que Render hizo
+        // sleep durante el POST y devuelve 502/504 sin CORS headers, que
+        // el browser reporta como "CORS error" engañosamente.
         if (healthOk) {
           throw new Error(
-            `El backend está vivo (/health OK) pero el endpoint /ai/improve-proposal-idea NO RESPONDE.\n\n` +
-            `Esto significa que el backend NO ha sido redeployado con el último commit.\n\n` +
-            `Pasos a verificar:\n` +
-            `  1. ¿Hiciste 'git push' del cambio en backend/src/index.ts?\n` +
-            `  2. ¿Render redeployó? Mira el dashboard de Render — el último\n` +
-            `     commit debe estar en "Live" (verde)\n` +
-            `  3. Si Render rebuild falla, mira los logs\n\n` +
+            `El backend respondió al ping pero el POST a /ai/improve-proposal-idea falló.\n\n` +
+            `Causas probables (en orden de probabilidad):\n` +
+            `  1. Render free tier tiró timeout (cold-start + Claude tarda mucho).\n` +
+            `     El browser muestra "CORS error" engañosamente — en realidad\n` +
+            `     es timeout del servidor.\n` +
+            `  2. Backend devolvió 500 internamente — abre Network tab (F12)\n` +
+            `     para ver el status real del POST.\n` +
+            `  3. CDN/Cloudflare intermedio cortó la conexión.\n\n` +
             `Error técnico: ${msg}\n\n` +
-            `Usa "Continuar sin IA →" para descargar el Word sin la mejora.`
+            `RECOMENDACIÓN:\n` +
+            `  • Pulsa "Continuar sin IA →" para guardar y descargar Word\n` +
+            `  • O vuelve a pulsar "Mejorar con IA" — el backend ya está caliente`
           )
         }
         throw new Error(
           `No se pudo conectar con el servidor (${msg}).\n\n` +
-          `Causas comunes:\n` +
-          `  • Backend dormido (Render tarda ~30-60s en despertar — espera y vuelve a probar)\n` +
-          `  • Sin conexión a internet\n` +
-          `  • api.alamosinnovacion.com no responde\n\n` +
-          `Usa "Continuar sin IA →" para seguir.`
+          `Backend dormido o sin conexión. Usa "Continuar sin IA →" para seguir.`
         )
       }
       if (!res.ok) {
