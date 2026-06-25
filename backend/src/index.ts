@@ -17,13 +17,53 @@ dotenv.config()
 const app = express()
 const prisma = new PrismaClient()
 
-const corsOptions = {
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-key']
+// CORS explícito — lista de orígenes permitidos. Antes era '*' pero
+// algunos proxies (Cloudflare/Vercel) lo eliminan o causan conflictos
+// cuando se combina con credentials/preflight.
+const ALLOWED_ORIGINS = [
+  'https://privado.alamosinnovacion.com',
+  'https://www.alamosinnovacion.com',
+  'https://alamosinnovacion.com',
+  'http://localhost:5173',  // dev
+  'http://localhost:5174',  // dev alt
+  'http://localhost:3000',  // dev alt
+]
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    // Permite requests sin origin (mobile, curl) y los de la lista
+    if (!origin) return callback(null, true)
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true)
+    // Permite cualquier subdominio de Vercel preview
+    if (/^https:\/\/.*\.vercel\.app$/.test(origin)) return callback(null, true)
+    // Permite cualquier subdominio de alamosinnovacion.com
+    if (/^https:\/\/.*\.alamosinnovacion\.com$/.test(origin)) return callback(null, true)
+    console.warn('[CORS] blocked origin:', origin)
+    return callback(new Error(`Origin ${origin} not allowed`))
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-key'],
+  exposedHeaders: ['Content-Length', 'Content-Type'],
 }
 app.use(cors(corsOptions))
+// Responde al preflight OPTIONS para CUALQUIER ruta
 app.options('*', cors(corsOptions))
+
+// Fallback: si por alguna razón un middleware previo no ha puesto los
+// headers CORS (proxy raro, error interno), los añadimos siempre.
+app.use((req, res, next) => {
+  const origin = req.headers.origin
+  if (origin && (ALLOWED_ORIGINS.includes(origin) || /alamosinnovacion\.com$/.test(origin))) {
+    res.header('Access-Control-Allow-Origin', origin)
+    res.header('Access-Control-Allow-Credentials', 'true')
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS')
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-admin-key')
+  }
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204)
+  }
+  next()
+})
 app.use(express.json({ limit: '25mb' }))
 
 const PORT = process.env.PORT || 4000

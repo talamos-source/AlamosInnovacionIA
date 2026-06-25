@@ -262,10 +262,6 @@ ${subtitle ? `<p class="cover-subtitle">${esc(subtitle)}</p>` : ''}
 <p class="toc-item">4.  Metodología y enfoque de trabajo</p>
 <p class="toc-item">5.  Calendario y plan de hitos</p>
 <p class="toc-item">6.  Equipo</p>
-<p class="toc-item">7.  Experiencia y referencias</p>
-<p class="toc-item">8.  Honorarios y condiciones económicas</p>
-<p class="toc-item">9.  Términos y condiciones</p>
-<p class="toc-item">10. Próximos pasos</p>
 
 <br clear="all" style="page-break-before:always">
 
@@ -431,92 +427,7 @@ ${idea.partners.length > 0
     </table>`
   : `<p class="muted">[Si la propuesta incluye colaboración con Soros Gabinete u otro partner técnico, describir aquí brevemente el rol de cada parte.]</p>`}
 
-<br clear="all" style="page-break-before:always">
-
-<!-- ═══════════════ 7. EXPERIENCIA Y REFERENCIAS ═══════════════ -->
-<h1>7. Experiencia y referencias</h1>
-
-<p class="muted">[Selecciona 3-5 casos relevantes que se parezcan al proyecto del cliente. Para cada caso: nombre del programa o convocatoria, rol de Álamos, resultado conseguido y año.]</p>
-
-<h3>Caso 1 — [Programa / Cliente]</h3>
-<ul class="list-muted"><li>[Descripción del caso: rol, alcance, resultado conseguido, año.]</li></ul>
-
-<h3>Caso 2 — [Programa / Cliente]</h3>
-<ul class="list-muted"><li>[Descripción del caso: rol, alcance, resultado conseguido, año.]</li></ul>
-
-<h3>Caso 3 — [Programa / Cliente]</h3>
-<ul class="list-muted"><li>[Descripción del caso: rol, alcance, resultado conseguido, año.]</li></ul>
-
-<br clear="all" style="page-break-before:always">
-
-<!-- ═══════════════ 8. HONORARIOS ═══════════════ -->
-<h1>8. Honorarios y condiciones económicas</h1>
-
-<h2>Estructura de honorarios</h2>
-<p class="muted">[Explica el modelo de cobro: fijo por proyecto, por horas, mixto con éxito, retainer mensual. Sé claro y directo.]</p>
-
-<table>
-  <thead>
-    <tr>
-      <th>Concepto</th>
-      <th style="width:35%; text-align:right;">Importe</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr class="placeholder">
-      <td>[Honorarios fijos por propuesta]</td>
-      <td style="text-align:right;">[X.XXX €]</td>
-    </tr>
-    <tr class="placeholder">
-      <td>[Honorarios variables vinculados a éxito]</td>
-      <td style="text-align:right;">[Y % del importe concedido]</td>
-    </tr>
-    <tr class="placeholder">
-      <td>[Gastos de desplazamiento]</td>
-      <td style="text-align:right;">[A reembolsar contra justificación]</td>
-    </tr>
-    <tr>
-      <td><strong>Total estimado</strong></td>
-      <td style="text-align:right;"><strong>[Z.XXX €]</strong></td>
-    </tr>
-  </tbody>
-</table>
-
-<h2>Forma de pago</h2>
-<p class="muted">[Por ejemplo: 50 % al inicio del trabajo (factura a la firma de la propuesta), 50 % a la entrega final del documento o a la concesión.]</p>
-
-<h3>Datos para emisión de factura</h3>
-<p>Álamos Innovación SL — CIF B90311739</p>
-<p class="brand">IBAN ES53 0182 1940 2002 0159 0924 (BBVA)</p>
-
-<br clear="all" style="page-break-before:always">
-
-<!-- ═══════════════ 9. TÉRMINOS ═══════════════ -->
-<h1>9. Términos y condiciones</h1>
-
-<h3>Validez de la propuesta</h3>
-<p class="muted">[La presente propuesta tiene una validez de 30 días desde la fecha de emisión.]</p>
-
-<h3>Confidencialidad</h3>
-<p>Toda la información compartida durante la elaboración de la propuesta y durante el desarrollo del proyecto será tratada de forma confidencial.</p>
-
-<h3>Propiedad intelectual</h3>
-<p class="muted">[Las entregas y resultados generados durante el proyecto serán propiedad del cliente, salvo metodologías y herramientas propias de Álamos Innovación.]</p>
-
-<br clear="all" style="page-break-before:always">
-
-<!-- ═══════════════ 10. PRÓXIMOS PASOS ═══════════════ -->
-<h1>10. Próximos pasos</h1>
-
-<p>Para avanzar con esta propuesta:</p>
-<ol>
-  <li>Revisión conjunta con el cliente (videoconferencia de 30-45 min).</li>
-  <li>Ajustes finales sobre alcance, calendario y honorarios.</li>
-  <li>Firma de la propuesta y emisión de la primera factura.</li>
-  <li>Kick-off del proyecto en la fecha acordada.</li>
-</ol>
-
-<p style="margin-top:24pt;">Quedo a tu disposición para cualquier consulta o ajuste.</p>
+<p style="margin-top:36pt;">Quedo a tu disposición para cualquier consulta o ajuste.</p>
 <p style="margin-top:8pt;"><strong>Teresa Álamos</strong></p>
 <p>contacto@alamosinnovacion.com · alamosinnovacion.com</p>
 
