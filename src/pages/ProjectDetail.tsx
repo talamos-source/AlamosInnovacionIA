@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, LayoutGrid, Activity, Coins, FileText, Calendar,
@@ -32,6 +32,17 @@ interface Task {
   status?: 'Pending' | 'In progress' | 'Completed'
 }
 
+/** Documento subido a Proposal Documents — base64 para que persista en
+ *  localStorage y se sincronice con el backend. */
+interface ProposalDocument {
+  id: string
+  name: string
+  size: number
+  type: string
+  base64: string
+  uploadedAt: string
+}
+
 interface Project {
   id: string
   title: string
@@ -53,6 +64,9 @@ interface Project {
   createdAt: string
   billingSchedule?: BillingItem[]
   tasks?: Task[]
+  /** Documentos de la propuesta ganada. Auto-alimentan Customer Context
+   *  como referencia de "proyecto ya ganado y ejecutado". */
+  proposalDocuments?: ProposalDocument[]
 }
 
 interface Customer {
@@ -782,19 +796,21 @@ const AnnuitiesSection = ({ project }: { project: Project }) => {
    ============================================================ */
 
 const DocumentsSection = ({ project }: { project: Project }) => {
-  void project
   return (
     <>
       <section className="pd-section">
         <div className="pd-section-header-row">
           <div>
             <h2 className="pd-section-title">Project documents</h2>
-            <p className="pd-section-sub">Technical checklist (deliverables + ad-hoc docs) and administrative documents.</p>
+            <p className="pd-section-sub">Proposal documents (ganados), checklist técnico y documentos administrativos.</p>
           </div>
           <button type="button" className="pd-btn pd-btn--secondary">
             <Sparkles size={13} /> Apply requirements
           </button>
         </div>
+
+        {/* PROPOSAL DOCUMENTS — auto-alimenta Customer Context */}
+        <ProposalDocumentsBlock project={project} />
 
         <div className="pd-docs-block">
           <div className="pd-docs-block-header">
@@ -829,6 +845,195 @@ const DocumentsSection = ({ project }: { project: Project }) => {
       </section>
     </>
   )
+}
+
+/* ============================================================
+   PROPOSAL DOCUMENTS BLOCK
+   ============================================================
+   Documentos de la propuesta ganada. Se guardan en project.proposalDocuments
+   y desde CustomerContext se cargan automáticamente como "proyectos ya
+   ganados y ejecutados" del cliente para alimentar el contexto del agente.
+   ============================================================ */
+
+const ProposalDocumentsBlock = ({ project }: { project: Project }) => {
+  const [docs, setDocs] = useState<ProposalDocument[]>(project.proposalDocuments || [])
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const MAX_FILE_SIZE = 8 * 1024 * 1024 // 8 MB por archivo
+  const MAX_TOTAL_SIZE = 30 * 1024 * 1024 // 30 MB total (límite localStorage)
+
+  // Persiste los docs en localStorage['projects']
+  const persistDocs = (next: ProposalDocument[]) => {
+    try {
+      const raw = localStorage.getItem('projects') || '[]'
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const all: any[] = JSON.parse(raw)
+      const idx = all.findIndex(p => p.id === project.id)
+      if (idx < 0) {
+        setError('Proyecto no encontrado en localStorage')
+        return false
+      }
+      all[idx] = { ...all[idx], proposalDocuments: next }
+      localStorage.setItem('projects', JSON.stringify(all))
+      localStorage.setItem('appDataUpdatedAt', new Date().toISOString())
+      return true
+    } catch (err) {
+      console.error('[ProposalDocs] persist failed:', err)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const e = err as any
+      if (e?.name === 'QuotaExceededError' || e?.code === 22) {
+        setError('Almacenamiento lleno. Borra algún archivo grande antes de subir más.')
+      } else {
+        setError('Error al guardar: ' + (err instanceof Error ? err.message : 'desconocido'))
+      }
+      return false
+    }
+  }
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    setUploading(true)
+    setError(null)
+
+    const totalNow = docs.reduce((acc, d) => acc + d.size, 0)
+    let totalNew = 0
+    const valid: File[] = []
+    for (const f of Array.from(files)) {
+      if (f.size > MAX_FILE_SIZE) {
+        setError(`"${f.name}" supera 8 MB. Saltado.`)
+        continue
+      }
+      totalNew += f.size
+      valid.push(f)
+    }
+    if (totalNow + totalNew > MAX_TOTAL_SIZE) {
+      setError(`Subir esto excedería el límite de 30 MB total. Sube archivos más pequeños o borra alguno.`)
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+
+    const newDocs: ProposalDocument[] = []
+    for (const f of valid) {
+      const base64 = await fileToBase64(f)
+      newDocs.push({
+        id: `pd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        name: f.name,
+        size: f.size,
+        type: f.type || 'application/octet-stream',
+        base64,
+        uploadedAt: new Date().toISOString(),
+      })
+    }
+    const next = [...docs, ...newDocs]
+    if (persistDocs(next)) setDocs(next)
+    setUploading(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handleRemove = (id: string) => {
+    if (!window.confirm('¿Eliminar este documento? También dejará de alimentar el contexto del cliente.')) return
+    const next = docs.filter(d => d.id !== id)
+    if (persistDocs(next)) setDocs(next)
+  }
+
+  const handleDownload = (d: ProposalDocument) => {
+    const link = document.createElement('a')
+    link.href = d.base64
+    link.download = d.name
+    link.click()
+  }
+
+  const totalSize = docs.reduce((acc, d) => acc + d.size, 0)
+
+  return (
+    <div className="pd-docs-block pd-docs-block--proposal">
+      <div className="pd-docs-block-header">
+        <h3>
+          Proposal documents
+          <span className="pd-docs-tag">auto-alimenta Client Context</span>
+        </h3>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            style={{ display: 'none' }}
+            onChange={handleUpload}
+          />
+          <button
+            type="button"
+            className="pd-btn pd-btn--primary pd-btn--sm"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            <Plus size={12} /> {uploading ? 'Subiendo…' : 'Upload document'}
+          </button>
+        </div>
+      </div>
+      <p className="pd-docs-help">
+        Memoria técnica, Anexo I, presupuesto, plan de negocio, y cualquier doc de la propuesta ganada.
+        Aparecerán automáticamente en <strong>Customer Context → AI funded projects</strong> del cliente
+        como "proyecto ya ganado y ejecutado".
+      </p>
+
+      {error && <div className="pd-docs-error">{error}</div>}
+
+      {docs.length === 0 ? (
+        <div className="pd-empty-box pd-empty-box--sm">
+          <p>No proposal documents yet. Sube la memoria técnica, Anexo I, presupuesto…</p>
+        </div>
+      ) : (
+        <>
+          <ul className="pd-docs-list">
+            {docs.map(d => (
+              <li key={d.id} className="pd-docs-item">
+                <FileText size={14} />
+                <div className="pd-docs-item-info">
+                  <strong>{d.name}</strong>
+                  <small>
+                    {(d.size / 1024).toFixed(0)} KB · subido {formatDateShort(d.uploadedAt)}
+                  </small>
+                </div>
+                <button
+                  type="button"
+                  className="pd-docs-item-action"
+                  onClick={() => handleDownload(d)}
+                  title="Descargar"
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  className="pd-docs-item-action pd-docs-item-action--delete"
+                  onClick={() => handleRemove(d.id)}
+                  title="Eliminar"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="pd-docs-footer">
+            {docs.length} doc{docs.length !== 1 ? 's' : ''} · {(totalSize / 1024).toFixed(0)} KB total
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** Convierte un File a base64 data URL. */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
 }
 
 /* ============================================================

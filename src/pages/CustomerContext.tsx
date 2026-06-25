@@ -131,6 +131,7 @@ const CustomerContext = () => {
   const [isExtracting, setIsExtracting] = useState(false)
   const [analyzeError, setAnalyzeError] = useState<string | null>(null)
   const [projectsCount, setProjectsCount] = useState(0)
+  const [proposalDocsCount, setProposalDocsCount] = useState(0)
   const [lastTrace, setLastTrace] = useState<{
     documentsReceived: number
     documentsChars: number
@@ -147,17 +148,21 @@ const CustomerContext = () => {
     setCustomer(found)
     setContext(found?.context || {})
 
-    // Count projects linked to this client
+    // Count projects linked to this client + proposal docs disponibles
     try {
       const raw = localStorage.getItem('projects')
-      const all: Array<{ primaryClients?: string[]; secondaryClients?: string[] }> = raw ? JSON.parse(raw) : []
-      const count = all.filter(p =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const all: any[] = raw ? JSON.parse(raw) : []
+      const linked = all.filter(p =>
         (p.primaryClients || []).includes(id || '') ||
         (p.secondaryClients || []).includes(id || '')
-      ).length
-      setProjectsCount(count)
+      )
+      setProjectsCount(linked.length)
+      const docsCount = linked.reduce((acc, p) => acc + ((p.proposalDocuments || []).length), 0)
+      setProposalDocsCount(docsCount)
     } catch {
       setProjectsCount(0)
+      setProposalDocsCount(0)
     }
   }, [id])
 
@@ -282,6 +287,24 @@ const CustomerContext = () => {
               return primary.includes(customer.id) || secondary.includes(customer.id)
             })
             .slice(0, 10) // limita por seguridad de tokens
+            // Enriquecer cada project para que el agente sepa que son
+            // PROYECTOS YA GANADOS Y EJECUTADOS, y conozca los proposal docs
+            // disponibles (memoria técnica, anexos, etc.).
+            .map(p => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const proposalDocs: any[] = (p.proposalDocuments as any[]) || []
+              return {
+                ...p,
+                // Quita base64 para no inflar el payload
+                proposalDocuments: undefined,
+                // Marca explícita para el agente
+                _wonProject: true,
+                _executedProject: true,
+                _note: 'Este es un proyecto ya GANADO y EN EJECUCIÓN o EJECUTADO por el cliente. Úsalo como evidencia de capacidad técnica y trayectoria.',
+                proposalDocumentNames: proposalDocs.map(d => d.name).filter(Boolean),
+                proposalDocumentsCount: proposalDocs.length,
+              }
+            })
         }
       } catch {
         // ignore
@@ -540,9 +563,15 @@ const CustomerContext = () => {
               <Briefcase size={20} />
             </div>
             <div className="cc-source-body">
-              <span className="cc-source-label">Project in AI</span>
-              <span className="cc-source-value">{projectsCount} funded projects</span>
-              <span className="cc-source-hint">Auto-included in analysis</span>
+              <span className="cc-source-label">Projects in AI</span>
+              <span className="cc-source-value">
+                {projectsCount} funded project{projectsCount !== 1 ? 's' : ''}
+              </span>
+              <span className="cc-source-hint">
+                {proposalDocsCount > 0
+                  ? `+ ${proposalDocsCount} proposal doc${proposalDocsCount !== 1 ? 's' : ''} (auto-incluidos como proyectos ganados)`
+                  : 'Auto-included in analysis'}
+              </span>
             </div>
           </div>
         </div>

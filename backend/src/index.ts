@@ -506,16 +506,20 @@ app.post('/ai/analyze-client-context', requireAuth, async (req, res) => {
 
     const projectsSection =
       projects && projects.length > 0
-        ? `\n\n=== ACTIVE PROJECTS WITH THIS CLIENT ===\n` +
+        ? `\n\n=== WON PROJECTS (already executed or in execution) BY THIS CLIENT ===\n` +
+          `These are projects ALREADY GRANTED to the client — evidence of technical capacity and track record.\n\n` +
           projects
-            .map((p, i) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .map((p: any, i) => {
+              const proposalDocs: string[] = Array.isArray(p.proposalDocumentNames) ? p.proposalDocumentNames : []
               return [
-                `Project ${i + 1}: ${p.title || 'Untitled'}`,
-                p.call && `  Call: ${p.call}`,
-                p.status && `  Status: ${p.status}`,
-                p.budgetFunding && `  Budget: ${p.budgetFunding}`,
-                p.fee && `  Fee: ${p.fee}`,
-                p.description && `  Description: ${p.description.slice(0, 1000)}`,
+                `Project ${i + 1}: ${p.title || 'Untitled'}  [WON · ${p.status || 'unknown status'}]`,
+                p.call && `  Call: ${p.call}${p.callYear ? ` (${p.callYear})` : ''}`,
+                p.fundingBody && `  Funding body: ${p.fundingBody}`,
+                p.budgetFunding && `  Budget granted: ${p.budgetFunding}`,
+                p.startDate && p.endDate && `  Period: ${p.startDate} → ${p.endDate}`,
+                p.description && `  Description: ${(p.description as string).slice(0, 1000)}`,
+                proposalDocs.length > 0 && `  Proposal documents available (${proposalDocs.length}): ${proposalDocs.slice(0, 8).join(', ')}`,
               ]
                 .filter(Boolean)
                 .join('\n')

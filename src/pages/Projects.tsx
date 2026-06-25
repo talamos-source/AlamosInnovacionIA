@@ -1202,7 +1202,8 @@ const Projects = () => {
                 <thead>
                   <tr>
                     <th>Project</th>
-                    <th>Client</th>
+                    <th>Contractor</th>
+                    <th>Secondary</th>
                     <th>Status</th>
                     <th>Health</th>
                     <th>Next milestone</th>
@@ -1262,11 +1263,16 @@ const Projects = () => {
                     ).length
                     alerts += overdueTasks
 
-                    // Client name (primer cliente principal)
-                    const firstClient = project.primaryClients[0]
+                    // Contractor (primer primaryClient) + N extras
+                    const contractor = project.primaryClients[0]
                       ? getClientName(project.primaryClients[0])
                       : '—'
-                    const extraClients = project.primaryClients.length - 1
+                    const extraContractors = Math.max(0, project.primaryClients.length - 1)
+
+                    // Secondary clients
+                    const secondaryList = project.secondaryClients || []
+                    const firstSecondary = secondaryList[0] ? getClientName(secondaryList[0]) : '—'
+                    const extraSecondary = Math.max(0, secondaryList.length - 1)
 
                     // Status badge
                     const statusLabel = project.status === 'Ongoing' ? 'In execution' : project.status
@@ -1287,8 +1293,14 @@ const Projects = () => {
                         </td>
                         <td>
                           <div className="prj-client">
-                            {firstClient}
-                            {extraClients > 0 && <span className="prj-client-more">+{extraClients}</span>}
+                            {contractor}
+                            {extraContractors > 0 && <span className="prj-client-more">+{extraContractors}</span>}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="prj-client prj-client--secondary">
+                            {firstSecondary}
+                            {extraSecondary > 0 && <span className="prj-client-more">+{extraSecondary}</span>}
                           </div>
                         </td>
                         <td>
