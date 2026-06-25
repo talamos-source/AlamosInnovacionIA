@@ -47,7 +47,13 @@ interface ProposalIdeasModalProps {
   customer: Customer | null
   /** Para poder seleccionar otros clientes como partners */
   allCustomers: Customer[]
+  /** Idea inicial — si se pasa, abre en modo edición. */
+  initialIdea?: ProposalIdea
+  /** ID persistido de la idea (cuando se edita una existente). */
+  ideaId?: string
   onClose: () => void
+  /** Notifica al padre que se guardó una idea (para refresh de lista). */
+  onSaved?: () => void
 }
 
 const API_BASE =
@@ -56,19 +62,25 @@ const API_BASE =
 
 /* ── Componente ─────────────────────────────────────── */
 
-const ProposalIdeasModal = ({ customer, allCustomers, onClose }: ProposalIdeasModalProps) => {
-  const [step, setStep] = useState<'form' | 'generating' | 'preview' | 'error'>('form')
-  const [idea, setIdea] = useState<ProposalIdea>({
-    objective: '',
-    mainInnovation: '',
-    initialTrl: 4,
-    partners: customer
-      ? [{ id: `p-${Date.now()}`, type: 'customer', customerId: customer.id, name: customer.name, web: customer.website || '', role: 'Coordinador' }]
-      : [],
-    durationMonths: 24,
-    workPackages: [],
-  })
-  const [improved, setImproved] = useState<ProposalIdea | null>(null)
+const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClose, onSaved }: ProposalIdeasModalProps) => {
+  const isEditing = !!initialIdea
+  const [step, setStep] = useState<'form' | 'generating' | 'preview' | 'error'>(
+    isEditing ? 'preview' : 'form'
+  )
+  const [idea, setIdea] = useState<ProposalIdea>(
+    initialIdea ||
+    {
+      objective: '',
+      mainInnovation: '',
+      initialTrl: 4,
+      partners: customer
+        ? [{ id: `p-${Date.now()}`, type: 'customer', customerId: customer.id, name: customer.name, web: customer.website || '', role: 'Coordinador' }]
+        : [],
+      durationMonths: 24,
+      workPackages: [],
+    }
+  )
+  const [improved, setImproved] = useState<ProposalIdea | null>(isEditing ? initialIdea || null : null)
   const [errorMsg, setErrorMsg] = useState('')
   const [exporting, setExporting] = useState(false)
 
@@ -157,19 +169,37 @@ const ProposalIdeasModal = ({ customer, allCustomers, onClose }: ProposalIdeasMo
     setErrorMsg('')
     try {
       const token = localStorage.getItem('authToken') || ''
-      const res = await fetch(`${API_BASE}/ai/improve-proposal-idea`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          customer: customer ? { id: customer.id, name: customer.name } : null,
-          idea,
-        }),
-      })
+      let res: Response
+      try {
+        res = await fetch(`${API_BASE}/ai/improve-proposal-idea`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            customer: customer ? { id: customer.id, name: customer.name } : null,
+            idea,
+          }),
+        })
+      } catch (fetchErr) {
+        // "Failed to fetch" típicamente: backend dormido (Render free tier
+        // tarda 30-60s en despertar) o sin conexión.
+        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr)
+        throw new Error(
+          `No se pudo conectar con el servidor (${msg}).\n\n` +
+          `Causas comunes:\n` +
+          `  • Backend dormido (Render tarda ~30-60s en despertar — espera y vuelve a probar)\n` +
+          `  • Sin conexión a internet\n` +
+          `  • El endpoint aún no está desplegado tras el último commit\n\n` +
+          `Vuelve a pulsar "Mejorar con IA" tras esperar 1 minuto.`
+        )
+      }
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+        if (res.status === 404) {
+          throw new Error('Endpoint /ai/improve-proposal-idea no encontrado. El backend necesita ser redeployado con el commit más reciente.')
+        }
         throw new Error(err.error || `HTTP ${res.status}`)
       }
       const data = await res.json()
@@ -183,15 +213,26 @@ const ProposalIdeasModal = ({ customer, allCustomers, onClose }: ProposalIdeasMo
           const raw = localStorage.getItem('proposalIdeas') || '{}'
           const all = JSON.parse(raw) as Record<string, Array<ProposalIdea & { id: string; createdAt: string; updatedAt: string }>>
           const list = all[customer.id] || []
-          const ideaWithMeta = {
-            ...finalIdea,
-            id: `pi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+          if (ideaId) {
+            // MODO EDIT — actualiza la idea existente
+            all[customer.id] = list.map(it => it.id === ideaId
+              ? { ...finalIdea, id: ideaId, createdAt: it.createdAt, updatedAt: new Date().toISOString() }
+              : it
+            )
+            console.log(`[ProposalIdea] updated ${ideaId} for customer ${customer.id}`)
+          } else {
+            // MODO NEW — añade
+            const ideaWithMeta = {
+              ...finalIdea,
+              id: `pi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
+            all[customer.id] = [...list, ideaWithMeta]
+            console.log(`[ProposalIdea] saved for customer ${customer.id} — total: ${all[customer.id].length}`)
           }
-          all[customer.id] = [...list, ideaWithMeta]
           persistAppData('proposalIdeas', JSON.stringify(all))
-          console.log(`[ProposalIdea] saved for customer ${customer.id} — total: ${all[customer.id].length}`)
+          if (onSaved) onSaved()
         } catch (err) {
           console.warn('[ProposalIdea] failed to persist:', err)
         }

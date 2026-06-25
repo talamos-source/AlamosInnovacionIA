@@ -1,0 +1,184 @@
+/* ============================================================
+   PROPOSAL IDEAS LIST — vista por cliente
+   ============================================================ */
+
+.pil-page {
+  padding: var(--space-4);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.pil-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+.pil-back, .pil-bread-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-sm);
+}
+.pil-back:hover, .pil-bread-link:hover {
+  background: var(--color-brand-50);
+  color: var(--color-brand-700);
+}
+.pil-bread-sep { color: var(--color-text-muted); }
+.pil-bread-current {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.pil-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+  flex-wrap: wrap;
+}
+.pil-header h1 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px 0;
+  color: var(--color-brand-700);
+}
+
+/* Grid de cards */
+.pil-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--space-3);
+}
+
+.pil-card {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  transition: all var(--transition-fast);
+}
+.pil-card:hover {
+  border-color: var(--color-brand-500);
+  box-shadow: var(--shadow-sm);
+}
+
+.pil-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.pil-card-header h3 {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  line-height: var(--line-height-snug);
+  flex: 1;
+}
+
+.pil-card-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.pil-icon-btn {
+  background: transparent;
+  border: 1px solid var(--color-border-default);
+  padding: 5px 7px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+}
+.pil-icon-btn:hover {
+  background: var(--color-brand-50);
+  color: var(--color-brand-700);
+  border-color: var(--color-brand-500);
+}
+.pil-icon-btn--danger:hover {
+  background: var(--color-warning-50, #FDF6EF);
+  color: var(--color-warning-700, #B5651D);
+  border-color: var(--color-warning-300, #F5C6A5);
+}
+
+.pil-card-innovation {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: var(--line-height-relaxed);
+}
+.pil-card-innovation strong {
+  color: var(--color-brand-700);
+  font-weight: var(--font-weight-semibold);
+}
+
+.pil-card-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--color-border-subtle);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+.pil-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.pil-stat strong {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.pil-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+.pil-card-footer small {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* Empty state */
+.pil-empty {
+  background: var(--color-bg-default);
+  border: 1px dashed var(--color-border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-8);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+.pil-empty svg { color: var(--color-brand-500); opacity: 0.7; }
+.pil-empty strong {
+  font-size: var(--font-size-md);
+  color: var(--color-text-primary);
+}
+.pil-empty p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  max-width: 400px;
+}

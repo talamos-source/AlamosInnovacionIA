@@ -18,6 +18,7 @@ import Proposals from './pages/Proposals'
 import OtherServices from './pages/OtherServices'
 import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
+import ProposalIdeasList from './pages/ProposalIdeasList'
 import Tasks from './pages/Tasks'
 import Billing from './pages/Billing'
 import CallAnalytics from './pages/CallAnalytics'
@@ -58,6 +59,7 @@ const AppRoutes = () => {
         <Route path="/customers/:id" element={isCustomer ? <Navigate to="/projects" replace /> : <CustomerDetail />} />
         <Route path="/customers/:id/context" element={isCustomer ? <Navigate to="/projects" replace /> : <CustomerContext />} />
         <Route path="/customers/:id/funding-profile" element={isCustomer ? <Navigate to="/projects" replace /> : <FundingProfile />} />
+        <Route path="/customers/:id/proposal-ideas" element={isCustomer ? <Navigate to="/projects" replace /> : <ProposalIdeasList />} />
         <Route path="/roadmap/:customerId" element={isCustomer ? <Navigate to="/projects" replace /> : <Roadmap />} />
         <Route path="/discovery" element={isCustomer ? <Navigate to="/projects" replace /> : <Discovery />} />
         <Route path="/discovery/:id/import" element={isCustomer ? <Navigate to="/projects" replace /> : <DiscoveryImport />} />
