@@ -329,23 +329,44 @@ const Customers = () => {
         updatedAt: new Date().toISOString()
       }
 
-      if (editingCustomerId) {
-        // Update existing customer
-        console.log('[Customers] updating customer', customerData.id, customerData.name)
-        setCustomers(prev => {
-          const next = prev.map(c => c.id === editingCustomerId ? customerData : c)
-          console.log('[Customers] state after update — count:', next.length)
-          return next
-        })
-      } else {
-        // Add new customer to the list
-        console.log('[Customers] adding new customer', customerData.id, customerData.name, 'category=', customerData.category)
-        setCustomers(prev => {
-          const next = [...prev, customerData]
-          console.log('[Customers] state after add — count:', next.length)
-          return next
-        })
+      // FIX CRÍTICO: persistir SÍNCRONAMENTE a localStorage ANTES de
+      // setCustomers. Si solo confiamos en el useEffect [customers], puede
+      // ejecutarse demasiado tarde (race con navegación o re-render) y el
+      // cliente desaparece. Hacerlo aquí garantiza que la próxima vez que
+      // se monte Customers, loadCustomers() devuelva los datos correctos.
+      const nextCustomers = editingCustomerId
+        ? customers.map(c => c.id === editingCustomerId ? customerData : c)
+        : [...customers, customerData]
+
+      console.log('[Customers] handleSubmit:', {
+        action: editingCustomerId ? 'update' : 'add',
+        id: customerData.id,
+        name: customerData.name,
+        category: customerData.category,
+        currentCount: customers.length,
+        nextCount: nextCustomers.length,
+      })
+
+      // 1) Persistir AHORA mismo a localStorage
+      persistAppData('customers', JSON.stringify(nextCustomers))
+
+      // 2) Verify post-write — leer de vuelta para confirmar
+      const verify = localStorage.getItem('customers')
+      try {
+        const parsed = JSON.parse(verify || '[]')
+        const found = parsed.find((c: { id: string }) => c.id === customerData.id)
+        if (!found) {
+          console.error('[Customers] ✗ VERIFY FAILED — cliente NO está en localStorage tras write!', { count: parsed.length })
+          alert('Error al guardar el cliente: no se ha podido persistir en localStorage. Revisa la consola (F12).')
+          return
+        }
+        console.log('[Customers] ✓ verified in localStorage — count:', parsed.length)
+      } catch (err) {
+        console.error('[Customers] verify parse error:', err)
       }
+
+      // 3) Actualizar el state de React (UI)
+      setCustomers(nextCustomers)
       
       // Reset form and close modal
       setFormData({
