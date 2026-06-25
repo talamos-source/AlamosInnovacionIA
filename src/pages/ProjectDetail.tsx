@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft, LayoutGrid, Activity, Coins, FileText, Calendar,
   Users, AlertTriangle, CheckCircle2, Clock,
-  FileCheck, MessageSquare, Plus, Sparkles,
+  FileCheck, MessageSquare, Plus, Sparkles, Edit,
 } from 'lucide-react'
 import { formatCurrency } from '../utils/formatCurrency'
 import './Page.css'
@@ -265,10 +265,20 @@ const ProjectDetail = () => {
           {/* HEADER del proyecto */}
           <header className="pd-header">
             <div className="pd-header-title-row">
-              <h1>{project.title}</h1>
-              <span className={`pd-status-badge pd-status-badge--${statusClass}`}>
-                {statusBadge}
-              </span>
+              <div className="pd-header-title-main">
+                <h1>{project.title}</h1>
+                <span className={`pd-status-badge pd-status-badge--${statusClass}`}>
+                  {statusBadge}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="pd-btn pd-btn--secondary"
+                onClick={() => navigate(`/projects?edit=${project.id}`)}
+                title="Open the project settings to edit dates, status, payment conditions…"
+              >
+                <Edit size={13} /> Edit project
+              </button>
             </div>
             <div className="pd-header-meta">
               {project.service && <span>{project.service}</span>}
@@ -450,6 +460,12 @@ const OverviewSection = ({ project, clientName, kpis }: {
         })()}
       </section>
 
+      {/* BILLING SCHEDULE */}
+      <BillingBlock project={project} />
+
+      {/* TASKS */}
+      <TasksBlock project={project} />
+
       {/* ORIGIN */}
       <section className="pd-section">
         <h2 className="pd-section-title">Origin</h2>
@@ -462,6 +478,177 @@ const OverviewSection = ({ project, clientName, kpis }: {
         </div>
       </section>
     </>
+  )
+}
+
+/* ============================================================
+   BILLING BLOCK — tabla de billing schedule del proyecto
+   ============================================================ */
+
+const BillingBlock = ({ project }: { project: Project }) => {
+  const navigate = useNavigate()
+  const items = project.billingSchedule || []
+  const totalAmount = items.reduce((acc, b) => {
+    const n = parseFloat((b.amount || '0').replace(/[^\d.,-]/g, '').replace(',', '.'))
+    return acc + (Number.isFinite(n) ? n : 0)
+  }, 0)
+  const paidAmount = items.filter(b => b.invoiceStatus === 'Paid').reduce((acc, b) => {
+    const n = parseFloat((b.amount || '0').replace(/[^\d.,-]/g, '').replace(',', '.'))
+    return acc + (Number.isFinite(n) ? n : 0)
+  }, 0)
+
+  return (
+    <section className="pd-section">
+      <div className="pd-section-header-row">
+        <div>
+          <h2 className="pd-section-title">Billing schedule</h2>
+          <p className="pd-section-sub">
+            {items.length} tranche{items.length !== 1 ? 's' : ''}
+            {items.length > 0 && ` · ${formatCurrency(String(paidAmount))} paid of ${formatCurrency(String(totalAmount))}`}
+          </p>
+        </div>
+        <button
+          type="button"
+          className="pd-btn pd-btn--primary"
+          onClick={() => navigate(`/projects?bill=${project.id}`)}
+        >
+          <Plus size={13} /> Add billing tranche
+        </button>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="pd-empty-box pd-empty-box--sm">
+          <p>No billing tranches yet.</p>
+        </div>
+      ) : (
+        <div className="pd-mini-table-wrap">
+          <table className="pd-mini-table">
+            <thead>
+              <tr>
+                <th>%</th>
+                <th>Client</th>
+                <th>Due date</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th style={{ width: 50 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map(b => {
+                const due = parseDate(b.dueDate)
+                const days = due ? daysBetween(new Date(), due) : null
+                const dueClass = b.invoiceStatus !== 'Paid' && days !== null && days < 0 ? 'overdue' : ''
+                return (
+                  <tr key={b.id}>
+                    <td><strong>{b.percentage || '—'}</strong></td>
+                    <td>{b.clientName || '—'}</td>
+                    <td className={dueClass}>
+                      {formatDateShort(b.dueDate)}
+                      {days !== null && b.invoiceStatus !== 'Paid' && (
+                        <span className="pd-mini-days">
+                          {' '}({days < 0 ? `${Math.abs(days)}d atrás` : days === 0 ? 'hoy' : `${days}d`})
+                        </span>
+                      )}
+                    </td>
+                    <td><strong>{b.amount ? formatCurrency(b.amount) : '—'}</strong></td>
+                    <td>
+                      <span className={`pd-invoice-badge pd-invoice-badge--${(b.invoiceStatus || 'pending').toLowerCase()}`}>
+                        {b.invoiceStatus || 'Pending'}
+                      </span>
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="pd-mini-action"
+                        onClick={() => navigate(`/projects?bill=${project.id}&billId=${b.id}`)}
+                        aria-label="Edit billing"
+                      >
+                        <Edit size={13} />
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
+/* ============================================================
+   TASKS BLOCK
+   ============================================================ */
+
+const TasksBlock = ({ project }: { project: Project }) => {
+  const navigate = useNavigate()
+  const tasks = project.tasks || []
+  const completed = tasks.filter(t => t.status === 'Completed').length
+
+  return (
+    <section className="pd-section">
+      <div className="pd-section-header-row">
+        <div>
+          <h2 className="pd-section-title">Tasks</h2>
+          <p className="pd-section-sub">
+            {tasks.length} task{tasks.length !== 1 ? 's' : ''}
+            {tasks.length > 0 && ` · ${completed} completed`}
+          </p>
+        </div>
+        <button
+          type="button"
+          className="pd-btn pd-btn--primary"
+          onClick={() => navigate(`/projects?task=${project.id}`)}
+        >
+          <Plus size={13} /> Add task
+        </button>
+      </div>
+
+      {tasks.length === 0 ? (
+        <div className="pd-empty-box pd-empty-box--sm">
+          <p>No tasks yet.</p>
+        </div>
+      ) : (
+        <ul className="pd-tasks-list">
+          {tasks.map(t => {
+            const done = t.status === 'Completed'
+            const due = parseDate(t.dueDate)
+            const days = due ? daysBetween(new Date(), due) : null
+            const overdue = !done && days !== null && days < 0
+            return (
+              <li
+                key={t.id}
+                className={`pd-task ${done ? 'pd-task--done' : ''} ${overdue ? 'pd-task--overdue' : ''}`}
+                onClick={() => navigate(`/projects?task=${project.id}&taskId=${t.id}`)}
+                style={{ cursor: 'pointer' }}
+              >
+                <span className="pd-task-check">
+                  {done ? <CheckCircle2 size={16} /> : <Clock size={16} />}
+                </span>
+                <div className="pd-task-content">
+                  <strong>{t.title}</strong>
+                  {t.description && <small>{t.description}</small>}
+                </div>
+                {t.priority && (
+                  <span className={`pd-pri-tag pd-pri-tag--${t.priority.toLowerCase()}`}>
+                    {t.priority}
+                  </span>
+                )}
+                <span className="pd-task-due">
+                  {due ? formatDateShort(t.dueDate) : 'No date'}
+                  {days !== null && !done && (
+                    <small className={overdue ? 'pd-task-overdue' : ''}>
+                      {' '}({days < 0 ? `${Math.abs(days)}d atrás` : days === 0 ? 'hoy' : `${days}d`})
+                    </small>
+                  )}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </section>
   )
 }
 
