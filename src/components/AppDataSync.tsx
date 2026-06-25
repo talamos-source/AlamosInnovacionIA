@@ -1,10 +1,21 @@
 import { useEffect, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { APP_DATA_UPDATED_AT_KEY, applySnapshot, getLocalSnapshot } from '../utils/appData'
+import {
+  APP_DATA_UPDATED_AT_KEY,
+  APP_DATA_CHANGED_EVENT,
+  APP_DATA_SYNC_APPLIED_EVENT,
+  getLocalSnapshot,
+  mergeSnapshot,
+} from '../utils/appData'
 
 type AppDataResponse = {
   data: Record<string, string> | null
   updatedAt: string | null
+}
+
+type AppDataPutResponse = {
+  ok?: boolean
+  updatedAt?: string
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://alamosinnovacionia.onrender.com'
@@ -21,10 +32,10 @@ const AppDataSync = () => {
     const token = localStorage.getItem('authToken')
     if (!token) return
 
-    const pushSnapshot = async (snapshot: Record<string, string>) => {
+    const pushSnapshot = async (snapshot: Record<string, string>): Promise<boolean> => {
       if (syncingRef.current) {
         console.log('[Sync] push skipped — already syncing')
-        return
+        return false
       }
       syncingRef.current = true
       try {
@@ -39,11 +50,20 @@ const AppDataSync = () => {
         if (res.ok) {
           const bytes = Object.values(snapshot).join('').length
           console.log(`[Sync] ✓ pushed snapshot (${Object.keys(snapshot).length} keys, ${(bytes / 1024).toFixed(1)} KB)`)
-        } else {
-          console.error(`[Sync] ✗ push failed: HTTP ${res.status}`)
+          try {
+            const body = (await res.json()) as AppDataPutResponse
+            if (body.updatedAt) {
+              localStorage.setItem(APP_DATA_UPDATED_AT_KEY, body.updatedAt)
+            }
+          } catch { /* ignore */ }
+          snapshotRef.current = JSON.stringify(snapshot)
+          return true
         }
+        console.error(`[Sync] ✗ push failed: HTTP ${res.status}`)
+        return false
       } catch (error) {
         console.error('[Sync] ✗ push exception:', error)
+        return false
       } finally {
         syncingRef.current = false
       }
@@ -119,16 +139,13 @@ const AppDataSync = () => {
         //   - Server es ESTRICTAMENTE más nuevo que local
         const shouldApplyServer = !hasLocal || (localUpdatedAtRaw && localUpdatedAt < serverUpdatedAt)
         if (shouldApplyServer) {
-          console.warn('[Sync] applySnapshot del server — local pierde', { localUpdatedAt, serverUpdatedAt, localCustomersN, serverCustomersN })
-          applySnapshot(serverData)
+          console.warn('[Sync] mergeSnapshot del server (preserva entidades locales nuevas)', { localUpdatedAt, serverUpdatedAt, localCustomersN, serverCustomersN })
+          mergeSnapshot(serverData)
           if (payload.updatedAt) {
             localStorage.setItem(APP_DATA_UPDATED_AT_KEY, payload.updatedAt)
           }
-          snapshotRef.current = JSON.stringify(serverData)
-          // 5) Notificar a las páginas montadas que el localStorage cambió
-          //    para que re-lean su state. Sin esto, el state de React
-          //    sigue con los datos viejos aunque localStorage tenga los nuevos.
-          window.dispatchEvent(new Event('appDataSyncApplied'))
+          snapshotRef.current = JSON.stringify(getLocalSnapshot())
+          window.dispatchEvent(new Event(APP_DATA_SYNC_APPLIED_EVENT))
           return
         }
 
@@ -144,6 +161,21 @@ const AppDataSync = () => {
 
     initialize()
 
+    // Push inmediato tras persistAppData (debounced) — no esperar 15s
+    let pushDebounceTimer: ReturnType<typeof setTimeout> | null = null
+    const onAppDataChanged = () => {
+      if (pushDebounceTimer) clearTimeout(pushDebounceTimer)
+      pushDebounceTimer = setTimeout(async () => {
+        const snapshot = getLocalSnapshot()
+        const snapshotString = JSON.stringify(snapshot)
+        if (snapshotString !== snapshotRef.current) {
+          console.log('[Sync] push inmediato tras cambio local')
+          await pushSnapshot(snapshot)
+        }
+      }, 400)
+    }
+    window.addEventListener(APP_DATA_CHANGED_EVENT, onAppDataChanged)
+
     const interval = window.setInterval(async () => {
       const snapshot = getLocalSnapshot()
       const snapshotString = JSON.stringify(snapshot)
@@ -157,6 +189,8 @@ const AppDataSync = () => {
 
     return () => {
       window.clearInterval(interval)
+      window.removeEventListener(APP_DATA_CHANGED_EVENT, onAppDataChanged)
+      if (pushDebounceTimer) clearTimeout(pushDebounceTimer)
     }
   }, [isAuthenticated])
 

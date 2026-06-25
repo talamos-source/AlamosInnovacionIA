@@ -8,7 +8,7 @@ import Modal from '../components/Modal'
 import ActionsMenu from '../components/ActionsMenu'
 import DateInput from '../components/DateInput'
 import SearchableSelect from '../components/SearchableSelect'
-import { persistAppData } from '../utils/appData'
+import { persistAppData, APP_DATA_SYNC_APPLIED_EVENT } from '../utils/appData'
 import { useAuth } from '../contexts/AuthContext'
 import './Page.css'
 import './Customers.css'
@@ -183,6 +183,28 @@ const Customers = () => {
   // Customers state - load from localStorage
   const [customers, setCustomers] = useState<Customer[]>(loadCustomers)
 
+  // Re-leer localStorage cuando AppDataSync fusiona datos del server.
+  // Sin esto, React muestra clientes "fantasma" que ya no están en storage
+  // y al recargar desaparecen.
+  useEffect(() => {
+    const reloadFromStorage = () => {
+      const fresh = loadCustomers()
+      setCustomers(prev => {
+        if (prev.length === fresh.length && JSON.stringify(prev) === JSON.stringify(fresh)) {
+          return prev
+        }
+        console.log('[Customers] reload from localStorage — count:', fresh.length)
+        return fresh
+      })
+    }
+    window.addEventListener(APP_DATA_SYNC_APPLIED_EVENT, reloadFromStorage)
+    window.addEventListener('storage', reloadFromStorage)
+    return () => {
+      window.removeEventListener(APP_DATA_SYNC_APPLIED_EVENT, reloadFromStorage)
+      window.removeEventListener('storage', reloadFromStorage)
+    }
+  }, [])
+
   // Si llega ?edit=<id> en la URL (p. ej. desde la ficha del cliente),
   // abre el modal de edición automáticamente y limpia el query param.
   useEffect(() => {
@@ -197,14 +219,18 @@ const Customers = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, customers])
 
-  // Save customers to localStorage whenever they change.
-  // CRÍTICO: usar persistAppData para actualizar appDataUpdatedAt y evitar
-  // que el AppDataSync.initialize() de un próximo refresh sobrescriba los
-  // cambios locales con un snapshot del server más viejo.
+  // Save customers to localStorage whenever they change (edits inline, etc.).
+  // handleSubmit ya persiste síncronamente; este effect cubre el resto.
+  const skipNextPersistRef = useRef(false)
   useEffect(() => {
+    if (skipNextPersistRef.current) {
+      skipNextPersistRef.current = false
+      return
+    }
     const json = JSON.stringify(customers)
+    const existing = localStorage.getItem('customers')
+    if (existing === json) return
     persistAppData('customers', json)
-    // Verificación post-write
     const verify = localStorage.getItem('customers')
     if (verify !== json) {
       console.error('[Customers] persist verification FAILED! Expected len', json.length, 'got', verify?.length)
@@ -365,7 +391,8 @@ const Customers = () => {
         console.error('[Customers] verify parse error:', err)
       }
 
-      // 3) Actualizar el state de React (UI)
+      // 3) Actualizar el state de React (UI) — skip useEffect persist duplicado
+      skipNextPersistRef.current = true
       setCustomers(nextCustomers)
       
       // Reset form and close modal
