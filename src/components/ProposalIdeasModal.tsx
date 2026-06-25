@@ -169,6 +169,20 @@ const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClo
     setErrorMsg('')
     try {
       const token = localStorage.getItem('authToken') || ''
+
+      // 1) WARMUP: ping a /health primero. Si /health funciona pero
+      //    /ai/improve-proposal-idea da CORS, el endpoint NO existe en
+      //    el backend desplegado (Render no ha redeployado).
+      console.log(`[ProposalIdea] warmup ping ${API_BASE}/health`)
+      let healthOk = false
+      try {
+        const healthRes = await fetch(`${API_BASE}/health`, { method: 'GET' })
+        healthOk = healthRes.ok
+        console.log(`[ProposalIdea] /health ${healthRes.status}`)
+      } catch (e) {
+        console.warn(`[ProposalIdea] /health falló:`, e)
+      }
+
       let res: Response
       try {
         res = await fetch(`${API_BASE}/ai/improve-proposal-idea`, {
@@ -183,24 +197,41 @@ const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClo
           }),
         })
       } catch (fetchErr) {
-        // "Failed to fetch" típicamente: backend dormido (Render free tier
-        // tarda 30-60s en despertar) o sin conexión.
+        // Si /health funcionó pero éste falla → el ENDPOINT no existe en
+        // el backend desplegado. Pasaste por CORS para /health, no para
+        // /ai/improve-proposal-idea → 404 sin CORS headers → "CORS error".
         const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr)
+        if (healthOk) {
+          throw new Error(
+            `El backend está vivo (/health OK) pero el endpoint /ai/improve-proposal-idea NO RESPONDE.\n\n` +
+            `Esto significa que el backend NO ha sido redeployado con el último commit.\n\n` +
+            `Pasos a verificar:\n` +
+            `  1. ¿Hiciste 'git push' del cambio en backend/src/index.ts?\n` +
+            `  2. ¿Render redeployó? Mira el dashboard de Render — el último\n` +
+            `     commit debe estar en "Live" (verde)\n` +
+            `  3. Si Render rebuild falla, mira los logs\n\n` +
+            `Error técnico: ${msg}\n\n` +
+            `Usa "Continuar sin IA →" para descargar el Word sin la mejora.`
+          )
+        }
         throw new Error(
           `No se pudo conectar con el servidor (${msg}).\n\n` +
           `Causas comunes:\n` +
           `  • Backend dormido (Render tarda ~30-60s en despertar — espera y vuelve a probar)\n` +
           `  • Sin conexión a internet\n` +
-          `  • El endpoint aún no está desplegado tras el último commit\n\n` +
-          `Vuelve a pulsar "Mejorar con IA" tras esperar 1 minuto.`
+          `  • api.alamosinnovacion.com no responde\n\n` +
+          `Usa "Continuar sin IA →" para seguir.`
         )
       }
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
         if (res.status === 404) {
-          throw new Error('Endpoint /ai/improve-proposal-idea no encontrado. El backend necesita ser redeployado con el commit más reciente.')
+          throw new Error('HTTP 404 — Endpoint /ai/improve-proposal-idea NO existe en el backend desplegado. Necesita redeploy.')
         }
-        throw new Error(err.error || `HTTP ${res.status}`)
+        if (res.status === 401) {
+          throw new Error('HTTP 401 — No autenticado. Refresca la sesión cerrando y abriendo la app.')
+        }
+        throw new Error(err.error || `HTTP ${res.status}: ${err.error || 'desconocido'}`)
       }
       const data = await res.json()
       if (!data.idea) throw new Error('Respuesta del agente sin campo "idea"')
