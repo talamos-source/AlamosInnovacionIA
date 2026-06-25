@@ -24,7 +24,7 @@ const corsOptions = {
 }
 app.use(cors(corsOptions))
 app.options('*', cors(corsOptions))
-app.use(express.json({ limit: '10mb' }))
+app.use(express.json({ limit: '25mb' }))
 
 const PORT = process.env.PORT || 4000
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret'

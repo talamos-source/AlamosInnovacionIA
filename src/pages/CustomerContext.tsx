@@ -323,18 +323,65 @@ const CustomerContext = () => {
           text: d.extractedText as string,
         }))
 
-      const response = await fetch(`${API_BASE}/ai/analyze-client-context`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          customer: fullCustomer || customer,
-          projects: relatedProjects,
-          documents,
-        }),
+      // Limpia el customer: quita campos pesados que NO aportan al análisis
+      // (logoBase64, contractPdf.dataUrl/base64). Si no, el body puede
+      // exceder fácilmente los 10 MB del límite del backend (Failed to fetch).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cleanCustomer = (c: any) => {
+        if (!c) return c
+        const copy = { ...c }
+        delete copy.logoBase64
+        if (copy.contractPdf) {
+          copy.contractPdf = {
+            fileName: copy.contractPdf.fileName,
+            uploadedAt: copy.contractPdf.uploadedAt,
+          }
+        }
+        return copy
+      }
+      const lightCustomer = cleanCustomer(fullCustomer || customer)
+
+      const requestBody = JSON.stringify({
+        customer: lightCustomer,
+        projects: relatedProjects,
+        documents,
       })
+
+      // Diagnóstico: log del tamaño antes de enviar
+      const bodySizeKB = requestBody.length / 1024
+      console.log(`[ClientContext] Sending analyze request — ${bodySizeKB.toFixed(0)} KB · ${(relatedProjects?.length || 0)} projects · ${documents.length} docs`)
+      if (bodySizeKB > 20_000) {
+        console.warn(`[ClientContext] ⚠ Body very large (${bodySizeKB.toFixed(0)} KB) — may fail`)
+      }
+
+      let response: Response
+      try {
+        response = await fetch(`${API_BASE}/ai/analyze-client-context`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: requestBody,
+        })
+      } catch (fetchErr) {
+        // "Failed to fetch" cae aquí — error de red, no del backend.
+        // Causas comunes: backend dormido (Render free tier), payload demasiado
+        // grande, CORS, sin internet.
+        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr)
+        console.error('[ClientContext] fetch error:', msg, '— body was', bodySizeKB.toFixed(0), 'KB')
+        if (bodySizeKB > 20_000) {
+          throw new Error(`Request demasiado grande (${bodySizeKB.toFixed(0)} KB). Reduce documentos adjuntos o quita el logo del cliente.`)
+        }
+        throw new Error(
+          `No se pudo conectar con el servidor (${msg}).\n\n` +
+          `Posibles causas:\n` +
+          `  • Backend dormido (Render tarda ~30s en despertar — vuelve a probar)\n` +
+          `  • Sin conexión a internet\n` +
+          `  • CORS bloqueando\n\n` +
+          `Body enviado: ${bodySizeKB.toFixed(0)} KB`
+        )
+      }
 
       if (!response.ok) {
         const text = await response.text()
@@ -344,6 +391,9 @@ const CustomerContext = () => {
           message = parsed.error || message
         } catch {
           // text is not JSON; ignore
+        }
+        if (response.status === 413) {
+          message = `Payload demasiado grande (${bodySizeKB.toFixed(0)} KB). El backend rechaza la request.`
         }
         throw new Error(message)
       }
