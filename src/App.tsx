@@ -17,6 +17,7 @@ import Calls from './pages/Calls'
 import Proposals from './pages/Proposals'
 import OtherServices from './pages/OtherServices'
 import Projects from './pages/Projects'
+import ProjectDetail from './pages/ProjectDetail'
 import Tasks from './pages/Tasks'
 import Billing from './pages/Billing'
 import CallAnalytics from './pages/CallAnalytics'
@@ -66,6 +67,7 @@ const AppRoutes = () => {
         <Route path="/proposals" element={isCustomer ? <Navigate to="/projects" replace /> : <Proposals />} />
         <Route path="/other-services" element={isCustomer ? <Navigate to="/projects" replace /> : <OtherServices />} />
         <Route path="/projects" element={<Projects />} />
+        <Route path="/projects/:id" element={<ProjectDetail />} />
         <Route path="/tasks" element={isCustomer ? <Navigate to="/projects" replace /> : <Tasks />} />
         <Route path="/billing" element={isCustomer ? <Navigate to="/projects" replace /> : <Billing />} />
         <Route path="/call-analytics" element={isCustomer ? <Navigate to="/projects" replace /> : <CallAnalytics />} />

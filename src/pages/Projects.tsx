@@ -1277,7 +1277,7 @@ const Projects = () => {
                       <tr
                         key={project.id}
                         className="prj-row"
-                        onClick={() => handleEditProject(project)}
+                        onClick={() => navigate(`/projects/${project.id}`)}
                       >
                         <td className="prj-cell-project">
                           <div className="prj-project-name">{project.title}</div>
@@ -1337,7 +1337,7 @@ const Projects = () => {
                           <button
                             type="button"
                             className="prj-row-action"
-                            onClick={(e) => { e.stopPropagation(); handleEditProject(project) }}
+                            onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.id}`) }}
                             aria-label="Open"
                           >
                             <MoreVertical size={16} />
