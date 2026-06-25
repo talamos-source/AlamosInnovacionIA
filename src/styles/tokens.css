@@ -64,17 +64,17 @@
   --font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
   --font-family-mono: 'JetBrains Mono', 'SF Mono', Menlo, Monaco, Consolas, monospace;
 
-  /* Sizes — Modular scale */
-  --font-size-xs:   0.75rem;     /* 12px — captions, badges */
-  --font-size-sm:   0.875rem;    /* 14px — body small */
-  --font-size-base: 0.9375rem;   /* 15px — body */
-  --font-size-md:   1rem;        /* 16px — large body, labels destacados */
-  --font-size-lg:   1.125rem;    /* 18px — small headings */
-  --font-size-xl:   1.25rem;     /* 20px — section headings */
-  --font-size-2xl:  1.5rem;      /* 24px — page titles */
-  --font-size-3xl:  1.875rem;    /* 30px — large numbers/KPIs */
-  --font-size-4xl:  2.25rem;     /* 36px — hero numbers */
-  --font-size-5xl:  3rem;        /* 48px — hero text */
+  /* Sizes — Modular scale (revisado para look más compacto y moderno) */
+  --font-size-xs:   0.6875rem;   /* 11px — captions, badges, micro labels */
+  --font-size-sm:   0.8125rem;   /* 13px — body small, tabla, secondary */
+  --font-size-base: 0.875rem;    /* 14px — body */
+  --font-size-md:   0.9375rem;   /* 15px — large body, labels destacados */
+  --font-size-lg:   1.0625rem;   /* 17px — small headings */
+  --font-size-xl:   1.1875rem;   /* 19px — section headings */
+  --font-size-2xl:  1.4375rem;   /* 23px — page titles */
+  --font-size-3xl:  1.75rem;     /* 28px — large numbers/KPIs */
+  --font-size-4xl:  2.125rem;    /* 34px — hero numbers */
+  --font-size-5xl:  2.75rem;     /* 44px — hero text */
 
   /* Weights */
   --font-weight-regular: 400;
@@ -141,10 +141,10 @@
      LAYOUT
      ---------------------------------------------------------- */
 
-  --sidebar-width: 260px;
-  --header-height: 64px;
+  --sidebar-width: 240px;
+  --header-height: 56px;
   --content-max-width: 1440px;
-  --container-padding: var(--space-8);
+  --container-padding: var(--space-6);
 
   /* ----------------------------------------------------------
      TRANSITIONS
