@@ -12,6 +12,7 @@ import {
   Loader2,
   Check,
 } from 'lucide-react'
+import { isQuotaExceededError, tryFreeStorage } from '../utils/appData'
 import './Page.css'
 import './Discovery.css'
 
@@ -170,9 +171,97 @@ const loadCalls = (): DiscoveryCall[] => {
   }
 }
 
-const saveCalls = (calls: DiscoveryCall[]) => {
-  localStorage.setItem('discoveryCalls', JSON.stringify(calls))
-  localStorage.setItem('appDataUpdatedAt', new Date().toISOString())
+/**
+ * Compacta una lista de calls para localStorage: trunca campos pesados
+ * (descriptions, budget largos, regiones con HTML) para que entren en el
+ * presupuesto de ~5 MB del storage. Idempotente y no destructivo:
+ * la info esencial (id, externalId, source, title, deadlines, status,
+ * userStatus, url, importedToCallId) NUNCA se toca.
+ */
+const compactCallsForStorage = (calls: DiscoveryCall[]): DiscoveryCall[] =>
+  calls.map(c => ({
+    ...c,
+    // Descripción: 350 chars es de sobra para preview en card; el detalle
+    // viene del backend on-demand cuando el usuario importa.
+    description: c.description && c.description.length > 350
+      ? c.description.slice(0, 350) + '…'
+      : c.description,
+    // Title sano (algunos vienen con basura HTML)
+    title: c.title && c.title.length > 240 ? c.title.slice(0, 240) + '…' : c.title,
+    // Budget puede venir muy largo si trae presupuesto por subtopic
+    budget: c.budget && c.budget.length > 120 ? c.budget.slice(0, 120) + '…' : c.budget,
+  }))
+
+/**
+ * Guarda discoveryCalls con manejo de QuotaExceededError.
+ *  1) Intento directo
+ *  2) Si quota: tryFreeStorage + compactar campos + reintentar
+ *  3) Si sigue: dropear closed/dismissed antiguas y reintentar
+ *  4) Si sigue: quedarnos solo con las 1500 más recientes
+ * Devuelve la lista que efectivamente quedó persistida (puede haber sido
+ * recortada) para que el caller actualice su state acorde.
+ */
+const saveCalls = (calls: DiscoveryCall[]): DiscoveryCall[] => {
+  const trySet = (data: DiscoveryCall[]): boolean => {
+    try {
+      localStorage.setItem('discoveryCalls', JSON.stringify(data))
+      localStorage.setItem('appDataUpdatedAt', new Date().toISOString())
+      return true
+    } catch (err) {
+      if (!isQuotaExceededError(err)) {
+        // No es quota: error real, propágalo
+        throw err
+      }
+      return false
+    }
+  }
+
+  // 1) Intento directo
+  if (trySet(calls)) return calls
+
+  // 2) Limpieza ligera + compactación
+  console.warn('[Discovery] quota exceeded, freeing storage + compacting calls…')
+  try { tryFreeStorage() } catch { /* noop */ }
+  let working = compactCallsForStorage(calls)
+  if (trySet(working)) return working
+
+  // 3) Drop closed/dismissed con deadline pasada > 7 días
+  const todayMs = Date.now()
+  const SEVEN_DAYS = 7 * 86400000
+  working = working.filter(c => {
+    if (c.userStatus === 'imported') return true  // historial sagrado
+    if (c.externalStatus === 'closed') {
+      const t = c.closeDate ? new Date(c.closeDate).getTime() : 0
+      if (Number.isNaN(t) || todayMs - t > SEVEN_DAYS) return false
+    }
+    if (c.userStatus === 'dismissed') {
+      const t = c.closeDate ? new Date(c.closeDate).getTime() : 0
+      if (Number.isNaN(t) || todayMs - t > SEVEN_DAYS) return false
+    }
+    return true
+  })
+  console.warn(`[Discovery] dropped old closed/dismissed, ${working.length} remain`)
+  if (trySet(working)) return working
+
+  // 4) Último recurso: quedarnos con las 1500 más recientes
+  //    (priorizando importadas, luego por discoveredAt desc)
+  const sorted = [...working].sort((a, b) => {
+    const aImp = a.userStatus === 'imported' ? 1 : 0
+    const bImp = b.userStatus === 'imported' ? 1 : 0
+    if (aImp !== bImp) return bImp - aImp
+    const ad = a.discoveredAt ? new Date(a.discoveredAt).getTime() : 0
+    const bd = b.discoveredAt ? new Date(b.discoveredAt).getTime() : 0
+    return bd - ad
+  })
+  working = sorted.slice(0, 1500)
+  console.warn(`[Discovery] trimmed to ${working.length} most recent (storage was full)`)
+  if (trySet(working)) return working
+
+  // Si llegamos aquí, no podemos hacer nada — devolvemos lo que había en
+  // memoria sin persistir, para que el usuario al menos vea el sync sin
+  // crashear la app.
+  console.error('[Discovery] could not persist even 1500 calls — storage critically full')
+  return working
 }
 
 const loadSources = (): DiscoverySourcesState => {
@@ -300,8 +389,8 @@ const Discovery = () => {
       })
 
       if (changed) {
-        setCalls(backfilled)
-        saveCalls(backfilled)
+        const persisted = saveCalls(backfilled)
+        setCalls(persisted)
         console.log('[Discovery] backfilled imported status for previously-imported calls')
       }
     } catch (err) {
@@ -373,9 +462,12 @@ const Discovery = () => {
      Persistencia
      ---------------------------------------------------------- */
 
-  const persistCalls = (next: DiscoveryCall[]) => {
-    setCalls(next)
-    saveCalls(next)
+  const persistCalls = (next: DiscoveryCall[]): DiscoveryCall[] => {
+    // saveCalls puede recortar/compactar si rompemos quota — usamos el
+    // resultado real para sincronizar el state con lo que se persistió.
+    const persisted = saveCalls(next)
+    setCalls(persisted)
+    return persisted
   }
   const persistSources = (next: DiscoverySourcesState) => {
     setSources(next)
@@ -697,8 +789,9 @@ const Discovery = () => {
           merged.push(c)
         })
 
-        persistCalls(merged)
-        currentCalls = merged // siguiente iteración usa el state ACTUALIZADO
+        // persistCalls compacta/recorta si rompe quota — usamos el retorno real
+        const persisted = persistCalls(merged)
+        currentCalls = persisted // siguiente iteración usa el state ACTUALIZADO
         persistSources({
           ...sources,
           [s]: {
