@@ -19,6 +19,7 @@ import {
   FileCheck,
   Download,
   Calendar,
+  Lightbulb,
 } from 'lucide-react'
 import { formatCurrency, parseEuropeanNumber } from '../utils/formatCurrency'
 import { persistAppData } from '../utils/appData'
@@ -355,6 +356,13 @@ const CustomerDetail = () => {
           >
             <Route size={16} />
             <span>Generate roadmap</span>
+          </button>
+          <button
+            className="btn-secondary btn-secondary--ai"
+            onClick={() => navigate(`/customers/${customer.id}/proposal-ideas`)}
+          >
+            <Lightbulb size={16} />
+            <span>New Proposal Idea</span>
           </button>
           <button className="btn-secondary" onClick={handleEdit}>
             <Edit size={16} />
