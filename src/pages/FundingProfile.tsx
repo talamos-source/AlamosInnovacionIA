@@ -19,6 +19,7 @@ import {
   X,
   AlertCircle,
 } from 'lucide-react'
+import { persistAppData, isQuotaExceededError } from '../utils/appData'
 import './Page.css'
 import './FundingProfile.css'
 
@@ -184,8 +185,25 @@ const loadAllProfiles = (): Record<string, FundingProfile> => {
     return {}
   }
 }
-const saveAllProfiles = (profiles: Record<string, FundingProfile>) => {
-  localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profiles))
+const saveAllProfiles = (profiles: Record<string, FundingProfile>): boolean => {
+  // Usamos persistAppData (no setItem directo) para:
+  //  1) actualizar appDataUpdatedAt → AppDataSync detecta cambios locales
+  //     y los pushea al server SIN sobrescribirlos con un snapshot viejo.
+  //  2) notificar a otros componentes vía evento.
+  //  3) propagar QuotaExceededError para que el caller pueda reaccionar.
+  try {
+    return persistAppData(PROFILE_STORAGE_KEY, JSON.stringify(profiles))
+  } catch (err) {
+    if (isQuotaExceededError(err)) {
+      console.error('[FundingProfile] quota exceeded — el profile NO se ha guardado')
+      alert(
+        'No se pudo guardar el profile (almacenamiento lleno). ' +
+        'Ve a Settings → Storage o sincroniza Discovery para liberar espacio.',
+      )
+      return false
+    }
+    throw err
+  }
 }
 
 const loadCustomer = (id: string): CustomerRow | null => {
@@ -545,8 +563,12 @@ const FundingProfilePage = () => {
   }
 
   const handleGenerateRoadmap = () => {
-    persist(profile) // ensure latest saved before navigation
     if (!customerId) return
+    // NO hacemos persist(profile) aquí: si el usuario acaba de hacer
+    // applyExtractedReplace, el `profile` del closure puede ser stale
+    // (React aún no re-renderiza) y sobrescribiría las TRL lines recién
+    // aplicadas con la versión vieja. Cada mutación del profile ya pasa
+    // por persist(); este botón solo navega.
     navigate(`/roadmap/${customerId}`)
   }
 
