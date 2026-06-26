@@ -96,6 +96,46 @@ function mergeEntityArrays(localRaw: string | undefined, serverRaw: string | und
   return JSON.stringify([...byId.values()])
 }
 
+/**
+ * Fusiona Records indexados por key (e.g. fundingProfiles, roadmaps).
+ *
+ * Estructura: Record<customerId, Entity>
+ * Estrategia: para cada customerId, gana el de updatedAt más reciente.
+ * Preserva customers que solo existen en local (creados offline).
+ *
+ * CRÍTICO: NO usar mergeEntityArrays con Records — devuelve "[]" porque
+ * Array.isArray({...}) es false → borraba TODOS los fundingProfiles.
+ */
+function mergeEntityRecords(localRaw: string | undefined, serverRaw: string | undefined): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const parse = (raw: string | undefined): Record<string, any> => {
+    if (!raw) return {}
+    try {
+      const p = JSON.parse(raw)
+      return (p && typeof p === 'object' && !Array.isArray(p)) ? p : {}
+    } catch { return {} }
+  }
+  const local = parse(localRaw)
+  const server = parse(serverRaw)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const out: Record<string, any> = { ...server }
+  for (const [k, v] of Object.entries(local)) {
+    const existing = out[k]
+    if (!existing) { out[k] = v; continue }
+    const lts = v?.updatedAt ? Date.parse(v.updatedAt) : NaN
+    const sts = existing?.updatedAt ? Date.parse(existing.updatedAt) : NaN
+    if (!Number.isFinite(sts) || (Number.isFinite(lts) && lts >= sts)) {
+      out[k] = v
+    }
+  }
+  return JSON.stringify(out)
+}
+
+/** Claves cuyos valores son Records indexados por customerId (objetos, no arrays). */
+const MERGE_RECORD_KEYS = new Set([
+  'fundingProfiles',
+])
+
 /** Claves cuyos valores son arrays de entidades con { id, updatedAt }. */
 const MERGE_ARRAY_KEYS = new Set([
   'customers',
@@ -106,7 +146,6 @@ const MERGE_ARRAY_KEYS = new Set([
   'invoices',
   'users',
   'discoveryCalls',
-  'fundingProfiles',
   'roadmaps',
 ])
 
@@ -125,6 +164,8 @@ export const mergeSnapshot = (serverData: AppDataSnapshot): void => {
     }
     if (MERGE_ARRAY_KEYS.has(key)) {
       localStorage.setItem(key, mergeEntityArrays(local[key], serverData[key]))
+    } else if (MERGE_RECORD_KEYS.has(key)) {
+      localStorage.setItem(key, mergeEntityRecords(local[key], serverData[key]))
     } else {
       localStorage.setItem(key, serverData[key])
     }
