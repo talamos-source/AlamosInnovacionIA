@@ -2274,7 +2274,7 @@ con la misma estructura.`
     return res.json({
       idea: parsed,
       improvedAt: new Date().toISOString(),
-      model: CLAUDE_MODEL,
+      model: CLAUDE_MODEL_FAST,
       tokensUsed: {
         input: message.usage?.input_tokens ?? 0,
         output: message.usage?.output_tokens ?? 0,

@@ -56,22 +56,11 @@ interface ProposalIdeasModalProps {
   onSaved?: () => void
 }
 
-const API_BASE =
-  (import.meta.env.VITE_API_URL as string | undefined) ||
-  'https://alamosinnovacionia.onrender.com'
+import { getApiBase, getAiApiBase } from '../utils/aiApiBase'
 
-/**
- * URL específica para llamadas pesadas al agente IA.
- * Si VITE_AI_API_URL está configurada, la usa (para bypass Cloudflare).
- * Si no, cae al API_BASE general.
- *
- * Workaround: si api.alamosinnovacion.com está detrás de Cloudflare y
- * éste tira timeout a los 100s (free tier), podemos apuntar /ai/* a
- * la URL directa de Render que no tiene ese límite.
- */
-const AI_API_BASE =
-  (import.meta.env.VITE_AI_API_URL as string | undefined) ||
-  API_BASE
+const API_BASE = getApiBase()
+const AI_API_BASE = getAiApiBase()
+const AI_BYPASS_CLOUDFLARE = API_BASE !== AI_API_BASE
 
 /* ── Componente ─────────────────────────────────────── */
 
@@ -186,6 +175,10 @@ const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClo
       // 1) WARMUP DOBLE: dos pings con espera para asegurar que Render
       //    está despierto. El primer ping arranca el server (puede tardar
       //    30-50s en free tier); el segundo confirma que ya está listo.
+      console.log(
+        `[ProposalIdea] API=${API_BASE} | AI=${AI_API_BASE}` +
+        (AI_BYPASS_CLOUDFLARE ? ' (bypass Cloudflare → Render directo)' : '')
+      )
       console.log(`[ProposalIdea] warmup 1/2 — ${AI_API_BASE}/health`)
       let healthOk = false
       try {
@@ -220,7 +213,26 @@ const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClo
             },
             body: JSON.stringify({
               customer: customer ? { id: customer.id, name: customer.name } : null,
-              idea,
+              idea: {
+                objective: idea.objective,
+                mainInnovation: idea.mainInnovation,
+                initialTrl: idea.initialTrl,
+                durationMonths: idea.durationMonths,
+                partners: idea.partners.map(p => ({
+                  id: p.id,
+                  type: p.type,
+                  name: p.name,
+                  web: p.web,
+                  role: p.role,
+                  ...(p.customerId ? { customerId: p.customerId } : {}),
+                })),
+                workPackages: idea.workPackages.map(w => ({
+                  id: w.id,
+                  name: w.name,
+                  tasks: w.tasks,
+                  deliverables: w.deliverables,
+                })),
+              },
             }),
             signal: controller.signal,
           })
@@ -245,12 +257,11 @@ const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClo
           throw new Error(
             `El backend respondió al ping pero el POST a /ai/improve-proposal-idea falló.\n\n` +
             `Causas probables (en orden de probabilidad):\n` +
-            `  1. Render free tier tiró timeout (cold-start + Claude tarda mucho).\n` +
-            `     El browser muestra "CORS error" engañosamente — en realidad\n` +
-            `     es timeout del servidor.\n` +
-            `  2. Backend devolvió 500 internamente — abre Network tab (F12)\n` +
-            `     para ver el status real del POST.\n` +
-            `  3. CDN/Cloudflare intermedio cortó la conexión.\n\n` +
+            `  1. Cloudflare en api.alamosinnovacion.com devolvió 502/504 sin headers CORS\n` +
+            `     (el browser lo muestra como "CORS error" — mira Network tab: status 502).\n` +
+            `     Tras el próximo deploy de Vercel, las llamadas IA van directo a Render.\n` +
+            `  2. Render free tier timeout (cold-start + Claude).\n` +
+            `  3. Backend devolvió 500 — revisa status real en Network (F12).\n\n` +
             `Error técnico: ${msg}\n\n` +
             `RECOMENDACIÓN:\n` +
             `  • Pulsa "Continuar sin IA →" para guardar y descargar Word\n` +
