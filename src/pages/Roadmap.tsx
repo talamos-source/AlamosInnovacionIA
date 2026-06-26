@@ -197,7 +197,13 @@ const loadFundingProfile = (id: string): FundingProfileLoaded | null => {
   } catch { return null }
 }
 
-const loadDiscoveryCalls = (): DiscoveryCall[] => {
+/**
+ * Lectura sincrónica para useMemo. Devuelve lo que haya en localStorage
+ * (legacy) — la fuente de verdad real es IndexedDB, cargada por el
+ * useEffect siguiente. Si el usuario aún no ha visitado Discovery, IDB
+ * puede estar vacío; entonces caemos al localStorage legacy.
+ */
+const loadDiscoveryCallsSync = (): DiscoveryCall[] => {
   try {
     const raw = localStorage.getItem('discoveryCalls')
     if (!raw) return []
@@ -570,10 +576,31 @@ const RoadmapPage = () => {
     setPickerSearch('')
   }
 
+  // Discovery calls: hidratamos de IndexedDB en mount. Initial state usa
+  // localStorage por compat (puede tener legacy data); cuando IDB carga,
+  // el state se actualiza y los useMemo de abajo se recalculan.
+  const [discoveryAll, setDiscoveryAll] = useState<DiscoveryCall[]>(loadDiscoveryCallsSync)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { idbGet } = await import('../utils/idbStorage')
+        const stored = await idbGet<DiscoveryCall[]>('discovery', 'allCalls')
+        if (cancelled) return
+        if (Array.isArray(stored) && stored.length > 0) {
+          setDiscoveryAll(stored)
+        }
+      } catch (err) {
+        console.warn('[Roadmap] hidratación de discoveryCalls desde IDB falló:', err)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   // Filtrar calls del discovery a I+D+i (score ≥ 50) y deadline futuro
   const idiCalls = useMemo(() => {
     const todayMs = Date.now() - 86400000
-    return loadDiscoveryCalls().filter(c => {
+    return discoveryAll.filter(c => {
       const score = c.rdiScore ?? (c.source === 'EU_PORTAL' ? 100 : 0)
       if (score < 50) return false
       if (c.closeDate) {
@@ -582,7 +609,7 @@ const RoadmapPage = () => {
       }
       return true
     })
-  }, [])
+  }, [discoveryAll])
 
   // Mandamos TODAS las I+D+i al agente (hasta un cap alto). Antes filtrábamos a 40 por
   // rdiScore+deadline, pero todas las EU tienen score=100, así que el orden era arbitrario

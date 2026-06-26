@@ -13,6 +13,7 @@ import {
   Check,
 } from 'lucide-react'
 import { isQuotaExceededError, tryFreeStorage } from '../utils/appData'
+import { idbGet, idbSet } from '../utils/idbStorage'
 import './Page.css'
 import './Discovery.css'
 
@@ -162,7 +163,21 @@ const ITEMS_PER_PAGE = 25
    Storage helpers
    ============================================================ */
 
-const loadCalls = (): DiscoveryCall[] => {
+/* ============================================================
+   IndexedDB storage para discoveryCalls
+   ============================================================
+   ANTES: localStorage (límite 5-10 MB → quota exceeded con >500 calls)
+   AHORA: IndexedDB (varios GB sin problema)
+   El sync ya no se sincroniza con el server backend — es CACHE LOCAL.
+   Cada usuario re-sincroniza Discovery cuando quiera.
+   ============================================================ */
+
+const IDB_KEY_CALLS = 'allCalls'
+
+const loadCallsSync = (): DiscoveryCall[] => {
+  // Lectura sincrónica para el initial state — siempre desde localStorage
+  // (puede tener legacy data antes de migrar). Si no hay nada en localStorage,
+  // el componente cargará de IDB en useEffect.
   try {
     const raw = localStorage.getItem('discoveryCalls')
     return raw ? (JSON.parse(raw) as DiscoveryCall[]) : []
@@ -171,97 +186,75 @@ const loadCalls = (): DiscoveryCall[] => {
   }
 }
 
-/**
- * Compacta una lista de calls para localStorage: trunca campos pesados
- * (descriptions, budget largos, regiones con HTML) para que entren en el
- * presupuesto de ~5 MB del storage. Idempotente y no destructivo:
- * la info esencial (id, externalId, source, title, deadlines, status,
- * userStatus, url, importedToCallId) NUNCA se toca.
- */
-const compactCallsForStorage = (calls: DiscoveryCall[]): DiscoveryCall[] =>
-  calls.map(c => ({
-    ...c,
-    // Descripción: 350 chars es de sobra para preview en card; el detalle
-    // viene del backend on-demand cuando el usuario importa.
-    description: c.description && c.description.length > 350
-      ? c.description.slice(0, 350) + '…'
-      : c.description,
-    // Title sano (algunos vienen con basura HTML)
-    title: c.title && c.title.length > 240 ? c.title.slice(0, 240) + '…' : c.title,
-    // Budget puede venir muy largo si trae presupuesto por subtopic
-    budget: c.budget && c.budget.length > 120 ? c.budget.slice(0, 120) + '…' : c.budget,
-  }))
+const loadCallsFromIdb = async (): Promise<DiscoveryCall[]> => {
+  try {
+    const stored = await idbGet<DiscoveryCall[]>('discovery', IDB_KEY_CALLS)
+    return Array.isArray(stored) ? stored : []
+  } catch (err) {
+    console.warn('[Discovery] idbGet failed, fallback to localStorage:', err)
+    return loadCallsSync()
+  }
+}
 
 /**
- * Guarda discoveryCalls con manejo de QuotaExceededError.
- *  1) Intento directo
- *  2) Si quota: tryFreeStorage + compactar campos + reintentar
- *  3) Si sigue: dropear closed/dismissed antiguas y reintentar
- *  4) Si sigue: quedarnos solo con las 1500 más recientes
- * Devuelve la lista que efectivamente quedó persistida (puede haber sido
- * recortada) para que el caller actualice su state acorde.
+ * Migración one-time: si hay datos en localStorage.discoveryCalls y aún
+ * no hay nada en IDB, los movemos. Después limpia localStorage para
+ * liberar espacio (que es lo que estaba reventando todo).
+ */
+const migrateCallsToIdb = async (): Promise<DiscoveryCall[] | null> => {
+  try {
+    const idbCalls = await idbGet<DiscoveryCall[]>('discovery', IDB_KEY_CALLS)
+    if (Array.isArray(idbCalls) && idbCalls.length > 0) {
+      // Ya migrado — limpiamos localStorage por si quedó residual
+      if (localStorage.getItem('discoveryCalls')) {
+        localStorage.removeItem('discoveryCalls')
+        console.log('[Discovery] localStorage.discoveryCalls eliminado (ya está en IDB)')
+      }
+      return null
+    }
+    const local = loadCallsSync()
+    if (local.length === 0) return null
+    await idbSet('discovery', IDB_KEY_CALLS, local)
+    localStorage.removeItem('discoveryCalls')
+    console.log(`[Discovery] ✓ migradas ${local.length} calls de localStorage → IndexedDB`)
+    return local
+  } catch (err) {
+    console.warn('[Discovery] migración a IDB falló:', err)
+    return null
+  }
+}
+
+/**
+ * Guarda discoveryCalls en IndexedDB (sin límite práctico).
+ * IDB aguanta cientos de MB / varios GB por origen, así que las 700-3000
+ * calls que puede traer un sync caben de sobra. La función mantiene el
+ * mismo contrato (devuelve la lista persistida) por compat con persistCalls.
+ *
+ * Side-effects:
+ *  - Limpia localStorage.discoveryCalls si quedaba residual de la versión
+ *    vieja (legacy migrate).
+ *
+ * Importante: NO escribimos appDataUpdatedAt aquí — discoveryCalls ya no
+ * forma parte del snapshot que sincroniza con el server (es cache local).
  */
 const saveCalls = (calls: DiscoveryCall[]): DiscoveryCall[] => {
-  const trySet = (data: DiscoveryCall[]): boolean => {
-    try {
-      localStorage.setItem('discoveryCalls', JSON.stringify(data))
-      localStorage.setItem('appDataUpdatedAt', new Date().toISOString())
-      return true
-    } catch (err) {
-      if (!isQuotaExceededError(err)) {
-        // No es quota: error real, propágalo
-        throw err
-      }
-      return false
+  // Fire-and-forget: idbSet es async pero el flujo de Discovery no necesita
+  // esperar al disco. Si falla loggeamos pero no bloqueamos al usuario.
+  idbSet('discovery', IDB_KEY_CALLS, calls).then(() => {
+    // limpia residual de localStorage si aún existe
+    if (localStorage.getItem('discoveryCalls')) {
+      try { localStorage.removeItem('discoveryCalls') } catch { /* noop */ }
     }
-  }
-
-  // 1) Intento directo
-  if (trySet(calls)) return calls
-
-  // 2) Limpieza ligera + compactación
-  console.warn('[Discovery] quota exceeded, freeing storage + compacting calls…')
-  try { tryFreeStorage() } catch { /* noop */ }
-  let working = compactCallsForStorage(calls)
-  if (trySet(working)) return working
-
-  // 3) Drop closed/dismissed con deadline pasada > 7 días
-  const todayMs = Date.now()
-  const SEVEN_DAYS = 7 * 86400000
-  working = working.filter(c => {
-    if (c.userStatus === 'imported') return true  // historial sagrado
-    if (c.externalStatus === 'closed') {
-      const t = c.closeDate ? new Date(c.closeDate).getTime() : 0
-      if (Number.isNaN(t) || todayMs - t > SEVEN_DAYS) return false
+  }).catch(err => {
+    // Si IDB se queda sin cuota (improbable, varios GB), intentamos
+    // tryFreeStorage por si arrastraba algo de localStorage. No hay
+    // mucho más que podamos hacer.
+    console.error('[Discovery] idbSet failed:', err)
+    if (isQuotaExceededError(err)) {
+      try { tryFreeStorage() } catch { /* noop */ }
     }
-    if (c.userStatus === 'dismissed') {
-      const t = c.closeDate ? new Date(c.closeDate).getTime() : 0
-      if (Number.isNaN(t) || todayMs - t > SEVEN_DAYS) return false
-    }
-    return true
   })
-  console.warn(`[Discovery] dropped old closed/dismissed, ${working.length} remain`)
-  if (trySet(working)) return working
-
-  // 4) Último recurso: quedarnos con las 1500 más recientes
-  //    (priorizando importadas, luego por discoveredAt desc)
-  const sorted = [...working].sort((a, b) => {
-    const aImp = a.userStatus === 'imported' ? 1 : 0
-    const bImp = b.userStatus === 'imported' ? 1 : 0
-    if (aImp !== bImp) return bImp - aImp
-    const ad = a.discoveredAt ? new Date(a.discoveredAt).getTime() : 0
-    const bd = b.discoveredAt ? new Date(b.discoveredAt).getTime() : 0
-    return bd - ad
-  })
-  working = sorted.slice(0, 1500)
-  console.warn(`[Discovery] trimmed to ${working.length} most recent (storage was full)`)
-  if (trySet(working)) return working
-
-  // Si llegamos aquí, no podemos hacer nada — devolvemos lo que había en
-  // memoria sin persistir, para que el usuario al menos vea el sync sin
-  // crashear la app.
-  console.error('[Discovery] could not persist even 1500 calls — storage critically full')
-  return working
+  return calls
 }
 
 const loadSources = (): DiscoverySourcesState => {
@@ -327,8 +320,30 @@ type ViewFilter = 'all' | 'today' | 'reviewing' | 'dismissed' | 'closing-soon' |
 const Discovery = () => {
   const navigate = useNavigate()
 
-  const [calls, setCalls] = useState<DiscoveryCall[]>(loadCalls)
+  // Initial state: lectura sincrónica desde localStorage por si quedó
+  // legacy data antes de la migración. El useEffect siguiente carga
+  // de IDB (que es la fuente de verdad real) y migra si hace falta.
+  const [calls, setCalls] = useState<DiscoveryCall[]>(loadCallsSync)
   const [sources, setSources] = useState<DiscoverySourcesState>(loadSources)
+
+  // Hidratación desde IndexedDB (fuente de verdad) + migración one-time
+  // desde localStorage si aún no se ha hecho.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const migrated = await migrateCallsToIdb()
+      if (cancelled) return
+      if (migrated && migrated.length > 0) {
+        setCalls(migrated)
+        return
+      }
+      // Sin migración necesaria: cargar de IDB
+      const fromIdb = await loadCallsFromIdb()
+      if (cancelled) return
+      if (fromIdb.length > 0) setCalls(fromIdb)
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   /* ----------------------------------------------------------
      BACKFILL: marcar como 'imported' las DiscoveryCalls que ya

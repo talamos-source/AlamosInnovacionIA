@@ -13,10 +13,11 @@
    ============================================================ */
 
 const DB_NAME = 'alamos-crm-storage'
-const DB_VERSION = 1
+// v2: añadido store 'discovery' para mover discoveryCalls fuera de localStorage
+const DB_VERSION = 2
 
 // Stores conocidos
-const STORES = ['proposal-docs', 'project-blobs'] as const
+const STORES = ['proposal-docs', 'project-blobs', 'discovery'] as const
 export type IdbStore = typeof STORES[number]
 
 let dbPromise: Promise<IDBDatabase> | null = null

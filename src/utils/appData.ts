@@ -145,7 +145,9 @@ const MERGE_ARRAY_KEYS = new Set([
   'otherServices',
   'invoices',
   'users',
-  'discoveryCalls',
+  // 'discoveryCalls' eliminado: ahora vive en IndexedDB (sin límite de
+  // tamaño) y NO se sincroniza con el server — es cache local que el
+  // usuario refresca pulsando "Sync" cuando quiera.
   'roadmaps',
 ])
 
