@@ -448,16 +448,35 @@ const RoadmapPage = () => {
     }))
   }
 
+  /**
+   * Renumera priorityOrder según el orden actual mostrado (fit score DESC,
+   * desempate por priorityOrder original ASC). Llamar tras cualquier
+   * modificación del array (borrar, añadir, reordenar) para que la
+   * numeración mostrada (#1, #2, #3…) sea siempre continua.
+   */
+  const renumberRecs = (recs: RoadmapRecommendation[]): RoadmapRecommendation[] => {
+    return [...recs]
+      .sort((a, b) => {
+        if (b.fitScore !== a.fitScore) return b.fitScore - a.fitScore
+        return a.priorityOrder - b.priorityOrder
+      })
+      .map((rec, i) => ({ ...rec, priorityOrder: i + 1 }))
+  }
+
   const handleRemoveRecommendation = (callId: string) => {
     if (!activeRoadmap) return
-    updateActiveRoadmap(r => ({
-      ...r,
-      result: {
-        ...r.result,
-        recommendations: r.result.recommendations.filter(rec => rec.callId !== callId),
-        totalCallsRecommended: r.result.recommendations.filter(rec => rec.callId !== callId).length,
-      },
-    }))
+    updateActiveRoadmap(r => {
+      const remaining = r.result.recommendations.filter(rec => rec.callId !== callId)
+      const renumbered = renumberRecs(remaining)
+      return {
+        ...r,
+        result: {
+          ...r.result,
+          recommendations: renumbered,
+          totalCallsRecommended: renumbered.length,
+        },
+      }
+    })
   }
 
   const [analyzingCallId, setAnalyzingCallId] = useState<string | null>(null)
@@ -564,14 +583,17 @@ const RoadmapPage = () => {
       }
     }
 
-    updateActiveRoadmap(r => ({
-      ...r,
-      result: {
-        ...r.result,
-        recommendations: [...r.result.recommendations, newRec],
-        totalCallsRecommended: r.result.recommendations.length + 1,
-      },
-    }))
+    updateActiveRoadmap(r => {
+      const renumbered = renumberRecs([...r.result.recommendations, newRec])
+      return {
+        ...r,
+        result: {
+          ...r.result,
+          recommendations: renumbered,
+          totalCallsRecommended: renumbered.length,
+        },
+      }
+    })
     setPickerOpen(false)
     setPickerSearch('')
   }
@@ -1055,7 +1077,7 @@ const RoadmapPage = () => {
           {view === 'timeline' && (
             <RoadmapTimeline
               ref={timelineRef}
-              recommendations={activeRoadmap.result.recommendations}
+              recommendations={renumberRecs(activeRoadmap.result.recommendations)}
               timeline={activeRoadmap.timeline}
               customerName={customer.name}
               idiCalls={idiCalls}
@@ -1086,6 +1108,7 @@ const RoadmapPage = () => {
               <RecommendationCard
                 key={rec.callId + i}
                 rec={rec}
+                displayOrder={i + 1}
                 idiCalls={idiCalls}
                 trlProfile={fundingProfile?.trlProfile || []}
                 onRemove={() => handleRemoveRecommendation(rec.callId)}
@@ -1213,13 +1236,16 @@ const RoadmapPage = () => {
    ============================================================ */
 
 const RecommendationCard = ({
-  rec, idiCalls, trlProfile = [], onRemove, onUpdateMonth,
+  rec, idiCalls, trlProfile = [], onRemove, onUpdateMonth, displayOrder,
 }: {
   rec: RoadmapRecommendation
   idiCalls: DiscoveryCall[]
   trlProfile?: Array<{ id: string; technology: string; currentTRL: number; targetTRL: number }>
   onRemove?: () => void
   onUpdateMonth?: (newMonth: string) => void
+  /** Posición en la lista actualmente mostrada (1-based). Si no se
+   *  pasa, cae a rec.priorityOrder (legacy). */
+  displayOrder?: number
 }) => {
   const [editingMonth, setEditingMonth] = useState(false)
   const [draftMonth, setDraftMonth] = useState(rec.recommendedMonth)
@@ -1238,7 +1264,7 @@ const RecommendationCard = ({
   return (
     <article className="rm-rec-card" id={`rec-card-${rec.callId}`}>
       <header className="rm-rec-header">
-        <div className="rm-rec-priority">#{rec.priorityOrder}</div>
+        <div className="rm-rec-priority">#{displayOrder ?? rec.priorityOrder}</div>
         <div className="rm-rec-title-wrap">
           <h3>{stripAgentTags(rec.title) || rec.callId}</h3>
           <div className="rm-rec-meta">
