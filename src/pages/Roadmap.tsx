@@ -190,8 +190,10 @@ const loadFundingProfile = (id: string): FundingProfileLoaded | null => {
   try {
     const raw = localStorage.getItem('fundingProfiles')
     if (!raw) return null
-    const all = JSON.parse(raw) as Record<string, FundingProfileLoaded>
-    return all[id] || null
+    const all = JSON.parse(raw)
+    // Defensa contra el bug histórico que dejó "[]" en algunos clientes
+    if (!all || typeof all !== 'object' || Array.isArray(all)) return null
+    return (all as Record<string, FundingProfileLoaded>)[id] || null
   } catch { return null }
 }
 

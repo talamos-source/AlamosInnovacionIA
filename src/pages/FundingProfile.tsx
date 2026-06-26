@@ -180,11 +180,43 @@ const loadAllProfiles = (): Record<string, FundingProfile> => {
   try {
     const raw = localStorage.getItem(PROFILE_STORAGE_KEY)
     if (!raw) return {}
-    return JSON.parse(raw) as Record<string, FundingProfile>
+    const parsed = JSON.parse(raw)
+    // CRÍTICO: rechazar arrays — si se intenta hacer
+    //   const all = []; all['custId'] = profile; JSON.stringify(all)
+    // el resultado es "[]" (los arrays ignoran propiedades no numéricas en
+    // stringify). Esto era la causa de que los profiles desaparecieran.
+    // Versiones viejas escribieron "[]" por el bug de mergeEntityArrays.
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      console.warn('[FundingProfile] localStorage tenía valor inválido, reset a {}', { value: raw?.slice(0, 100) })
+      return {}
+    }
+    return parsed as Record<string, FundingProfile>
   } catch {
     return {}
   }
 }
+/**
+ * Saneo defensivo en el módulo (corre 1× al cargar el bundle):
+ * si el localStorage tiene "[]" o cualquier valor inválido (legado del bug
+ * mergeEntityArrays), lo reseteamos a "{}" antes de que cualquier read lo
+ * propague. Sin esto, los usuarios con datos corruptos no podrían guardar.
+ */
+;(() => {
+  try {
+    const raw = localStorage.getItem('fundingProfiles')
+    if (!raw) return
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      console.warn('[FundingProfile] reset fundingProfiles inválido a "{}"')
+      localStorage.setItem('fundingProfiles', '{}')
+      localStorage.setItem('appDataUpdatedAt', new Date().toISOString())
+    }
+  } catch {
+    localStorage.setItem('fundingProfiles', '{}')
+    localStorage.setItem('appDataUpdatedAt', new Date().toISOString())
+  }
+})()
+
 const saveAllProfiles = (profiles: Record<string, FundingProfile>): boolean => {
   // Usamos persistAppData (no setItem directo) para:
   //  1) actualizar appDataUpdatedAt → AppDataSync detecta cambios locales

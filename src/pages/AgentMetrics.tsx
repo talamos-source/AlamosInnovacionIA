@@ -138,8 +138,11 @@ const AgentMetrics = () => {
     try {
       const raw = localStorage.getItem('fundingProfiles')
       if (raw) {
-        const parsed = JSON.parse(raw) as Record<string, FundingProfileLoaded>
-        profiles = Object.values(parsed)
+        const parsed = JSON.parse(raw)
+        // Defensa contra el bug histórico que dejó "[]" (array) en lugar de {}
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          profiles = Object.values(parsed as Record<string, FundingProfileLoaded>)
+        }
       }
     } catch { /* */ }
     try {
