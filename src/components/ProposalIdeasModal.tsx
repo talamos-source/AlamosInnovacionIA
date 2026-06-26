@@ -58,10 +58,6 @@ interface ProposalIdeasModalProps {
 
 import { getApiBase, getAiApiBase } from '../utils/aiApiBase'
 
-const API_BASE = getApiBase()
-const AI_API_BASE = getAiApiBase()
-const AI_BYPASS_CLOUDFLARE = API_BASE !== AI_API_BASE
-
 /* ── Componente ─────────────────────────────────────── */
 
 const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClose, onSaved }: ProposalIdeasModalProps) => {
@@ -171,19 +167,22 @@ const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClo
     setErrorMsg('')
     try {
       const token = localStorage.getItem('authToken') || ''
+      const apiBase = getApiBase()
+      const aiBase = getAiApiBase()
+      const bypass = apiBase !== aiBase
 
       // 1) WARMUP DOBLE: dos pings con espera para asegurar que Render
       //    está despierto. El primer ping arranca el server (puede tardar
       //    30-50s en free tier); el segundo confirma que ya está listo.
       console.log(
-        `[ProposalIdea] API=${API_BASE} | AI=${AI_API_BASE}` +
-        (AI_BYPASS_CLOUDFLARE ? ' (bypass Cloudflare → Render directo)' : '')
+        `[ProposalIdea] host=${window.location.hostname} | API=${apiBase} | AI=${aiBase}` +
+        (bypass ? ' | bypass Cloudflare → Render' : '')
       )
-      console.log(`[ProposalIdea] warmup 1/2 — ${AI_API_BASE}/health`)
+      console.log(`[ProposalIdea] warmup 1/2 — ${aiBase}/health`)
       let healthOk = false
       try {
         const t0 = Date.now()
-        const healthRes = await fetch(`${AI_API_BASE}/health`, { method: 'GET' })
+        const healthRes = await fetch(`${aiBase}/health`, { method: 'GET' })
         healthOk = healthRes.ok
         console.log(`[ProposalIdea] /health ${healthRes.status} (tardó ${Date.now() - t0}ms)`)
       } catch (e) {
@@ -194,7 +193,7 @@ const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClo
       if (healthOk) {
         try {
           const t0 = Date.now()
-          await fetch(`${AI_API_BASE}/health`, { method: 'GET' })
+          await fetch(`${aiBase}/health`, { method: 'GET' })
           console.log(`[ProposalIdea] warmup 2/2 confirmado (tardó ${Date.now() - t0}ms)`)
         } catch { /* ignore */ }
       }
@@ -205,7 +204,7 @@ const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClo
         const controller = new AbortController()
         const timeout = setTimeout(() => controller.abort(), 90_000)
         try {
-          res = await fetch(`${AI_API_BASE}/ai/improve-proposal-idea`, {
+          res = await fetch(`${aiBase}/ai/improve-proposal-idea`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
