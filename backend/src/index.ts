@@ -2198,20 +2198,33 @@ Devuelve el JSON con la estructura exacta del system prompt.`
    ============================================================ */
 
 const PROPOSAL_IDEA_PROMPT = `Eres consultor senior I+D+i en Álamos Innovación.
-Mejora la redacción de una IDEA DE PROPUESTA y devuelve UN ÚNICO objeto JSON válido.
+Mejora una IDEA DE PROPUESTA y devuelve UN ÚNICO objeto JSON válido.
 
 Reglas estrictas:
-- Mejora 'objective' y 'mainInnovation' a tono profesional español.
-- Si workPackages está vacío, propón 3-4 WPs coherentes (nombre "WP1: ...", 3-4 tasks "T1.1: ...", 2-3 deliverables "D1.1: ...").
-- Si workPackages ya tiene contenido, solo mejora la redacción CONSERVANDO ids y orden.
+- 'objective' y 'mainInnovation' son el corazón de la idea. Reescríbelos
+  con tono profesional, español técnico y claro, frases completas y
+  precisas. Si vienen vacíos, ambiguos o mal expresados, REFORMÚLALOS
+  COMPLETAMENTE con la mejor versión profesional que puedas, partiendo
+  del resto de información (partners, WPs, cliente). Nunca devuelvas
+  texto vacío en estos dos campos.
+- Si workPackages está vacío, propón 3-4 WPs coherentes (nombre "WP1: ...",
+  3-4 tasks "T1.1: ...", 2-3 deliverables "D1.1: ..."). Para WPs nuevos
+  usa ids "wp-new-1", "wp-new-2".
+- Si workPackages ya tiene contenido, solo mejora la redacción CONSERVANDO
+  ids y orden.
 - NO inventes partners (devuélvelos tal cual).
 - NO cambies durationMonths ni initialTrl.
-- Para WPs nuevos generados por ti usa ids "wp-new-1", "wp-new-2".
-- CRÍTICO: responde SOLO con JSON parseable. Sin markdown, sin \`\`\`, sin texto antes ni después.
-- Escapa comillas dentro de strings. No trailing commas.
+- Genera 'milestones': lista de 4-7 hitos del calendario. Cada hito tiene
+  name, month (1..durationMonths) y responsible (nombre EXACTO de UNO de
+  los partners). NUNCA pongas "Álamos", "Álamos Innovación" ni similar
+  como responsible — los responsables del proyecto son los partners. Si
+  no hay partners en la idea, deja milestones como [].
+- CRÍTICO: responde SOLO con JSON parseable. Sin markdown, sin \`\`\`, sin
+  texto antes ni después. Escapa comillas dentro de strings. No trailing
+  commas.
 
 Schema exacto:
-{"objective":"...","mainInnovation":"...","initialTrl":N,"partners":[{"id":"...","type":"customer|external","name":"...","web":"...","role":"..."}],"durationMonths":N,"workPackages":[{"id":"...","name":"...","tasks":["..."],"deliverables":["..."]}]}`
+{"objective":"...","mainInnovation":"...","initialTrl":N,"partners":[{"id":"...","type":"customer|external","name":"...","web":"...","role":"..."}],"durationMonths":N,"workPackages":[{"id":"...","name":"...","tasks":["..."],"deliverables":["..."]}],"milestones":[{"name":"...","month":N,"responsible":"NombreSocioExacto"}]}`
 
 /** Extrae el primer objeto JSON de una respuesta Claude (markdown, preámbulo, etc.). */
 function extractJsonObject(raw: string): string {
@@ -2256,6 +2269,44 @@ function mergeProposalIdea(
   const workPackages = Array.isArray(parsed.workPackages)
     ? parsed.workPackages
     : (original.workPackages || [])
+
+  // Nombres de partners válidos para validar 'responsible' en milestones
+  const partnerNames = (partners as Array<Record<string, unknown>>)
+    .map(p => (typeof p?.name === 'string' ? p.name.trim() : ''))
+    .filter(Boolean)
+
+  // Sanitiza milestones: descarta cualquiera cuyo responsible sea
+  // Álamos / Álamos Innovación / Teresa Álamos, o que no coincida con
+  // ningún partner. Si tras filtrar quedan 0, devolvemos [] y el
+  // frontend hace fallback (asigna rotando por partners).
+  let milestones: unknown[] = []
+  if (Array.isArray(parsed.milestones)) {
+    milestones = parsed.milestones
+      .map(m => (m && typeof m === 'object') ? (m as Record<string, unknown>) : null)
+      .filter((m): m is Record<string, unknown> => !!m)
+      .map(m => {
+        const name = typeof m.name === 'string' ? m.name.trim() : ''
+        const month = Number(m.month) || 1
+        let responsible = typeof m.responsible === 'string' ? m.responsible.trim() : ''
+        // Bloquea Álamos como responsable — el agente a veces se cuela
+        if (/^(t(eresa)?\s*)?[áa]lamos\b/i.test(responsible)) {
+          // intenta sustituir por el primer partner real
+          responsible = partnerNames[0] || ''
+        }
+        // Si no coincide con ningún partner, intenta match flojo
+        if (responsible && partnerNames.length > 0 && !partnerNames.includes(responsible)) {
+          const match = partnerNames.find(p =>
+            p.toLowerCase().includes(responsible.toLowerCase()) ||
+            responsible.toLowerCase().includes(p.toLowerCase()),
+          )
+          if (match) responsible = match
+          else responsible = partnerNames[0]  // fallback
+        }
+        return { name, month, responsible }
+      })
+      .filter(m => m.name)  // descarta hitos sin nombre
+  }
+
   return {
     objective: typeof parsed.objective === 'string' && parsed.objective.trim()
       ? parsed.objective.trim()
@@ -2269,6 +2320,7 @@ function mergeProposalIdea(
       : Number(parsed.durationMonths) || 24,
     partners,
     workPackages,
+    milestones,
   }
 }
 

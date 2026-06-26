@@ -171,7 +171,7 @@ h3 {
 
 p {
   margin: 0 0 8pt 0;
-  text-align: justify;
+  text-align: left;
 }
 .muted { color: ${TEXT_MUTED}; }
 .dark  { color: ${TEXT_DARK}; }
@@ -283,14 +283,6 @@ ${allDeliverables.length > 0
        <li>[Entregable 3]</li>
      </ul>`}
 
-<h3>Por qué Álamos Innovación</h3>
-<ul class="list-dark">
-  <li>Más de 20 años de experiencia en innovación y financiación pública europea.</li>
-  <li>Más de 70 proyectos financiados y más de 100 M€ movilizados.</li>
-  <li>Evaluadora externa Horizon Europe (Comisión Europea) y Eurostars.</li>
-  <li>Enfoque integral: del diseño de la propuesta al cierre administrativo.</li>
-</ul>
-
 <br clear="all" style="page-break-before:always">
 
 <!-- ═══════════════ 2. COMPRENSIÓN DEL PROYECTO ═══════════════ -->
@@ -302,7 +294,7 @@ ${allDeliverables.length > 0
 <h2>Por qué este momento</h2>
 <p class="muted">[Por qué tiene sentido actuar ahora: ventana de convocatoria abierta, oportunidad estratégica, contexto regulatorio, deadline próximo.]</p>
 
-<h2>Cómo lo plantea Álamos Innovación</h2>
+<h2>Cómo se plantea la Innovación</h2>
 <p>${esc(idea.mainInnovation)}</p>
 
 <br clear="all" style="page-break-before:always">
@@ -363,34 +355,56 @@ ${idea.workPackages.length > 0
 <!-- ═══════════════ 5. CALENDARIO Y PLAN DE HITOS ═══════════════ -->
 <h1>5. Calendario y plan de hitos</h1>
 
-<p>Calendario detallado anclado al inicio del proyecto. Cada hito tiene un responsable claro y una fecha objetivo.</p>
+<p>Calendario detallado anclado al inicio del proyecto. Cada hito tiene un socio responsable claro y una fecha objetivo.</p>
 
 <table>
   <thead>
     <tr>
       <th>Hito</th>
       <th style="width:22%">Fecha estimada</th>
-      <th style="width:22%">Responsable</th>
+      <th style="width:30%">Responsable</th>
     </tr>
   </thead>
   <tbody>
-    <tr>
-      <td><strong>Inicio del trabajo</strong></td>
-      <td>Mes 1</td>
-      <td>Álamos + Cliente</td>
-    </tr>
-    ${idea.workPackages.slice(0, 4).map((wp, i) => `
-      <tr>
-        <td>Cierre ${esc(wp.name) || `WP${i + 1}`}</td>
-        <td>Mes ${Math.round(((i + 1) / idea.workPackages.length) * idea.durationMonths) || (i + 1)}</td>
-        <td>${i === 1 ? 'Cliente + Álamos' : 'Álamos'}</td>
-      </tr>
-    `).join('')}
-    <tr>
-      <td>Cierre del proyecto / envío al organismo</td>
-      <td>Mes ${idea.durationMonths}</td>
-      <td>Cliente</td>
-    </tr>
+    ${(() => {
+      // 1) Si el agente IA rellenó milestones explícitos, los usamos.
+      if (idea.milestones && idea.milestones.length > 0) {
+        return idea.milestones.map(m => `
+          <tr>
+            <td><strong>${esc(m.name)}</strong></td>
+            <td>Mes ${m.month}</td>
+            <td>${esc(m.responsible) || '<span class="muted">Por definir</span>'}</td>
+          </tr>
+        `).join('')
+      }
+      // 2) Si no, derivamos de los WPs y asignamos responsable rotando
+      //    por la lista de partners (nunca Álamos).
+      const partnerNames = idea.partners.map(p => p.name).filter(Boolean)
+      const pickResponsible = (i: number) => {
+        if (partnerNames.length === 0) return '<span class="muted">Por definir</span>'
+        return esc(partnerNames[i % partnerNames.length])
+      }
+      const wpRows = idea.workPackages.slice(0, 6).map((wp, i) => `
+        <tr>
+          <td>Cierre ${esc(wp.name) || `WP${i + 1}`}</td>
+          <td>Mes ${Math.round(((i + 1) / Math.max(idea.workPackages.length, 1)) * idea.durationMonths) || (i + 1)}</td>
+          <td>${pickResponsible(i)}</td>
+        </tr>
+      `).join('')
+      return `
+        <tr>
+          <td><strong>Inicio del proyecto (kick-off)</strong></td>
+          <td>Mes 1</td>
+          <td>${pickResponsible(0)}</td>
+        </tr>
+        ${wpRows}
+        <tr>
+          <td>Cierre y entrega final</td>
+          <td>Mes ${idea.durationMonths}</td>
+          <td>${pickResponsible(idea.workPackages.length)}</td>
+        </tr>
+      `
+    })()}
   </tbody>
 </table>
 
@@ -398,10 +412,6 @@ ${idea.workPackages.length > 0
 
 <!-- ═══════════════ 6. EQUIPO ═══════════════ -->
 <h1>6. Equipo</h1>
-
-<h2>Teresa Álamos</h2>
-<p class="brand">Senior Innovation Consultant · Álamos Innovación · Sevilla</p>
-<p>Más de 20 años de experiencia en innovación y financiación pública europea. Especialista en propuestas competitivas, gestión de proyectos I+D+i y evaluación de propuestas para la Comisión Europea (Horizon Europe, Eurostars).</p>
 
 <h2>Consorcio propuesto</h2>
 ${idea.partners.length > 0

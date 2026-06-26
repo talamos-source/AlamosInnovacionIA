@@ -17,6 +17,19 @@ export interface ProposalIdea {
   partners: Partner[]
   durationMonths: number
   workPackages: WorkPackage[]
+  /**
+   * Hitos del calendario con responsable asignado a uno de los partners.
+   * Opcional: lo rellena el agente IA; si no, se deriva de los workPackages
+   * asignando responsable rotando por la lista de partners.
+   */
+  milestones?: Milestone[]
+}
+
+export interface Milestone {
+  name: string
+  month: number
+  /** Nombre del socio responsable (debe coincidir con un partner.name) */
+  responsible: string
 }
 
 export interface Partner {
