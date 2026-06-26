@@ -1875,11 +1875,40 @@ const TRL_EXTRACT_PROMPT = `You are an R+D+i consultant who reads a client profi
 distinct technology lines the company is working on, with their current
 maturity level (TRL) and a roadmap of milestones to reach a target TRL.
 
+═══════════════════════════════════════════════════════════════════
+CRITICAL — SECTOR ANCHORING
+═══════════════════════════════════════════════════════════════════
+EVERY technology line and EVERY milestone in the roadmap MUST be
+explicitly anchored to the CLIENT'S SECTOR / BUSINESS DOMAIN
+(e.g. logistics, agrifood, healthcare, fintech, energy, mobility…).
+
+Identify the sector from the 'Client sector' field and the description.
+Then for each line:
+
+  ✗ NEVER return generic labels like:
+      "IoT energy traceability and certification"
+      "Quantum-ready logistics architecture"
+      "ML-based optimization platform"
+
+  ✓ ALWAYS contextualize to the sector:
+      "IoT energy traceability in last-mile logistics operations"
+      "Quantum-ready route optimization for urban delivery fleets"
+      "ML-based multimodal route optimization for parcel delivery"
+
+The same rule applies to the roadmap: each milestone must mention
+the client's actual product / market / use case, not abstract
+technology demonstrations.
+
+═══════════════════════════════════════════════════════════════════
+
 You receive the client's context (technology description, business model,
 R+D+i roadmap). Extract 1 to 4 DISTINCT technology lines.
 
 For EACH line, infer:
-- technology: short label (3-8 words) of the tech line
+- technology: short label (5-10 words) of the tech line, INCLUDING
+  the sector-specific context (e.g. "IoT energy traceability for
+  logistics fleets", not just "IoT energy traceability"). Write in
+  the language of the client context (typically Spanish).
 - currentTRL (1-9): present maturity. If unclear, estimate from cues:
   · "validated with pilot client" → 6-7
   · "prototype in lab" → 4
@@ -1889,15 +1918,21 @@ For EACH line, infer:
 - targetTRL (1-9): realistic level to reach in the next 2-3 years (the
   roadmap horizon of the client).
 - rdRoadmap: 2-4 milestones IN PROSE separated by ' / ' that take the
-  tech from currentTRL to targetTRL. Use info from the client's context
-  literally when available (verbatim milestones, dates, partners).
-  Example: "validar prototipo con cliente piloto (TRL 6) / integrar con
-  ERP (TRL 7) / certificación industrial CE (TRL 8) / primera unidad
-  en producción (TRL 9)".
+  tech from currentTRL to targetTRL. Each milestone must reference
+  the client's real product, partners or use case (NOT generic lab
+  validation). Use verbatim info from the context when available
+  (real milestones, dates, partners, deliverables).
+  Example for a logistics client:
+    "validar prototipo de optimización de rutas con flota piloto de
+     Cargoffer en Madrid (TRL 6) / integrar API con sistemas de
+     transportistas (TRL 7) / certificar interoperabilidad
+     end-to-end con redes europeas (TRL 8)"
 
 If the client describes ONE main technology line, return just one.
 If they have clearly separate parallel tech lines, return them separately.
 NEVER invent technologies the client doesn't mention.
+NEVER return a technology label that could fit any sector — if you
+can't anchor it to the client's domain, drop it.
 
 Return JSON EXACTLY:
 {
@@ -1913,7 +1948,14 @@ app.post('/ai/extract-trl-lines', requireAuth, async (req, res) => {
   }
   const { customer, context } = (req.body || {}) as {
     customer?: { name?: string; company?: string; description?: string; category?: string }
-    context?: { technologyInnovation?: string; businessModel?: string; rdiRoadmap?: string }
+    context?: {
+      technologyInnovation?: string
+      businessModel?: string
+      rdiRoadmap?: string
+      companyOverview?: string
+      competitiveAdvantage?: string
+      ipStrategy?: string
+    }
   }
   if (!context?.technologyInnovation && !context?.rdiRoadmap) {
     return res.status(400).json({
@@ -1921,13 +1963,30 @@ app.post('/ai/extract-trl-lines', requireAuth, async (req, res) => {
     })
   }
   try {
+    // Inferimos un "sector hint" muy explícito a partir de category +
+    // primeras frases de description / companyOverview para que el modelo
+    // tenga ABSOLUTAMENTE claro a qué dominio anclar cada línea TRL.
+    const sectorBits = [
+      customer?.category,
+      customer?.description?.split(/[.!?]/)[0],
+      context.companyOverview?.split(/[.!?]/)[0],
+    ].filter(Boolean).map(s => String(s).trim()).filter(Boolean)
+    const sectorHint = sectorBits.length > 0
+      ? `\n⚠ CLIENT SECTOR (anchor every tech line and roadmap milestone here): ${sectorBits.join(' · ')}\n`
+      : ''
+
     const userBlock = [
       customer?.name && `Client: ${customer.name}${customer.company ? ` (${customer.company})` : ''}`,
-      customer?.category && `Sector: ${customer.category}`,
-      customer?.description && `Description: ${customer.description.slice(0, 600)}`,
-      context.technologyInnovation && `\n=== Technology / Innovation ===\n${context.technologyInnovation.slice(0, 1500)}`,
-      context.businessModel && `\n=== Business model ===\n${context.businessModel.slice(0, 600)}`,
-      context.rdiRoadmap && `\n=== R+D+i roadmap ===\n${context.rdiRoadmap.slice(0, 1500)}`,
+      customer?.category && `Client sector: ${customer.category}`,
+      customer?.description && `Description: ${customer.description.slice(0, 800)}`,
+      sectorHint,
+      context.companyOverview && `\n=== Company overview ===\n${context.companyOverview.slice(0, 800)}`,
+      context.technologyInnovation && `\n=== Technology / Innovation ===\n${context.technologyInnovation.slice(0, 1800)}`,
+      context.businessModel && `\n=== Business model ===\n${context.businessModel.slice(0, 800)}`,
+      context.competitiveAdvantage && `\n=== Competitive advantage ===\n${context.competitiveAdvantage.slice(0, 500)}`,
+      context.ipStrategy && `\n=== IP strategy ===\n${context.ipStrategy.slice(0, 400)}`,
+      context.rdiRoadmap && `\n=== R+D+i roadmap ===\n${context.rdiRoadmap.slice(0, 1800)}`,
+      `\n\nREMEMBER: every "technology" label and every roadmap milestone MUST mention the client's sector or product. Drop any tech line you can't anchor to this client's domain.`,
     ].filter(Boolean).join('\n')
 
     const stream = anthropic.messages.stream({
