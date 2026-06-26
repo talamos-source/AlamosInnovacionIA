@@ -273,14 +273,26 @@ const ProposalIdeasModal = ({ customer, allCustomers, initialIdea, ideaId, onClo
         )
       }
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` })) as {
+          error?: string
+          hint?: string
+          raw?: string
+        }
         if (res.status === 404) {
           throw new Error('HTTP 404 — Endpoint /ai/improve-proposal-idea NO existe en el backend desplegado. Necesita redeploy.')
         }
         if (res.status === 401) {
           throw new Error('HTTP 401 — No autenticado. Refresca la sesión cerrando y abriendo la app.')
         }
-        throw new Error(err.error || `HTTP ${res.status}: ${err.error || 'desconocido'}`)
+        if (res.status === 502 && err.error?.includes('invalid JSON')) {
+          console.warn('[ProposalIdea] invalid JSON from agent:', err.raw?.slice(0, 200))
+          throw new Error(
+            `El agente respondió pero el formato JSON no fue válido.\n\n` +
+            `${err.hint || 'Pulsa "Mejorar con IA" de nuevo (suele funcionar al segundo intento)'}\n` +
+            `o "Continuar sin IA →" para guardar y descargar Word.`
+          )
+        }
+        throw new Error(err.error || `HTTP ${res.status}`)
       }
       const data = await res.json()
       if (!data.idea) throw new Error('Respuesta del agente sin campo "idea"')

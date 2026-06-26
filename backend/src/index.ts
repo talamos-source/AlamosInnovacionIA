@@ -2198,19 +2198,79 @@ Devuelve el JSON con la estructura exacta del system prompt.`
    ============================================================ */
 
 const PROPOSAL_IDEA_PROMPT = `Eres consultor senior I+D+i en Álamos Innovación.
-Mejora la redacción de una IDEA DE PROPUESTA y devuelve JSON con misma estructura.
+Mejora la redacción de una IDEA DE PROPUESTA y devuelve UN ÚNICO objeto JSON válido.
 
 Reglas estrictas:
 - Mejora 'objective' y 'mainInnovation' a tono profesional español.
-- Si workPackages está vacío, propón 3-4 WPs coherentes (nombre "WPN: ...", 3-4 tasks "T1.1: ...", 2-3 deliverables "D1.1: ...").
+- Si workPackages está vacío, propón 3-4 WPs coherentes (nombre "WP1: ...", 3-4 tasks "T1.1: ...", 2-3 deliverables "D1.1: ...").
 - Si workPackages ya tiene contenido, solo mejora la redacción CONSERVANDO ids y orden.
 - NO inventes partners (devuélvelos tal cual).
 - NO cambies durationMonths ni initialTrl.
 - Para WPs nuevos generados por ti usa ids "wp-new-1", "wp-new-2".
-- Devuelve SOLO JSON, sin markdown, sin texto extra.
+- CRÍTICO: responde SOLO con JSON parseable. Sin markdown, sin \`\`\`, sin texto antes ni después.
+- Escapa comillas dentro de strings. No trailing commas.
 
-Schema:
-{ "objective": "...", "mainInnovation": "...", "initialTrl": N, "partners": [...], "durationMonths": N, "workPackages": [{"id":"...","name":"...","tasks":["..."],"deliverables":["..."]}] }`
+Schema exacto:
+{"objective":"...","mainInnovation":"...","initialTrl":N,"partners":[{"id":"...","type":"customer|external","name":"...","web":"...","role":"..."}],"durationMonths":N,"workPackages":[{"id":"...","name":"...","tasks":["..."],"deliverables":["..."]}]}`
+
+/** Extrae el primer objeto JSON de una respuesta Claude (markdown, preámbulo, etc.). */
+function extractJsonObject(raw: string): string {
+  let t = raw.trim()
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fence) t = fence[1].trim()
+  const start = t.indexOf('{')
+  const end = t.lastIndexOf('}')
+  if (start >= 0 && end > start) t = t.slice(start, end + 1)
+  return t
+}
+
+function parseProposalIdeaJson(raw: string): Record<string, unknown> | null {
+  const candidates = [
+    extractJsonObject(raw),
+    extractJsonObject(raw).replace(/,\s*([}\]])/g, '$1'),
+  ]
+  for (const jsonText of candidates) {
+    try {
+      const parsed = JSON.parse(jsonText)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>
+    } catch { /* try next */ }
+  }
+  return null
+}
+
+/** Fusiona respuesta IA con idea original — conserva TRL, duración y partners si faltan. */
+function mergeProposalIdea(
+  original: {
+    objective?: string
+    mainInnovation?: string
+    initialTrl?: number
+    partners?: unknown[]
+    durationMonths?: number
+    workPackages?: unknown[]
+  },
+  parsed: Record<string, unknown>,
+): Record<string, unknown> {
+  const partners = Array.isArray(parsed.partners) && parsed.partners.length > 0
+    ? parsed.partners
+    : (original.partners || [])
+  const workPackages = Array.isArray(parsed.workPackages)
+    ? parsed.workPackages
+    : (original.workPackages || [])
+  return {
+    objective: typeof parsed.objective === 'string' && parsed.objective.trim()
+      ? parsed.objective.trim()
+      : (original.objective || ''),
+    mainInnovation: typeof parsed.mainInnovation === 'string' && parsed.mainInnovation.trim()
+      ? parsed.mainInnovation.trim()
+      : (original.mainInnovation || ''),
+    initialTrl: typeof original.initialTrl === 'number' ? original.initialTrl : Number(parsed.initialTrl) || 4,
+    durationMonths: typeof original.durationMonths === 'number'
+      ? original.durationMonths
+      : Number(parsed.durationMonths) || 24,
+    partners,
+    workPackages,
+  }
+}
 
 app.post('/ai/improve-proposal-idea', requireAuth, async (req, res) => {
   if (!anthropic) {
@@ -2248,31 +2308,50 @@ con la misma estructura.`
     // más que suficiente.
     const message = await anthropic.messages.create({
       model: CLAUDE_MODEL_FAST,
-      max_tokens: 2500,
+      max_tokens: 4096,
       system: PROPOSAL_IDEA_PROMPT,
       messages: [{ role: 'user', content: userMsg }],
     })
 
     const firstBlock = message.content[0]
     const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : ''
-    let jsonText = text.trim()
-    if (jsonText.startsWith('```')) {
-      jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '')
+    if (message.stop_reason === 'max_tokens') {
+      console.warn('improve-proposal-idea: response truncated (max_tokens)')
     }
 
-    let parsed: Record<string, unknown>
-    try {
-      parsed = JSON.parse(jsonText)
-    } catch {
-      console.error('improve-proposal-idea: invalid JSON from Claude', text.slice(0, 500))
-      return res.status(502).json({
-        error: 'AI returned invalid JSON',
-        raw: text.slice(0, 1000),
+    let parsed = parseProposalIdeaJson(text)
+
+    // Retry: pedir JSON válido si el primer intento falló
+    if (!parsed) {
+      console.warn('improve-proposal-idea: invalid JSON, retrying fix pass…', text.slice(0, 300))
+      const fixMessage = await anthropic.messages.create({
+        model: CLAUDE_MODEL_FAST,
+        max_tokens: 4096,
+        messages: [{
+          role: 'user',
+          content: `Convierte el siguiente texto en UN objeto JSON válido (proposal idea schema).
+Sin markdown. Sin comentarios. Mismo contenido, solo formato JSON correcto:
+
+${text.slice(0, 12000)}`,
+        }],
       })
+      const fixBlock = fixMessage.content[0]
+      const fixText = fixBlock && fixBlock.type === 'text' ? fixBlock.text : ''
+      parsed = parseProposalIdeaJson(fixText)
+      if (!parsed) {
+        console.error('improve-proposal-idea: invalid JSON after retry', fixText.slice(0, 500))
+        return res.status(502).json({
+          error: 'AI returned invalid JSON',
+          hint: 'Reintenta o usa Continuar sin IA',
+          raw: fixText.slice(0, 1000),
+        })
+      }
     }
+
+    const merged = mergeProposalIdea(idea, parsed)
 
     return res.json({
-      idea: parsed,
+      idea: merged,
       improvedAt: new Date().toISOString(),
       model: CLAUDE_MODEL_FAST,
       tokensUsed: {
