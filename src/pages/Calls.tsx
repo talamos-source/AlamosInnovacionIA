@@ -1098,10 +1098,27 @@ const ImportFromDiscovery = ({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [filter, setFilter] = useState<'all' | 'EU_PORTAL' | 'BDNS'>('all')
 
-  const discoveryCalls = useMemo<DiscoveryCall[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('discoveryCalls') || '[]')
-    } catch { return [] }
+  // discoveryCalls vive en IndexedDB ahora (sin límite ~5MB).
+  // Lectura sincrónica inicial desde localStorage por compat con legacy data;
+  // useEffect hidrata desde IDB si está disponible.
+  const [discoveryCalls, setDiscoveryCalls] = useState<DiscoveryCall[]>(() => {
+    try { return JSON.parse(localStorage.getItem('discoveryCalls') || '[]') }
+    catch { return [] }
+  })
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { idbGet } = await import('../utils/idbStorage')
+        const stored = await idbGet<DiscoveryCall[]>('discovery', 'allCalls')
+        if (!cancelled && Array.isArray(stored) && stored.length > 0) {
+          setDiscoveryCalls(stored)
+        }
+      } catch (err) {
+        console.warn('[Calls] hidratación discoveryCalls de IDB falló:', err)
+      }
+    })()
+    return () => { cancelled = true }
   }, [])
 
   // Set robusto de identificadores ya importados desde Discovery.
@@ -1176,32 +1193,37 @@ const ImportFromDiscovery = ({
         } as Call
       })
 
-    // Sincroniza discoveryCalls: marca las que acabamos de importar como
+    // Sincroniza discoveryCalls (en IDB): marca las recién importadas como
     // 'imported' para que en /discovery aparezcan con badge y el botón
     // bloqueado (siguen visibles, pero ya no se pueden volver a importar).
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const allDiscovery: any[] = JSON.parse(localStorage.getItem('discoveryCalls') || '[]')
-      const importedExternalIds = new Set(
-        toImport.map(c => c.discoveryExternalId).filter(Boolean)
-      )
-      const newCallByExtId = new Map(
-        toImport.map(c => [c.discoveryExternalId!, c.id])
-      )
-      const updated = allDiscovery.map(c => {
-        if (!importedExternalIds.has(c.externalId)) return c
-        return {
-          ...c,
-          userStatus: 'imported',
-          importedToCallId: newCallByExtId.get(c.externalId),
-          importedAt: new Date().toISOString(),
+    ;(async () => {
+      try {
+        const { idbGet, idbSet } = await import('../utils/idbStorage')
+        const allDiscovery = (await idbGet<DiscoveryCall[]>('discovery', 'allCalls')) || discoveryCalls
+        const importedExternalIds = new Set(
+          toImport.map(c => c.discoveryExternalId).filter(Boolean)
+        )
+        const newCallByExtId = new Map(
+          toImport.map(c => [c.discoveryExternalId!, c.id])
+        )
+        const updated = (allDiscovery as DiscoveryCall[]).map(c => {
+          if (!importedExternalIds.has(c.externalId)) return c
+          return {
+            ...c,
+            userStatus: 'imported' as const,
+            importedToCallId: newCallByExtId.get(c.externalId),
+            importedAt: new Date().toISOString(),
+          }
+        })
+        await idbSet('discovery', 'allCalls', updated)
+        // Limpia residual de localStorage si existe (legacy)
+        if (localStorage.getItem('discoveryCalls')) {
+          try { localStorage.removeItem('discoveryCalls') } catch { /* noop */ }
         }
-      })
-      localStorage.setItem('discoveryCalls', JSON.stringify(updated))
-      localStorage.setItem('appDataUpdatedAt', new Date().toISOString())
-    } catch (err) {
-      console.warn('Failed to sync discoveryCalls userStatus:', err)
-    }
+      } catch (err) {
+        console.warn('Failed to sync discoveryCalls userStatus in IDB:', err)
+      }
+    })()
 
     onImport(toImport)
   }

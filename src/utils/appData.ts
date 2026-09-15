@@ -15,7 +15,7 @@ export const APP_DATA_KEYS = [
   'invoices',
   'companySettings',
   'users',
-  'discoveryCalls',
+  // discoveryCalls → IndexedDB store 'discovery' (no sync server)
   'discoverySources',
   'fundingProfiles',
   'roadmaps',
@@ -31,6 +31,17 @@ export const APP_DATA_KEYS = [
 ]
 
 export type AppDataSnapshot = Record<string, string>
+
+/** Cuenta entidades en un valor JSON de snapshot (array → length, object → keys). */
+export const countSnapshotEntities = (raw: string | undefined): number => {
+  if (!raw) return 0
+  try {
+    const p = JSON.parse(raw)
+    if (Array.isArray(p)) return p.length
+    if (p && typeof p === 'object') return Object.keys(p).length
+  } catch { /* ignore */ }
+  return 0
+}
 
 export const getLocalSnapshot = (): AppDataSnapshot => {
   const snapshot: AppDataSnapshot = {}
@@ -134,6 +145,7 @@ function mergeEntityRecords(localRaw: string | undefined, serverRaw: string | un
 /** Claves cuyos valores son Records indexados por customerId (objetos, no arrays). */
 const MERGE_RECORD_KEYS = new Set([
   'fundingProfiles',
+  'proposalIdeas',
 ])
 
 /** Claves cuyos valores son arrays de entidades con { id, updatedAt }. */

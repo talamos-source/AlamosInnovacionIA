@@ -6,6 +6,7 @@ import {
   APP_DATA_SYNC_APPLIED_EVENT,
   getLocalSnapshot,
   mergeSnapshot,
+  countSnapshotEntities,
 } from '../utils/appData'
 
 type AppDataResponse = {
@@ -102,8 +103,10 @@ const AppDataSync = () => {
         const localChangedDuringFetch =
           localUpdatedAtRaw !== localUpdatedAtBeforeFetch
 
-        const serverCustomersN = serverData ? (() => { try { return JSON.parse(serverData.customers || '[]').length } catch { return '?' } })() : 'n/a'
-        const localCustomersN = (() => { try { return JSON.parse(localSnapshot.customers || '[]').length } catch { return '?' } })()
+        const serverCustomersN = serverData
+          ? countSnapshotEntities(serverData.customers)
+          : 0
+        const localCustomersN = countSnapshotEntities(localSnapshot.customers)
         console.log('[Sync] initialize:', {
           hasLocal,
           localUpdatedAt: localUpdatedAtRaw,
@@ -133,13 +136,41 @@ const AppDataSync = () => {
           return
         }
 
-        // En empate o si local tiene datos pero sin timestamp, preferir
-        // LOCAL (más seguro). Solo aplicar server si:
-        //   - No hay datos locales en absoluto, O
-        //   - Server es ESTRICTAMENTE más nuevo que local
-        const shouldApplyServer = !hasLocal || (localUpdatedAtRaw && localUpdatedAt < serverUpdatedAt)
+        // Otro dispositivo / navegador nuevo: local vacío pero server tiene CRM
+        const bootstrapFromServer =
+          serverCustomersN > 0 &&
+          localCustomersN === 0 &&
+          !localChangedDuringFetch
+
+        // Sin appDataUpdatedAt nunca hubo sync fiable en ESTE browser
+        const neverSyncedHere = !localUpdatedAtRaw && serverCustomersN > 0 && !localChangedDuringFetch
+
+        const serverIsNewer =
+          !!localUpdatedAtRaw &&
+          serverUpdatedAt > 0 &&
+          localUpdatedAt < serverUpdatedAt &&
+          !localChangedDuringFetch
+
+        const shouldApplyServer =
+          bootstrapFromServer ||
+          neverSyncedHere ||
+          serverIsNewer ||
+          (!hasLocal && !!serverData)
+
         if (shouldApplyServer) {
-          console.warn('[Sync] mergeSnapshot del server (preserva entidades locales nuevas)', { localUpdatedAt, serverUpdatedAt, localCustomersN, serverCustomersN })
+          const reason = bootstrapFromServer
+            ? 'bootstrap (local sin clientes, server sí)'
+            : neverSyncedHere
+              ? 'primer sync en este navegador'
+              : serverIsNewer
+                ? 'server más reciente'
+                : 'sin datos locales'
+          console.warn('[Sync] mergeSnapshot del server:', reason, {
+            localUpdatedAt,
+            serverUpdatedAt,
+            localCustomersN,
+            serverCustomersN,
+          })
           mergeSnapshot(serverData)
           if (payload.updatedAt) {
             localStorage.setItem(APP_DATA_UPDATED_AT_KEY, payload.updatedAt)
@@ -176,6 +207,27 @@ const AppDataSync = () => {
     }
     window.addEventListener(APP_DATA_CHANGED_EVENT, onAppDataChanged)
 
+    // Push al cerrar pestaña / cambiar de app (móvil) para no perder datos en el server
+    const flushToServer = () => {
+      const snapshot = getLocalSnapshot()
+      const snapshotString = JSON.stringify(snapshot)
+      if (snapshotString === snapshotRef.current) return
+      fetch(`${API_BASE}/app-data`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ data: snapshot }),
+        keepalive: true,
+      }).catch(() => { /* best effort */ })
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flushToServer()
+    }
+    window.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pagehide', flushToServer)
+
     const interval = window.setInterval(async () => {
       const snapshot = getLocalSnapshot()
       const snapshotString = JSON.stringify(snapshot)
@@ -190,6 +242,8 @@ const AppDataSync = () => {
     return () => {
       window.clearInterval(interval)
       window.removeEventListener(APP_DATA_CHANGED_EVENT, onAppDataChanged)
+      window.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pagehide', flushToServer)
       if (pushDebounceTimer) clearTimeout(pushDebounceTimer)
     }
   }, [isAuthenticated])

@@ -2,9 +2,12 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Check, X, ExternalLink, Calendar, ChevronDown, ChevronUp } from 'lucide-react'
 import type { DiscoveryCall } from './Discovery'
+import { idbGet, idbSet } from '../utils/idbStorage'
 import './Page.css'
 import './Discovery.css'
 import './DiscoveryImport.css'
+
+const IDB_KEY_CALLS = 'allCalls'
 
 /* ============================================================
    Tipos auxiliares
@@ -48,19 +51,40 @@ interface ExistingCall {
    Helpers
    ============================================================ */
 
-const loadDiscoveryCall = (id: string): DiscoveryCall | null => {
+/**
+ * Carga TODAS las discoveryCalls de IndexedDB (fuente de verdad).
+ * Fallback a localStorage por compat con datos legacy aún sin migrar.
+ */
+const loadAllDiscoveryCalls = async (): Promise<DiscoveryCall[]> => {
+  try {
+    const fromIdb = await idbGet<DiscoveryCall[]>('discovery', IDB_KEY_CALLS)
+    if (Array.isArray(fromIdb) && fromIdb.length > 0) return fromIdb
+  } catch {
+    /* IDB error → fallback */
+  }
   try {
     const raw = localStorage.getItem('discoveryCalls')
-    const all: DiscoveryCall[] = raw ? JSON.parse(raw) : []
-    return all.find(c => c.id === id) || null
+    return raw ? (JSON.parse(raw) as DiscoveryCall[]) : []
   } catch {
-    return null
+    return []
   }
 }
 
-const saveDiscoveryCalls = (calls: DiscoveryCall[]) => {
-  localStorage.setItem('discoveryCalls', JSON.stringify(calls))
-  localStorage.setItem('appDataUpdatedAt', new Date().toISOString())
+const loadDiscoveryCall = async (id: string): Promise<DiscoveryCall | null> => {
+  const all = await loadAllDiscoveryCalls()
+  return all.find(c => c.id === id) || null
+}
+
+const saveDiscoveryCalls = async (calls: DiscoveryCall[]): Promise<void> => {
+  try {
+    await idbSet('discovery', IDB_KEY_CALLS, calls)
+    // Limpia residual de localStorage si quedaba
+    if (localStorage.getItem('discoveryCalls')) {
+      try { localStorage.removeItem('discoveryCalls') } catch { /* noop */ }
+    }
+  } catch (err) {
+    console.error('[DiscoveryImport] saveDiscoveryCalls failed:', err)
+  }
 }
 
 const loadCalls = (): ExistingCall[] => {
@@ -126,42 +150,47 @@ const DiscoveryImport = () => {
 
   useEffect(() => {
     if (!id) return
-    const c = loadDiscoveryCall(id)
-    if (!c) {
-      setError('Discovery call not found')
-      return
-    }
-    setCall(c)
-    setForm({
-      name: c.title,
-      fundingBody: c.fundingBody,
-      program: c.program,
-      openDate: toInputDate(c.openDate),
-      closeDate: toInputDate(c.closeDate),
-      status: externalStatusToFormStatus(c.externalStatus),
-      budget: c.budget || '',
-      aidType: c.aidType || 'Grant',
-      geographicScope: c.geographicScope || (c.source === 'EU_PORTAL' ? 'European' : 'National'),
-      sourceUrl: c.url,
-      description: c.description || '',
-      publishToWeb: false,
-      featuredOnHomepage: false,
-    })
+    let cancelled = false
+    ;(async () => {
+      const c = await loadDiscoveryCall(id)
+      if (cancelled) return
+      if (!c) {
+        setError('Discovery call not found')
+        return
+      }
+      setCall(c)
+      setForm({
+        name: c.title,
+        fundingBody: c.fundingBody,
+        program: c.program,
+        openDate: toInputDate(c.openDate),
+        closeDate: toInputDate(c.closeDate),
+        status: externalStatusToFormStatus(c.externalStatus),
+        budget: c.budget || '',
+        aidType: c.aidType || 'Grant',
+        geographicScope: c.geographicScope || (c.source === 'EU_PORTAL' ? 'European' : 'National'),
+        sourceUrl: c.url,
+        description: c.description || '',
+        publishToWeb: false,
+        featuredOnHomepage: false,
+      })
+    })()
+    return () => { cancelled = true }
   }, [id])
 
   const updateField = <K extends keyof CallFormData>(key: K, value: CallFormData[K]) => {
     setForm(prev => (prev ? { ...prev, [key]: value } : prev))
   }
 
-  const handleDismiss = () => {
+  const handleDismiss = async () => {
     if (!call) return
-    const all: DiscoveryCall[] = JSON.parse(localStorage.getItem('discoveryCalls') || '[]')
+    const all = await loadAllDiscoveryCalls()
     const updated = all.map(c => c.id === call.id ? { ...c, userStatus: 'dismissed' as const } : c)
-    saveDiscoveryCalls(updated)
+    await saveDiscoveryCalls(updated)
     navigate('/discovery')
   }
 
-  const handleImport = () => {
+  const handleImport = async () => {
     if (!call || !form) return
     if (!form.name.trim()) {
       setError('Call Name is required')
@@ -198,14 +227,14 @@ const DiscoveryImport = () => {
     }
     saveCalls([...existing, newCall])
 
-    // 2) Mark discovery call as imported
-    const allDisc: DiscoveryCall[] = JSON.parse(localStorage.getItem('discoveryCalls') || '[]')
+    // 2) Mark discovery call as imported (lectura/escritura en IDB)
+    const allDisc = await loadAllDiscoveryCalls()
     const updated = allDisc.map(c =>
       c.id === call.id
         ? { ...c, userStatus: 'imported' as const, importedToCallId: newCall.id, importedAt: new Date().toISOString() }
         : c
     )
-    saveDiscoveryCalls(updated)
+    await saveDiscoveryCalls(updated)
 
     navigate('/calls')
   }

@@ -147,16 +147,41 @@ const Dashboard = () => {
      ============================================================
      Cruza:
        · cdtiRoadmaps (localStorage) → recomendaciones por customer
-       · discoveryCalls (localStorage) → fecha closeDate por externalId
+       · discoveryCalls (IndexedDB) → fecha closeDate por externalId
      Devuelve recs con closeDate dentro de los próximos 90 días, ordenadas
      por urgencia (más cercano primero).
      ============================================================ */
+  // discoveryCalls vive en IDB. Lo cargamos async y guardamos en state.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [discoveryCallsCache, setDiscoveryCallsCache] = useState<any[]>([])
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { idbGet } = await import('../utils/idbStorage')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const stored = await idbGet<any[]>('discovery', 'allCalls')
+        if (cancelled) return
+        if (Array.isArray(stored) && stored.length > 0) {
+          setDiscoveryCallsCache(stored)
+          return
+        }
+      } catch { /* fallback */ }
+      // Fallback localStorage (legacy)
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const raw: any[] = JSON.parse(localStorage.getItem('discoveryCalls') || '[]')
+        if (!cancelled) setDiscoveryCallsCache(raw)
+      } catch { /* noop */ }
+    })()
+    return () => { cancelled = true }
+  }, [tick])
+
   const roadmapDeadlines = useMemo(() => {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const roadmaps = JSON.parse(localStorage.getItem('cdtiRoadmaps') || '[]') as any[]
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const calls = JSON.parse(localStorage.getItem('discoveryCalls') || '[]') as any[]
+      const calls = discoveryCallsCache
       const customers = data.customers
       const callsById = new Map(calls.map(c => [c.externalId, c]))
       const customersById = new Map(customers.map(c => [c.id, c]))
@@ -221,7 +246,7 @@ const Dashboard = () => {
       console.warn('Failed to compute upcoming deadlines:', err)
       return []
     }
-  }, [data.customers, tick])
+  }, [data.customers, tick, discoveryCallsCache])
 
 
   /* ----------------------------------------------------------
