@@ -23,6 +23,7 @@ import RoadmapTimeline, { type RoadmapTimelineHandle } from './RoadmapTimeline'
 import RoadmapDiff from './RoadmapDiff'
 import { generateRoadmapPpt, type PptCallDetail } from '../utils/roadmapPpt'
 import { generateRoadmapPdf, type PdfCallDetail } from '../utils/roadmapPdf'
+import { isOutOfProfileForRoadmap } from '../utils/discoveryTriage'
 
 /* ============================================================
    Tipos
@@ -623,6 +624,9 @@ const RoadmapPage = () => {
   const idiCalls = useMemo(() => {
     const todayMs = Date.now() - 86400000
     return discoveryAll.filter(c => {
+      // Concesiones directas / nominativas y las excluidas por la IA de
+      // Discovery no sirven para el roadmap (no se pueden solicitar).
+      if (isOutOfProfileForRoadmap(c)) return false
       const score = c.rdiScore ?? (c.source === 'EU_PORTAL' ? 100 : 0)
       if (score < 50) return false
       if (c.closeDate) {

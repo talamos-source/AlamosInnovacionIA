@@ -2479,6 +2479,108 @@ ${text.slice(0, 12000)}`,
 })
 
 /* ============================================================
+   POST /ai/qualify-discovery-calls
+   Cualifica un lote de convocatorias de Discovery (BDNS) para el
+   perfil de Álamos Innovación: banda high/medium/low/excluded +
+   motivo corto + flag de concesión directa.
+   Lote máx. 25 → Haiku responde en ~10-15s (lejos del timeout).
+   ============================================================ */
+
+const QUALIFY_DISCOVERY_PROMPT = `Eres analista senior de financiación pública en Álamos Innovación, consultora de I+D+i en España que prepara y gestiona solicitudes COMPETITIVAS para empresas (pymes, startups, empresas de base tecnológica, industria) y, en consorcio, para universidades y centros de investigación.
+
+Para cada convocatoria asigna una banda de relevancia para la consultora:
+- "high": convocatoria competitiva que financia proyectos de I+D, innovación tecnológica, transferencia de tecnología, startups o empresas de base tecnológica, digitalización avanzada (IA, datos, ciberseguridad, industria 4.0) o talento investigador vinculado a empresa (Torres Quevedo, doctorados industriales). Encaje directo: la consultora podría preparar la solicitud para un cliente.
+- "medium": encaje parcial o indirecto: beneficiarios solo universidades u organismos públicos de investigación, clústeres o agrupaciones empresariales innovadoras, innovación no tecnológica, internacionalización, eficiencia energética o economía circular con componente tecnológico, formación especializada en I+D.
+- "low": relación débil con I+D+i (inversión productiva genérica, empleo, comercio, turismo, modernización sin innovación).
+- "excluded": fuera de perfil (cultura, deporte, servicios sociales, educación no investigadora, ayuntamientos o entidades locales como únicos beneficiarios, agricultura o ganadería ordinaria, eventos, becas de estudio) o SIN concurrencia.
+
+"directAward": true si es concesión directa, nominativa o con beneficiario predeterminado (no se puede solicitar en concurrencia). En ese caso band = "excluded".
+
+"reason": 1-2 frases en español (máximo 35 palabras) que expliquen qué financia y por qué tiene ese encaje. No repitas el título.
+
+Responde SOLO con JSON válido, sin markdown:
+{"results":[{"id":"...","band":"high|medium|low|excluded","directAward":false,"reason":"..."}]}`
+
+app.post('/ai/qualify-discovery-calls', requireAuth, async (req, res) => {
+  if (!anthropic) {
+    return res.status(503).json({ error: 'AI not configured.' })
+  }
+  const { calls } = (req.body || {}) as {
+    calls?: Array<{
+      id?: string
+      title?: string
+      organism?: string
+      ambito?: string
+      typeOfAction?: string
+      budget?: string
+      closeDate?: string
+    }>
+  }
+  if (!Array.isArray(calls) || calls.length === 0) {
+    return res.status(400).json({ error: 'calls[] is required.' })
+  }
+  const batch = calls
+    .filter(c => c && typeof c.id === 'string' && c.id)
+    .slice(0, 25)
+  const validIds = new Set(batch.map(c => String(c.id)))
+
+  const lines = batch.map(c => [
+    `id: ${c.id}`,
+    `título: ${String(c.title || '').slice(0, 320)}`,
+    c.organism ? `organismo: ${String(c.organism).slice(0, 200)}` : '',
+    c.ambito ? `ámbito: ${c.ambito}` : '',
+    c.typeOfAction ? `tipo: ${String(c.typeOfAction).slice(0, 160)}` : '',
+    c.budget ? `presupuesto: ${c.budget}` : '',
+    c.closeDate ? `plazo: ${String(c.closeDate).slice(0, 10)}` : '',
+  ].filter(Boolean).join(' | ')).join('\n')
+
+  try {
+    const message = await anthropic.messages.create({
+      model: CLAUDE_MODEL_FAST,
+      max_tokens: Math.min(4000, 200 + batch.length * 110),
+      system: QUALIFY_DISCOVERY_PROMPT,
+      messages: [{ role: 'user', content: `Convocatorias a cualificar (${batch.length}):\n\n${lines}` }],
+    })
+    const firstBlock = message.content[0]
+    const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : ''
+
+    let parsed: { results?: unknown } | null = null
+    for (const candidate of [extractJsonObject(text), extractJsonObject(text).replace(/,\s*([}\]])/g, '$1')]) {
+      try { parsed = JSON.parse(candidate); break } catch { /* try next */ }
+    }
+    if (!parsed || !Array.isArray(parsed.results)) {
+      console.warn('qualify-discovery-calls: invalid JSON', text.slice(0, 300))
+      return res.status(502).json({ error: 'AI returned invalid JSON' })
+    }
+
+    const BANDS = new Set(['high', 'medium', 'low', 'excluded'])
+    const results = (parsed.results as Array<Record<string, unknown>>)
+      .map(r => {
+        const id = String(r?.id || '')
+        const directAward = r?.directAward === true
+        let band = String(r?.band || '').toLowerCase()
+        if (directAward) band = 'excluded'
+        const reason = String(r?.reason || '').replace(/\s+/g, ' ').trim().slice(0, 300)
+        return { id, band, directAward, reason }
+      })
+      .filter(r => validIds.has(r.id) && BANDS.has(r.band))
+
+    return res.json({
+      results,
+      model: CLAUDE_MODEL_FAST,
+      qualifiedAt: new Date().toISOString(),
+      tokensUsed: {
+        input: message.usage?.input_tokens ?? 0,
+        output: message.usage?.output_tokens ?? 0,
+      },
+    })
+  } catch (err: unknown) {
+    console.error('qualify-discovery-calls error:', err)
+    return res.status(500).json({ error: err instanceof Error ? err.message : 'qualify failed' })
+  }
+})
+
+/* ============================================================
    DISCOVERY — Sync de calls desde EU Funding Portal y BDNS
    ============================================================ */
 

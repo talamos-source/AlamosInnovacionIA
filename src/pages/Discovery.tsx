@@ -1,19 +1,34 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Search,
-  Globe,
-  RefreshCw,
-  ExternalLink,
-  X,
-  Clock,
-  Sparkles,
-  AlertTriangle,
-  Loader2,
+  ArrowUpRight,
   Check,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  Eye,
+  Loader2,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Sparkles,
+  X,
 } from 'lucide-react'
 import { isQuotaExceededError, tryFreeStorage } from '../utils/appData'
 import { idbGet, idbSet } from '../utils/idbStorage'
+import { getAiApiBase, getApiBase } from '../utils/aiApiBase'
+import {
+  AMBITO_LABEL,
+  BAND_ORDER,
+  ambitoOf,
+  classifyCall,
+  detectDirectAward,
+  organismLine,
+  ruleBand,
+  type AiBand,
+  type TriageBand,
+  type TriageResult,
+} from '../utils/discoveryTriage'
 import './Page.css'
 import './Discovery.css'
 
@@ -47,6 +62,20 @@ export interface DiscoveryCall {
   discoveredAt: string
   importedToCallId?: string
   importedAt?: string
+  /** Relevancia I+D+i 0-100 calculada por el backend (organismos + keywords). */
+  rdiScore?: number
+  rdiReasons?: string[]
+  /** Seguimiento manual (pestaña Watching). */
+  watching?: boolean
+  /** Cualificación IA (solo BDNS). */
+  aiBand?: AiBand
+  aiReason?: string
+  aiDirectAward?: boolean
+  aiQualifiedAt?: string
+  aiAttemptedAt?: string
+  /** Cambios detectados en el último sync que la modificó (pestaña Changed). */
+  changedAt?: string
+  changes?: string[]
 }
 
 export interface DiscoverySourceMeta {
@@ -56,12 +85,16 @@ export interface DiscoverySourceMeta {
   lastError?: string
   newCount?: number
   updatedCount?: number
+  changedCount?: number
 }
 
 interface DiscoverySourcesState {
   EU_PORTAL: DiscoverySourceMeta
   BDNS: DiscoverySourceMeta
 }
+
+type IncomingCall = Omit<DiscoveryCall, 'id' | 'userStatus' | 'discoveredAt'>
+type TabKey = 'tray' | 'watching' | 'changed' | 'all'
 
 /* ============================================================
    Constantes
@@ -72,9 +105,11 @@ const DEFAULT_SOURCES: DiscoverySourcesState = {
   BDNS: { lastSyncStatus: 'idle', recordCount: 0 },
 }
 
+const ALL_SOURCES: DiscoverySource[] = ['EU_PORTAL', 'BDNS']
+
 /**
  * Mapping defensivo de códigos SEDIA → nombres legibles.
- * Si el backend (antes del último deploy) guardó "Programme 111111" en localStorage,
+ * Si el backend (antes del último deploy) guardó "Programme 111111",
  * lo limpiamos al cargar la página.
  */
 const SEDIA_PROGRAMME_CODE_MAP: Record<string, string> = {
@@ -138,13 +173,9 @@ const SEDIA_PROGRAMME_CODE_MAP: Record<string, string> = {
   '46324255': 'Technical Assistance for ERDF, CF & JTF',
 }
 
-/**
- * Limpia "Programme 12345" → nombre legible (si conocemos el código).
- * Conserva resto de strings incluyendo extensiones como "- CL5", "· RIA".
- */
+/** "Programme 12345" → nombre legible (si conocemos el código). */
 function normalizeProgramName(program: string): string {
   if (!program) return program
-  // Caso típico: "Programme 111111" o "Programme 111111 — Health · RIA"
   const m = program.match(/^Programme (\d+)(.*)$/)
   if (m && SEDIA_PROGRAMME_CODE_MAP[m[1]]) {
     return SEDIA_PROGRAMME_CODE_MAP[m[1]] + (m[2] || '')
@@ -156,28 +187,65 @@ const SOURCE_LABELS: Record<DiscoverySource, string> = {
   EU_PORTAL: 'EU Funding & Tenders Portal',
   BDNS: 'BDNS – Spanish National Grants',
 }
+const SOURCE_SHORT: Record<DiscoverySource, string> = {
+  EU_PORTAL: 'EU',
+  BDNS: 'BDNS',
+}
 
-const ITEMS_PER_PAGE = 25
+const TABS: TabKey[] = ['tray', 'watching', 'changed', 'all']
+const TAB_LABEL: Record<TabKey, string> = {
+  tray: 'Daily Tray',
+  watching: 'Watching',
+  changed: 'Changed',
+  all: 'All',
+}
 
-/* ============================================================
-   Storage helpers
-   ============================================================ */
+const LANE_META: Record<TriageBand, { title: string; desc: string }> = {
+  high: {
+    title: 'High — Pre-qualified',
+    desc: 'Core R&D+i programmes and AI-confirmed strong fits. Review and decide.',
+  },
+  medium: {
+    title: 'Medium — Partial fit',
+    desc: 'Adjacent programmes or indirect fit. Worth a quick look.',
+  },
+  unscored: {
+    title: 'Unscored — Needs your judgement',
+    desc: 'National and regional calls that passed the noise filter but are not qualified yet.',
+  },
+  low: {
+    title: 'Low — Low relevance',
+    desc: 'Weak link with R&D+i or with our client profile.',
+  },
+  excluded: {
+    title: 'Excluded — Out of profile',
+    desc: 'Outside our focus or without a competitive procedure (auditable archive).',
+  },
+}
+
+const DEFAULT_OPEN_LANES: Record<TriageBand, boolean> = {
+  high: true, medium: true, unscored: true, low: false, excluded: false,
+}
+
+const LAST_REVIEW_KEY = 'discoveryLastReviewAt'
+const HIDE_DIRECT_KEY = 'discoveryHideDirect'
+const CHANGED_WINDOW_DAYS = 14
+const LANE_PAGE = 50
+const AI_BATCH = 20
+const AI_AUTO_CAP = 60
+const AI_RETRY_AFTER_MS = 7 * 86400000
 
 /* ============================================================
    IndexedDB storage para discoveryCalls
    ============================================================
-   ANTES: localStorage (límite 5-10 MB → quota exceeded con >500 calls)
-   AHORA: IndexedDB (varios GB sin problema)
-   El sync ya no se sincroniza con el server backend — es CACHE LOCAL.
-   Cada usuario re-sincroniza Discovery cuando quiera.
+   discoveryCalls vive en IndexedDB (sin el tope de ~5 MB de
+   localStorage). Es CACHE LOCAL: no se sincroniza con el server.
    ============================================================ */
 
 const IDB_KEY_CALLS = 'allCalls'
 
 const loadCallsSync = (): DiscoveryCall[] => {
-  // Lectura sincrónica para el initial state — siempre desde localStorage
-  // (puede tener legacy data antes de migrar). Si no hay nada en localStorage,
-  // el componente cargará de IDB en useEffect.
+  // Lectura sincrónica para el initial state (legacy localStorage).
   try {
     const raw = localStorage.getItem('discoveryCalls')
     return raw ? (JSON.parse(raw) as DiscoveryCall[]) : []
@@ -196,19 +264,13 @@ const loadCallsFromIdb = async (): Promise<DiscoveryCall[]> => {
   }
 }
 
-/**
- * Migración one-time: si hay datos en localStorage.discoveryCalls y aún
- * no hay nada en IDB, los movemos. Después limpia localStorage para
- * liberar espacio (que es lo que estaba reventando todo).
- */
+/** Migración one-time localStorage → IDB. */
 const migrateCallsToIdb = async (): Promise<DiscoveryCall[] | null> => {
   try {
     const idbCalls = await idbGet<DiscoveryCall[]>('discovery', IDB_KEY_CALLS)
     if (Array.isArray(idbCalls) && idbCalls.length > 0) {
-      // Ya migrado — limpiamos localStorage por si quedó residual
       if (localStorage.getItem('discoveryCalls')) {
         localStorage.removeItem('discoveryCalls')
-        console.log('[Discovery] localStorage.discoveryCalls eliminado (ya está en IDB)')
       }
       return null
     }
@@ -224,31 +286,13 @@ const migrateCallsToIdb = async (): Promise<DiscoveryCall[] | null> => {
   }
 }
 
-/**
- * Guarda discoveryCalls en IndexedDB (sin límite práctico).
- * IDB aguanta cientos de MB / varios GB por origen, así que las 700-3000
- * calls que puede traer un sync caben de sobra. La función mantiene el
- * mismo contrato (devuelve la lista persistida) por compat con persistCalls.
- *
- * Side-effects:
- *  - Limpia localStorage.discoveryCalls si quedaba residual de la versión
- *    vieja (legacy migrate).
- *
- * Importante: NO escribimos appDataUpdatedAt aquí — discoveryCalls ya no
- * forma parte del snapshot que sincroniza con el server (es cache local).
- */
+/** Guarda en IDB (fire-and-forget; las transacciones readwrite se serializan en orden). */
 const saveCalls = (calls: DiscoveryCall[]): DiscoveryCall[] => {
-  // Fire-and-forget: idbSet es async pero el flujo de Discovery no necesita
-  // esperar al disco. Si falla loggeamos pero no bloqueamos al usuario.
   idbSet('discovery', IDB_KEY_CALLS, calls).then(() => {
-    // limpia residual de localStorage si aún existe
     if (localStorage.getItem('discoveryCalls')) {
       try { localStorage.removeItem('discoveryCalls') } catch { /* noop */ }
     }
   }).catch(err => {
-    // Si IDB se queda sin cuota (improbable, varios GB), intentamos
-    // tryFreeStorage por si arrastraba algo de localStorage. No hay
-    // mucho más que podamos hacer.
     console.error('[Discovery] idbSet failed:', err)
     if (isQuotaExceededError(err)) {
       try { tryFreeStorage() } catch { /* noop */ }
@@ -267,133 +311,310 @@ const loadSources = (): DiscoverySourcesState => {
 }
 
 const saveSources = (sources: DiscoverySourcesState) => {
-  localStorage.setItem('discoverySources', JSON.stringify(sources))
-  localStorage.setItem('appDataUpdatedAt', new Date().toISOString())
-}
-
-const daysUntil = (dateStr?: string): number | null => {
-  if (!dateStr) return null
-  const target = new Date(dateStr)
-  if (Number.isNaN(target.getTime())) return null
-  const now = new Date()
-  return Math.floor((target.getTime() - now.getTime()) / 86400000)
-}
-
-const formatDate = (dateStr?: string): string => {
-  if (!dateStr) return '—'
   try {
-    return new Date(dateStr).toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    })
-  } catch {
-    return dateStr
+    localStorage.setItem('discoverySources', JSON.stringify(sources))
+  } catch { /* noop */ }
+}
+
+/* ============================================================
+   Helpers
+   ============================================================ */
+
+const normText = (s?: string): string =>
+  (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+
+const parseDate = (s?: string | null): number => (s ? new Date(s).getTime() : NaN)
+
+const dayKey = (s?: string): string => (s ? String(s).slice(0, 10) : '')
+
+const isPastDeadline = (c: DiscoveryCall): boolean => {
+  const t = parseDate(c.closeDate)
+  return !Number.isNaN(t) && t < Date.now() - 86400000
+}
+
+const isWatching = (c: DiscoveryCall): boolean => !!c.watching || c.userStatus === 'reviewing'
+
+const formatShortDate = (s?: string): string => {
+  if (!s) return '—'
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) return s
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+const formatDateTime = (s?: string | null): string => {
+  if (!s) return '—'
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
+const daysLeft = (s?: string): number | null => {
+  const t = parseDate(s)
+  if (Number.isNaN(t)) return null
+  return Math.ceil((t - Date.now()) / 86400000)
+}
+
+/** Deadline más cercana primero; sin fecha al final; desempate por descubrimiento reciente. */
+const sortByDeadline = (a: DiscoveryCall, b: DiscoveryCall): number => {
+  const ta = parseDate(a.closeDate)
+  const tb = parseDate(b.closeDate)
+  const av = !Number.isNaN(ta)
+  const bv = !Number.isNaN(tb)
+  if (av && bv && ta !== tb) return ta - tb
+  if (av !== bv) return av ? -1 : 1
+  return (parseDate(b.discoveredAt) || 0) - (parseDate(a.discoveredAt) || 0)
+}
+
+/** Cambios relevantes entre la versión guardada y la que llega del sync. */
+function diffCall(prev: DiscoveryCall, next: IncomingCall): string[] {
+  const out: string[] = []
+  if (dayKey(prev.closeDate) !== dayKey(next.closeDate) && (prev.closeDate || next.closeDate)) {
+    out.push(`Deadline ${formatShortDate(prev.closeDate)} → ${formatShortDate(next.closeDate)}`)
   }
+  if (dayKey(prev.openDate) !== dayKey(next.openDate) && (prev.openDate || next.openDate)) {
+    out.push(`Opening ${formatShortDate(prev.openDate)} → ${formatShortDate(next.openDate)}`)
+  }
+  if ((prev.budget || '') !== (next.budget || '')) {
+    out.push(`Budget ${prev.budget || '—'} → ${next.budget || '—'}`)
+  }
+  if (
+    next.externalStatus && prev.externalStatus !== next.externalStatus &&
+    prev.externalStatus !== 'unknown' && next.externalStatus !== 'unknown'
+  ) {
+    out.push(`Status ${prev.externalStatus} → ${next.externalStatus}`)
+  }
+  return out
 }
 
-const isToday = (dateStr?: string): boolean => {
-  if (!dateStr) return false
-  const d = new Date(dateStr)
-  const t = new Date()
-  return (
-    d.getFullYear() === t.getFullYear() &&
-    d.getMonth() === t.getMonth() &&
-    d.getDate() === t.getDate()
-  )
+/**
+ * Fusiona el resultado de un sync con lo guardado.
+ *  - Conserva decisiones del usuario (dismiss/import/watch) y la cualificación IA.
+ *  - Detecta cambios reales (deadline, apertura, presupuesto, estado).
+ *  - Stragglers: EU es exhaustivo (se eliminan los que no vuelven); BDNS es
+ *    una ventana deslizante (solo escanea lo reciente) → se conservan mientras
+ *    sigan abiertas.
+ */
+function mergeSync(current: DiscoveryCall[], incomingList: IncomingCall[], s: DiscoverySource) {
+  const existingByKey = new Map<string, DiscoveryCall>()
+  current.forEach(c => existingByKey.set(`${c.source}::${c.externalId}`, c))
+  const now = new Date().toISOString()
+  const merged: DiscoveryCall[] = []
+  const seen = new Set<string>()
+  const newIds: string[] = []
+  let newCount = 0
+  let matchedCount = 0
+  let changedCount = 0
+
+  for (const raw of incomingList) {
+    const key = `${raw.source}::${raw.externalId}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    const incoming: IncomingCall = { ...raw, program: normalizeProgramName(raw.program) }
+    const existing = existingByKey.get(key)
+    if (existing) {
+      const changes = diffCall(existing, incoming)
+      if (changes.length > 0) changedCount += 1
+      merged.push({
+        ...incoming,
+        id: existing.id,
+        userStatus: existing.userStatus,
+        discoveredAt: existing.discoveredAt,
+        importedToCallId: existing.importedToCallId,
+        importedAt: existing.importedAt,
+        watching: existing.watching,
+        aiBand: existing.aiBand,
+        aiReason: existing.aiReason,
+        aiDirectAward: existing.aiDirectAward,
+        aiQualifiedAt: existing.aiQualifiedAt,
+        aiAttemptedAt: existing.aiAttemptedAt,
+        changedAt: changes.length > 0 ? now : existing.changedAt,
+        changes: changes.length > 0 ? changes : existing.changes,
+      })
+      matchedCount += 1
+      existingByKey.delete(key)
+    } else {
+      const id = `disc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      merged.push({ ...incoming, id, userStatus: 'new', discoveredAt: now })
+      newIds.push(id)
+      newCount += 1
+    }
+  }
+
+  const euExhaustive = s === 'EU_PORTAL' && incomingList.length >= 50
+  existingByKey.forEach(c => {
+    if (c.source !== s) { merged.push(c); return }
+    if (c.userStatus === 'dismissed' || c.userStatus === 'imported') { merged.push(c); return }
+    if (c.externalStatus === 'closed' || isPastDeadline(c)) return
+    if (euExhaustive && !isWatching(c)) return
+    merged.push(c)
+  })
+
+  return { merged, newIds, newCount, matchedCount, changedCount }
 }
 
-const isThisWeek = (dateStr?: string): boolean => {
-  if (!dateStr) return false
-  const d = new Date(dateStr)
-  const t = new Date()
-  const diffDays = Math.floor((t.getTime() - d.getTime()) / 86400000)
-  return diffDays >= 0 && diffDays <= 7
+/** ¿Hay que mandar esta call a la IA? Solo BDNS sin banda IA, activas y no directas. */
+const needsAiQualification = (c: DiscoveryCall): boolean => {
+  if (c.source !== 'BDNS' || c.aiBand) return false
+  if (c.userStatus === 'dismissed' || c.userStatus === 'imported') return false
+  if (isPastDeadline(c)) return false
+  if (detectDirectAward(c).isDirect) return false
+  if (c.aiAttemptedAt && Date.now() - parseDate(c.aiAttemptedAt) < AI_RETRY_AFTER_MS) return false
+  const rb = ruleBand(c).band
+  return rb === 'unscored' || rb === 'low'
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), ms)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /* ============================================================
    Componente principal
    ============================================================ */
 
-type ViewFilter = 'all' | 'today' | 'reviewing' | 'dismissed' | 'closing-soon' | 'this-week'
-
 const Discovery = () => {
   const navigate = useNavigate()
 
-  // Initial state: lectura sincrónica desde localStorage por si quedó
-  // legacy data antes de la migración. El useEffect siguiente carga
-  // de IDB (que es la fuente de verdad real) y migra si hace falta.
   const [calls, setCalls] = useState<DiscoveryCall[]>(loadCallsSync)
+  const callsRef = useRef<DiscoveryCall[]>(calls)
   const [sources, setSources] = useState<DiscoverySourcesState>(loadSources)
+  const sourcesRef = useRef<DiscoverySourcesState>(sources)
+  const [hydrated, setHydrated] = useState(false)
+  const bootDoneRef = useRef(false)
 
-  // Hidratación desde IndexedDB (fuente de verdad) + migración one-time
-  // desde localStorage si aún no se ha hecho.
+  const [tab, setTab] = useState<TabKey>('tray')
+  const [search, setSearch] = useState('')
+  const [hideDirect, setHideDirect] = useState<boolean>(() => localStorage.getItem(HIDE_DIRECT_KEY) !== '0')
+  const [includeDismissed, setIncludeDismissed] = useState(false)
+  const [lastReviewAt, setLastReviewAt] = useState<string | null>(() => localStorage.getItem(LAST_REVIEW_KEY))
+  const [openLanes, setOpenLanes] = useState<Record<TriageBand, boolean>>(DEFAULT_OPEN_LANES)
+  const [laneLimit, setLaneLimit] = useState<Record<TriageBand, number>>({
+    high: LANE_PAGE, medium: LANE_PAGE, unscored: LANE_PAGE, low: LANE_PAGE, excluded: LANE_PAGE,
+  })
+
+  const [syncingSource, setSyncingSource] = useState<DiscoverySource | null>(null)
+  const syncingRef = useRef(false)
+  const [banner, setBanner] = useState<{ text: string; undo?: () => void } | null>(null)
+
+  const [qualify, setQualify] = useState<{ running: boolean; done: number; total: number; error: string | null }>({
+    running: false, done: 0, total: 0, error: null,
+  })
+  const qualifyingRef = useRef(false)
+  const cancelQualifyRef = useRef(false)
+
+  /* ----------------------------------------------------------
+     Persistencia (siempre sobre la versión más reciente vía ref,
+     para que sync + IA + clicks no se pisen entre sí)
+     ---------------------------------------------------------- */
+
+  const commitCalls = (next: DiscoveryCall[] | ((prev: DiscoveryCall[]) => DiscoveryCall[])): DiscoveryCall[] => {
+    const value = typeof next === 'function' ? next(callsRef.current) : next
+    callsRef.current = value
+    setCalls(value)
+    saveCalls(value)
+    return value
+  }
+
+  const patchSource = (s: DiscoverySource, meta: DiscoverySourceMeta) => {
+    const value = { ...sourcesRef.current, [s]: meta } as DiscoverySourcesState
+    sourcesRef.current = value
+    setSources(value)
+    saveSources(value)
+  }
+
+  /* ----------------------------------------------------------
+     Hidratación desde IndexedDB (fuente de verdad)
+     ---------------------------------------------------------- */
+
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       const migrated = await migrateCallsToIdb()
+      const loaded = migrated && migrated.length > 0 ? migrated : await loadCallsFromIdb()
       if (cancelled) return
-      if (migrated && migrated.length > 0) {
-        setCalls(migrated)
-        return
+      if (loaded.length > 0) {
+        callsRef.current = loaded
+        setCalls(loaded)
       }
-      // Sin migración necesaria: cargar de IDB
-      const fromIdb = await loadCallsFromIdb()
-      if (cancelled) return
-      if (fromIdb.length > 0) setCalls(fromIdb)
+      setHydrated(true)
     })()
     return () => { cancelled = true }
   }, [])
 
   /* ----------------------------------------------------------
-     BACKFILL: marcar como 'imported' las DiscoveryCalls que ya
-     existen en localStorage['calls'] aunque no tengan userStatus.
+     Arranque (SOLO tras hidratar — antes se lanzaba el auto-sync con
+     la lista vacía y se perdían dismissed/imported)
      ---------------------------------------------------------- */
+
   useEffect(() => {
+    if (!hydrated || bootDoneRef.current) return
+    bootDoneRef.current = true
+
+    // 0) Estados 'syncing' colgados de una sesión interrumpida
+    for (const s of ALL_SOURCES) {
+      if (sourcesRef.current[s].lastSyncStatus === 'syncing') {
+        patchSource(s, { ...sourcesRef.current[s], lastSyncStatus: 'idle' })
+      }
+    }
+
+    // 1) Backfill: marcar como importadas las que ya están en /calls
+    backfillImported()
+
+    // 2) Limpieza: deadlines pasadas + nombres de programa legacy
+    const before = callsRef.current
+    let renamed = 0
+    const cleaned = before
+      .filter(c => c.userStatus === 'dismissed' || c.userStatus === 'imported' || !isPastDeadline(c))
+      .map(c => {
+        const p = normalizeProgramName(c.program)
+        if (p !== c.program) { renamed += 1; return { ...c, program: p } }
+        return c
+      })
+    if (cleaned.length !== before.length || renamed > 0) {
+      console.log(`[Discovery] Cleanup: purged ${before.length - cleaned.length} past-deadline, renamed ${renamed}`)
+      commitCalls(cleaned)
+    }
+
+    // 3) Auto-sync en background de las fuentes con más de 30 min
+    const RECENT_MS = 30 * 60 * 1000
+    const stale = ALL_SOURCES.filter(s => {
+      const t = parseDate(sourcesRef.current[s].lastSync)
+      return Number.isNaN(t) || Date.now() - t > RECENT_MS
+    })
+    if (stale.length > 0) void triggerSync(stale)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated])
+
+  const backfillImported = () => {
     try {
       const userCallsRaw = localStorage.getItem('calls')
       if (!userCallsRaw) return
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userCalls: any[] = JSON.parse(userCallsRaw)
       if (!Array.isArray(userCalls) || userCalls.length === 0) return
-
-      // Indices rápidos para matching robusto contra TODAS las variantes
-      // de cómo se ha podido guardar la call importada históricamente:
-      //   · discoveryExternalId (canónico, fix nuevo)
-      //   · externalId (campo legacy de DiscoveryImport.tsx)
-      //   · id con prefix 'disc-<extId>[-timestamp]' (formato antiguo)
-      //   · sourceUrl (canónico) o url (legacy)
       const byExtId = new Map<string, string>()
       const byUrl = new Map<string, string>()
       for (const uc of userCalls) {
         if (uc?.discoveryExternalId) byExtId.set(String(uc.discoveryExternalId), uc.id)
         if (uc?.externalId) byExtId.set(String(uc.externalId), uc.id)
         if (typeof uc?.id === 'string' && uc.id.startsWith('disc-')) {
-          const rest = uc.id.slice(5)
-          const parts = rest.split('-')
-          if (parts.length > 1 && /^\d{10,}$/.test(parts[parts.length - 1])) {
-            parts.pop()
-            byExtId.set(parts.join('-'), uc.id)
-          } else {
-            byExtId.set(rest, uc.id)
-          }
+          const parts = uc.id.slice(5).split('-')
+          if (parts.length > 1 && /^\d{10,}$/.test(parts[parts.length - 1])) parts.pop()
+          byExtId.set(parts.join('-'), uc.id)
         }
         if (uc?.sourceUrl) byUrl.set(String(uc.sourceUrl), uc.id)
         if (uc?.url) byUrl.set(String(uc.url), uc.id)
       }
-
       let changed = false
-      const backfilled = calls.map(c => {
-        // Ya marcada — nada que hacer
+      const next = callsRef.current.map(c => {
         if (c.userStatus === 'imported') return c
-
-        // ¿Coincide por discoveryExternalId persistido?
-        const byIdMatch = byExtId.get(c.externalId)
-        // ¿Coincide por URL exacta?
-        const byUrlMatch = c.url ? byUrl.get(c.url) : undefined
-        const userCallId = byIdMatch || byUrlMatch
+        const userCallId = byExtId.get(c.externalId) || (c.url ? byUrl.get(c.url) : undefined)
         if (!userCallId) return c
-
         changed = true
         return {
           ...c,
@@ -402,434 +623,363 @@ const Discovery = () => {
           importedAt: c.importedAt || new Date().toISOString(),
         }
       })
-
-      if (changed) {
-        const persisted = saveCalls(backfilled)
-        setCalls(persisted)
-        console.log('[Discovery] backfilled imported status for previously-imported calls')
-      }
+      if (changed) commitCalls(next)
     } catch (err) {
       console.warn('[Discovery] backfill failed:', err)
     }
-    // Solo al montar (depende de loadCalls que devuelve el snapshot inicial).
-    // No queremos re-ejecutar en cada render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  const [view, setView] = useState<ViewFilter>('all')
-  const [search, setSearch] = useState('')
-  const [sourceFilter, setSourceFilter] = useState<'all' | DiscoverySource>('all')
-  const [programFilter, setProgramFilter] = useState<string>('all')
-  const [typeOfActionFilter, setTypeOfActionFilter] = useState<string>('all')
-  const [regionFilter, setRegionFilter] = useState<string>('all')
-  const [deadlineYearFilter, setDeadlineYearFilter] = useState<string>('all')
-  const [actionableOnly, setActionableOnly] = useState(true)
-  const [page, setPage] = useState(1)
-  const [syncingSource, setSyncingSource] = useState<DiscoverySource | null>(null)
-  const [syncBanner, setSyncBanner] = useState<string | null>(null)
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-
-  /* ----------------------------------------------------------
-     Auto-sync al entrar (en background, no bloquea UI)
-     Solo si han pasado más de 30 min desde el último sync.
-     ---------------------------------------------------------- */
-  useEffect(() => {
-    // Limpieza inmediata de zombies con deadline pasada (no esperamos al sync).
-    // Conservamos dismissed/imported por historial.
-    const todayMs = Date.now()
-    const GRACE_MS = 86400000 // 1 día
-    const initialCount = calls.length
-    let renamedCount = 0
-    const purged = calls.filter(c => {
-      if (c.userStatus === 'dismissed' || c.userStatus === 'imported') return true
-      if (!c.closeDate) return true // sin deadline → puede ser Forthcoming
-      const t = new Date(c.closeDate).getTime()
-      if (Number.isNaN(t)) return true
-      return t >= todayMs - GRACE_MS
-    }).map(c => {
-      // Defensive: si el program quedó como "Programme XXXXX" (cache viejo), lo mapeamos
-      const normalized = normalizeProgramName(c.program)
-      if (normalized !== c.program) {
-        renamedCount += 1
-        return { ...c, program: normalized }
-      }
-      return c
-    })
-    if (purged.length !== initialCount || renamedCount > 0) {
-      console.log(`[Discovery] Cleanup: purged ${initialCount - purged.length} past-deadline, renamed ${renamedCount} unknown programmes`)
-      persistCalls(purged)
-    }
-
-    const RECENT_MS = 30 * 60 * 1000 // 30 min
-    const now = Date.now()
-    const lastEU = sources.EU_PORTAL.lastSync ? new Date(sources.EU_PORTAL.lastSync).getTime() : 0
-    const lastBDNS = sources.BDNS.lastSync ? new Date(sources.BDNS.lastSync).getTime() : 0
-    const shouldSyncEU = now - lastEU > RECENT_MS
-    const shouldSyncBDNS = now - lastBDNS > RECENT_MS
-
-    if (shouldSyncEU || shouldSyncBDNS) {
-      // Disparamos en background (no await)
-      void triggerSync('all')
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  /* ----------------------------------------------------------
-     Persistencia
-     ---------------------------------------------------------- */
-
-  const persistCalls = (next: DiscoveryCall[]): DiscoveryCall[] => {
-    // saveCalls puede recortar/compactar si rompemos quota — usamos el
-    // resultado real para sincronizar el state con lo que se persistió.
-    const persisted = saveCalls(next)
-    setCalls(persisted)
-    return persisted
-  }
-  const persistSources = (next: DiscoverySourcesState) => {
-    setSources(next)
-    saveSources(next)
   }
 
   /* ----------------------------------------------------------
-     KPIs
+     Sync con el backend
      ---------------------------------------------------------- */
 
-  const kpis = useMemo(() => {
-    const open = calls.filter(c => c.userStatus !== 'dismissed' && c.userStatus !== 'imported')
-    return {
-      all: open.length,
-      today: open.filter(c => isToday(c.discoveredAt)).length,
-      reviewing: calls.filter(c => c.userStatus === 'reviewing').length,
-      dismissed: calls.filter(c => c.userStatus === 'dismissed').length,
-      closingSoon: open.filter(c => {
-        const d = daysUntil(c.closeDate)
-        return d !== null && d >= 0 && d <= 30
-      }).length,
-      thisWeek: open.filter(c => isThisWeek(c.discoveredAt)).length,
-    }
-  }, [calls])
-
-  /* ----------------------------------------------------------
-     Lista de programas únicos (para el dropdown)
-     ---------------------------------------------------------- */
-
-  const uniquePrograms = useMemo(() => {
-    const set = new Set<string>()
-    calls.forEach(c => {
-      if (c.program && c.program.trim()) set.add(c.program.trim())
-    })
-    return Array.from(set).sort()
-  }, [calls])
-
-  /* ----------------------------------------------------------
-     Años de deadline únicos (para el dropdown)
-     ---------------------------------------------------------- */
-
-  /* ----------------------------------------------------------
-     Type of Action únicos (para el dropdown)
-     ---------------------------------------------------------- */
-
-  const uniqueTypesOfAction = useMemo(() => {
-    const set = new Set<string>()
-    calls.forEach(c => {
-      if (c.typeOfAction && c.typeOfAction.trim()) set.add(c.typeOfAction.trim())
-    })
-    return Array.from(set).sort()
-  }, [calls])
-
-  /* ----------------------------------------------------------
-     Regiones únicas (para el dropdown)
-     ---------------------------------------------------------- */
-
-  const uniqueRegions = useMemo(() => {
-    const set = new Set<string>()
-    calls.forEach(c => {
-      if (c.region && c.region.trim()) set.add(c.region.trim())
-    })
-    return Array.from(set).sort()
-  }, [calls])
-
-  const uniqueDeadlineYears = useMemo(() => {
-    const set = new Set<number>()
-    calls.forEach(c => {
-      if (c.closeDate) {
-        const y = new Date(c.closeDate).getFullYear()
-        if (!Number.isNaN(y) && y > 1900) set.add(y)
-      }
-    })
-    return Array.from(set).sort((a, b) => a - b) // ascendente: 2026, 2027, 2028
-  }, [calls])
-
-  /* ----------------------------------------------------------
-     Filtrado de la tabla
-     ---------------------------------------------------------- */
-
-  const filteredCalls = useMemo(() => {
-    let filtered = calls
-
-    // View filter (KPI)
-    switch (view) {
-      case 'all':
-        // Las descartadas se ocultan; las importadas SIGUEN visibles para
-        // que la usuaria sepa qué ya se llevó a /calls (con badge + botón
-        // de import bloqueado).
-        filtered = filtered.filter(c => c.userStatus !== 'dismissed')
-        break
-      case 'today':
-        filtered = filtered.filter(c => isToday(c.discoveredAt))
-        break
-      case 'reviewing':
-        filtered = filtered.filter(c => c.userStatus === 'reviewing')
-        break
-      case 'dismissed':
-        filtered = filtered.filter(c => c.userStatus === 'dismissed')
-        break
-      case 'closing-soon':
-        filtered = filtered.filter(c => {
-          const d = daysUntil(c.closeDate)
-          return d !== null && d >= 0 && d <= 30
-        })
-        break
-      case 'this-week':
-        filtered = filtered.filter(c => isThisWeek(c.discoveredAt))
-        break
-    }
-
-    if (actionableOnly) filtered = filtered.filter(c => c.actionable)
-
-    // Filtro defensivo: oculta calls con deadline pasada en todas las vistas excepto Dismissed.
-    // SEDIA tiene lag entre cerrar deadline y cambiar status, + zombies cacheadas.
-    if (view !== 'dismissed') {
-      const todayMs = Date.now()
-      filtered = filtered.filter(c => {
-        if (!c.closeDate) return true // sin fecha → permitimos (Forthcoming aún sin deadline)
-        const t = new Date(c.closeDate).getTime()
-        if (Number.isNaN(t)) return true
-        return t >= todayMs - 86400000 // gracia 1 día por UTC
-      })
-    }
-
-    if (sourceFilter !== 'all') filtered = filtered.filter(c => c.source === sourceFilter)
-    if (programFilter !== 'all') filtered = filtered.filter(c => c.program === programFilter)
-    if (typeOfActionFilter !== 'all') filtered = filtered.filter(c => c.typeOfAction === typeOfActionFilter)
-    if (regionFilter !== 'all') filtered = filtered.filter(c => c.region === regionFilter)
-    if (deadlineYearFilter !== 'all') {
-      const targetYear = Number(deadlineYearFilter)
-      filtered = filtered.filter(c => {
-        if (!c.closeDate) return false
-        const y = new Date(c.closeDate).getFullYear()
-        return y === targetYear
-      })
-    }
-
-    if (search.trim()) {
-      const q = search.toLowerCase().trim()
-      filtered = filtered.filter(c =>
-        c.title.toLowerCase().includes(q) ||
-        c.fundingBody.toLowerCase().includes(q) ||
-        c.program.toLowerCase().includes(q)
-      )
-    }
-
-    // Orden por deadline ascendente (más próximo primero). Calls sin
-    // closeDate o con fecha inválida quedan al final. Tras ese criterio,
-    // desempate por discoveredAt descendente (más recientes primero).
-    const sorted = [...filtered].sort((a, b) => {
-      const ta = a.closeDate ? new Date(a.closeDate).getTime() : NaN
-      const tb = b.closeDate ? new Date(b.closeDate).getTime() : NaN
-      const aValid = !Number.isNaN(ta)
-      const bValid = !Number.isNaN(tb)
-      if (aValid && bValid) {
-        if (ta !== tb) return ta - tb
-      } else if (aValid) {
-        return -1
-      } else if (bValid) {
-        return 1
-      }
-      // Desempate
-      const da = a.discoveredAt ? new Date(a.discoveredAt).getTime() : 0
-      const db = b.discoveredAt ? new Date(b.discoveredAt).getTime() : 0
-      return db - da
-    })
-
-    return sorted
-  }, [calls, view, actionableOnly, sourceFilter, programFilter, typeOfActionFilter, regionFilter, deadlineYearFilter, search])
-
-  const totalCount = filteredCalls.length
-  const actionableCount = filteredCalls.filter(c => c.actionable).length
-  const noDeadlineCount = filteredCalls.filter(c => !c.closeDate).length
-  const pastCount = filteredCalls.filter(c => {
-    const d = daysUntil(c.closeDate)
-    return d !== null && d < 0
-  }).length
-
-  const totalPages = Math.max(1, Math.ceil(totalCount / ITEMS_PER_PAGE))
-  const pageCalls = useMemo(() => {
-    const start = (page - 1) * ITEMS_PER_PAGE
-    return filteredCalls.slice(start, start + ITEMS_PER_PAGE)
-  }, [filteredCalls, page])
-
-  useEffect(() => {
-    if (page > totalPages) setPage(1)
-  }, [totalPages, page])
-
-  /* ----------------------------------------------------------
-     Acciones de usuario sobre calls
-     ---------------------------------------------------------- */
-
-  const dismissCall = (id: string) => {
-    persistCalls(calls.map(c => c.id === id ? { ...c, userStatus: 'dismissed' } : c))
-  }
-
-  const restoreCall = (id: string) => {
-    persistCalls(calls.map(c =>
-      c.id === id ? { ...c, userStatus: c.importedToCallId ? 'imported' : 'new' } : c
-    ))
-  }
-
-  const openImportFlow = (id: string) => {
-    navigate(`/discovery/${id}/import`)
-  }
-
-  /* ----------------------------------------------------------
-     Sync — llamada al backend
-     ---------------------------------------------------------- */
-
-  const triggerSync = async (source: DiscoverySource | 'all') => {
-    setSyncBanner(null)
-    const targets: DiscoverySource[] = source === 'all' ? ['EU_PORTAL', 'BDNS'] : [source]
-
-    // Mantenemos un snapshot que se actualiza tras cada iteración.
-    // Sin esto, el sync 'all' (iter 1 EU + iter 2 BDNS) usaba el mismo `calls`
-    // congelado en el closure → perdíamos las calls añadidas en iter 1.
-    let currentCalls = calls
+  const triggerSync = async (targets: DiscoverySource[]) => {
+    if (syncingRef.current) return
+    syncingRef.current = true
+    setBanner(null)
+    const newBdnsIds: string[] = []
+    const messages: string[] = []
 
     for (const s of targets) {
       setSyncingSource(s)
-      persistSources({
-        ...sources,
-        [s]: { ...sources[s], lastSyncStatus: 'syncing' },
-      })
-
+      patchSource(s, { ...sourcesRef.current[s], lastSyncStatus: 'syncing' })
       try {
-        const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) || 'https://alamosinnovacionia.onrender.com'
         const token = localStorage.getItem('authToken') || ''
-
-        const response = await fetch(`${API_BASE}/discovery/sync`, {
+        const response = await fetch(`${getApiBase()}/discovery/sync`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ source: s }),
         })
-
         if (!response.ok) {
           const errText = await response.text()
           throw new Error(errText || `HTTP ${response.status}`)
         }
-
-        const data = await response.json() as { calls: Array<Omit<DiscoveryCall, 'id' | 'userStatus' | 'discoveredAt'>> }
-
-        // Merge con calls existentes (usar snapshot actualizado, no el closure original)
-        const existingByExternal = new Map<string, DiscoveryCall>()
-        currentCalls.forEach(c => existingByExternal.set(`${c.source}::${c.externalId}`, c))
-
-        const now = new Date().toISOString()
-        let newCount = 0
-        let updatedCount = 0
-        const merged: DiscoveryCall[] = []
-
-        // Add or update incoming calls
-        for (const incoming of data.calls) {
-          const key = `${incoming.source}::${incoming.externalId}`
-          const existing = existingByExternal.get(key)
-          if (existing) {
-            // Conservamos el userStatus y datos importados
-            merged.push({
-              ...incoming,
-              id: existing.id,
-              userStatus: existing.userStatus,
-              discoveredAt: existing.discoveredAt,
-              importedToCallId: existing.importedToCallId,
-              importedAt: existing.importedAt,
-            })
-            updatedCount += 1
-            existingByExternal.delete(key)
-          } else {
-            merged.push({
-              ...incoming,
-              id: `disc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-              userStatus: 'new',
-              discoveredAt: now,
-            })
-            newCount += 1
-          }
-        }
-
-        // Tratamiento de stragglers (calls que tenemos en cache y NO han vuelto en este sync):
-        //
-        // Si el sync fue suficientemente exhaustivo (>= 50 calls de respuesta), confiamos en
-        // que es la verdad y eliminamos los stragglers del mismo source. Esto mata zombies
-        // como "DIGITAL-2023-SKILLS-05-SPECIALEDU" que se quedaron pegados con deadline
-        // 2028 desde syncs viejos con bugs (la API ya no los devuelve, son closed).
-        //
-        // Si el sync trajo pocos (< 50), no nos fiamos (pudo fallar a mitad) y aplicamos
-        // criterios defensivos solo: descartar closed o con deadline pasada.
-        //
-        // En ambos casos: dismissed e imported se conservan por historial.
-        const todayMs = Date.now()
-        const syncWasComprehensive = data.calls.length >= 50
-
-        existingByExternal.forEach(c => {
-          // Calls de OTRO source: siempre conservar (el sync de este source no las afecta)
-          if (c.source !== s) {
-            merged.push(c)
-            return
-          }
-          // Historial de decisiones del usuario: siempre conservar
-          if (c.userStatus === 'dismissed' || c.userStatus === 'imported') {
-            merged.push(c)
-            return
-          }
-          // Si externalStatus es closed, fuera
-          if (c.externalStatus === 'closed') return
-
-          if (syncWasComprehensive) {
-            // El sync ha sido exhaustivo y esta call NO ha vuelto → es zombie, fuera.
-            return
-          }
-
-          // Sync no fiable → solo descartamos si la deadline está pasada
-          if (c.closeDate) {
-            const t = new Date(c.closeDate).getTime()
-            if (!Number.isNaN(t) && t < todayMs - 86400000) return
-          }
-          merged.push(c)
+        const data = await response.json() as { calls?: IncomingCall[] }
+        const incoming = Array.isArray(data.calls) ? data.calls : []
+        const result = mergeSync(callsRef.current, incoming, s)
+        commitCalls(result.merged)
+        if (s === 'BDNS') newBdnsIds.push(...result.newIds)
+        patchSource(s, {
+          lastSync: new Date().toISOString(),
+          lastSyncStatus: 'success',
+          recordCount: incoming.length,
+          newCount: result.newCount,
+          updatedCount: result.matchedCount,
+          changedCount: result.changedCount,
         })
-
-        // persistCalls compacta/recorta si rompe quota — usamos el retorno real
-        const persisted = persistCalls(merged)
-        currentCalls = persisted // siguiente iteración usa el state ACTUALIZADO
-        persistSources({
-          ...sources,
-          [s]: {
-            lastSync: now,
-            lastSyncStatus: 'success',
-            recordCount: data.calls.length,
-            newCount,
-            updatedCount,
-          },
-        })
-
-        setSyncBanner(`${SOURCE_LABELS[s]}: ${newCount} new, ${updatedCount} updated (${data.calls.length} total)`)
+        messages.push(`${SOURCE_SHORT[s]}: ${result.newCount} new · ${result.changedCount} changed`)
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error'
-        persistSources({
-          ...sources,
-          [s]: { ...sources[s], lastSyncStatus: 'error', lastError: message },
-        })
-        setSyncBanner(`Error syncing ${SOURCE_LABELS[s]}: ${message}`)
+        patchSource(s, { ...sourcesRef.current[s], lastSyncStatus: 'error', lastError: message.slice(0, 300) })
+        messages.push(`${SOURCE_SHORT[s]}: error — ${message.replace(/<[^>]+>/g, ' ').slice(0, 120)}`)
       }
     }
 
     setSyncingSource(null)
+    syncingRef.current = false
+    setBanner({ text: `Sync finished · ${messages.join(' · ')}` })
+
+    // Cualificación IA automática solo de lo NUEVO (coste acotado)
+    if (newBdnsIds.length > 0) {
+      void qualifyWithAi({ ids: newBdnsIds, cap: AI_AUTO_CAP, silent: true })
+    }
+  }
+
+  /* ----------------------------------------------------------
+     Cualificación IA (BDNS) por lotes
+     ---------------------------------------------------------- */
+
+  const qualifyWithAi = async (opts: { ids?: string[]; cap?: number; silent?: boolean } = {}) => {
+    if (qualifyingRef.current) return
+    let pending = callsRef.current.filter(needsAiQualification)
+    if (opts.ids) {
+      const wanted = new Set(opts.ids)
+      pending = pending.filter(c => wanted.has(c.id))
+    }
+    // Primero las que pasaron el filtro de ruido, luego las de señal débil
+    pending.sort((a, b) => {
+      const ra = ruleBand(a).band === 'unscored' ? 0 : 1
+      const rb = ruleBand(b).band === 'unscored' ? 0 : 1
+      return ra !== rb ? ra - rb : sortByDeadline(a, b)
+    })
+    if (opts.cap) pending = pending.slice(0, opts.cap)
+    if (pending.length === 0) {
+      if (!opts.silent) setBanner({ text: 'Nothing to qualify: every national/regional call already has a band.' })
+      return
+    }
+
+    qualifyingRef.current = true
+    cancelQualifyRef.current = false
+    setQualify({ running: true, done: 0, total: pending.length, error: null })
+
+    const base = getAiApiBase()
+    const token = localStorage.getItem('authToken') || ''
+    // Warmup (cold start de Render)
+    try { await fetchWithTimeout(`${base}/health`, {}, 30000) } catch { /* ignore */ }
+
+    let done = 0
+    let qualified = 0
+    for (let i = 0; i < pending.length; i += AI_BATCH) {
+      if (cancelQualifyRef.current) break
+      const batch = pending.slice(i, i + AI_BATCH)
+      try {
+        const res = await fetchWithTimeout(`${base}/ai/qualify-discovery-calls`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            calls: batch.map(c => ({
+              id: c.id,
+              title: c.title,
+              organism: organismLine(c),
+              ambito: AMBITO_LABEL[ambitoOf(c)],
+              typeOfAction: c.typeOfAction,
+              budget: c.budget,
+              closeDate: c.closeDate,
+            })),
+          }),
+        }, 90000)
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({})) as { error?: string }
+          throw new Error(body.error || `HTTP ${res.status}`)
+        }
+        const json = await res.json() as {
+          results?: Array<{ id: string; band: AiBand; reason: string; directAward?: boolean }>
+        }
+        const byId = new Map((json.results || []).map(r => [r.id, r]))
+        const batchIds = new Set(batch.map(c => c.id))
+        const now = new Date().toISOString()
+        commitCalls(prev => prev.map(c => {
+          if (!batchIds.has(c.id)) return c
+          const r = byId.get(c.id)
+          if (!r) return { ...c, aiAttemptedAt: now }
+          return {
+            ...c,
+            aiBand: r.band,
+            aiReason: r.reason,
+            aiDirectAward: !!r.directAward,
+            aiQualifiedAt: now,
+            aiAttemptedAt: now,
+          }
+        }))
+        qualified += byId.size
+        done += batch.length
+        setQualify(q => ({ ...q, done }))
+      } catch (err) {
+        const msg = err instanceof Error
+          ? (err.name === 'AbortError' ? 'timeout (the AI server took too long)' : err.message)
+          : 'unknown error'
+        setQualify(q => ({ ...q, error: msg }))
+        break
+      }
+    }
+
+    const stopped = cancelQualifyRef.current
+    qualifyingRef.current = false
+    setQualify(q => ({ ...q, running: false }))
+    if (!opts.silent || qualified > 0) {
+      setBanner({ text: `AI qualification: ${qualified} calls qualified${stopped ? ' (stopped)' : ''}.` })
+    }
+  }
+
+  /* ----------------------------------------------------------
+     Acciones sobre calls
+     ---------------------------------------------------------- */
+
+  const dismissCall = (id: string) =>
+    commitCalls(prev => prev.map(c => (c.id === id ? { ...c, userStatus: 'dismissed' as const } : c)))
+
+  const restoreCall = (id: string) =>
+    commitCalls(prev => prev.map(c => (
+      c.id === id ? { ...c, userStatus: c.importedToCallId ? 'imported' as const : 'new' as const } : c
+    )))
+
+  const toggleWatch = (id: string) =>
+    commitCalls(prev => prev.map(c => {
+      if (c.id !== id) return c
+      const on = !isWatching(c)
+      return {
+        ...c,
+        watching: on,
+        userStatus: !on && c.userStatus === 'reviewing' ? 'new' as const : c.userStatus,
+      }
+    }))
+
+  const toggleHideDirect = (value: boolean) => {
+    setHideDirect(value)
+    try { localStorage.setItem(HIDE_DIRECT_KEY, value ? '1' : '0') } catch { /* noop */ }
+  }
+
+  const markReviewed = (trayCount: number) => {
+    const prev = lastReviewAt
+    const now = new Date().toISOString()
+    try { localStorage.setItem(LAST_REVIEW_KEY, now) } catch { /* noop */ }
+    setLastReviewAt(now)
+    setBanner({
+      text: `Tray cleared (${trayCount} calls). They remain available in All.`,
+      undo: () => {
+        try {
+          if (prev) localStorage.setItem(LAST_REVIEW_KEY, prev)
+          else localStorage.removeItem(LAST_REVIEW_KEY)
+        } catch { /* noop */ }
+        setLastReviewAt(prev)
+        setBanner(null)
+      },
+    })
+  }
+
+  /* ----------------------------------------------------------
+     Derivados
+     ---------------------------------------------------------- */
+
+  const classified = useMemo(() => {
+    const map = new Map<string, TriageResult>()
+    for (const c of calls) map.set(c.id, classifyCall(c))
+    return map
+  }, [calls])
+
+  const changedSinceMs = Date.now() - CHANGED_WINDOW_DAYS * 86400000
+
+  const tabCalls = useMemo(() => {
+    const lastReviewMs = lastReviewAt ? parseDate(lastReviewAt) : 0
+    const since = Date.now() - CHANGED_WINDOW_DAYS * 86400000
+    const out: Record<TabKey, DiscoveryCall[]> = { tray: [], watching: [], changed: [], all: [] }
+    for (const c of calls) {
+      if (isPastDeadline(c)) continue
+      const dismissed = c.userStatus === 'dismissed'
+      const imported = c.userStatus === 'imported'
+      if (!dismissed && !imported && (!lastReviewMs || parseDate(c.discoveredAt) > lastReviewMs)) out.tray.push(c)
+      if (!dismissed && isWatching(c)) out.watching.push(c)
+      if (!dismissed && c.changedAt && parseDate(c.changedAt) >= since) out.changed.push(c)
+      if (includeDismissed || !dismissed) out.all.push(c)
+    }
+    return out
+  }, [calls, lastReviewAt, includeDismissed])
+
+  const tabCounts = useMemo(() => {
+    const visible = (list: DiscoveryCall[]) =>
+      hideDirect ? list.filter(c => !classified.get(c.id)?.direct).length : list.length
+    return {
+      tray: visible(tabCalls.tray),
+      watching: visible(tabCalls.watching),
+      changed: visible(tabCalls.changed),
+      all: visible(tabCalls.all),
+    } as Record<TabKey, number>
+  }, [tabCalls, hideDirect, classified])
+
+  const view = useMemo(() => {
+    const q = normText(search.trim())
+    let list = tabCalls[tab]
+    if (q) {
+      list = list.filter(c => normText(`${c.title} ${c.fundingBody} ${c.program} ${c.externalId}`).includes(q))
+    }
+    let hiddenDirect = 0
+    const lanes: Record<TriageBand, DiscoveryCall[]> = { high: [], medium: [], unscored: [], low: [], excluded: [] }
+    for (const c of list) {
+      const cl = classified.get(c.id) || classifyCall(c)
+      if (cl.direct && hideDirect) { hiddenDirect += 1; continue }
+      lanes[cl.band].push(c)
+    }
+    for (const b of BAND_ORDER) lanes[b].sort(sortByDeadline)
+    return { lanes, hiddenDirect }
+  }, [tabCalls, tab, search, hideDirect, classified])
+
+  const aiStats = useMemo(() => ({
+    qualified: calls.filter(c => !!c.aiBand).length,
+    pending: calls.filter(needsAiQualification).length,
+  }), [calls])
+
+  const ingestion = useMemo(() => {
+    const runs = ALL_SOURCES.map(s => sources[s])
+    const lastRun = runs.map(r => r.lastSync).filter((d): d is string => !!d).sort().pop() || null
+    return {
+      newTotal: runs.reduce((n, r) => n + (r.newCount || 0), 0),
+      changedTotal: runs.reduce((n, r) => n + (r.changedCount || 0), 0),
+      lastRun,
+    }
+  }, [sources])
+
+  const sourceErrors = ALL_SOURCES.filter(s => sources[s].lastSyncStatus === 'error')
+
+  /* ----------------------------------------------------------
+     Render de fila
+     ---------------------------------------------------------- */
+
+  const renderRow = (c: DiscoveryCall) => {
+    const cl = classified.get(c.id) || classifyCall(c)
+    const amb = ambitoOf(c)
+    const dl = daysLeft(c.closeDate)
+    const imported = c.userStatus === 'imported' || !!c.importedToCallId
+    const watching = isWatching(c)
+    const dismissed = c.userStatus === 'dismissed'
+    const recentChange = !!c.changedAt && parseDate(c.changedAt) >= changedSinceMs && (c.changes?.length || 0) > 0
+
+    return (
+      <tr key={c.id} className={`dt-row dt-row--${amb}${dismissed ? ' dt-row--dismissed' : ''}`}>
+        <td className="dt-cell-call">
+          <div className="dt-call-title" title={c.title}>{c.title}</div>
+          <div className="dt-call-org">{organismLine(c)}</div>
+          {(imported || watching || cl.direct || dismissed) && (
+            <div className="dt-call-tags">
+              {imported && <span className="dt-tag dt-tag--imported"><Check size={11} /> In Calls</span>}
+              {watching && <span className="dt-tag dt-tag--watching"><Eye size={11} /> Watching</span>}
+              {cl.direct && <span className="dt-tag dt-tag--direct">Direct award</span>}
+              {dismissed && <span className="dt-tag dt-tag--dismissed">Dismissed</span>}
+            </div>
+          )}
+        </td>
+        <td>
+          <span className={`dt-ambito dt-ambito--${amb}`}>{AMBITO_LABEL[amb]}</span>
+        </td>
+        <td>
+          <div className="dt-dates">
+            <span>{formatShortDate(c.openDate)}</span>
+            <span>{formatShortDate(c.closeDate)}</span>
+            {dl !== null && dl >= 0 && dl <= 30 && (
+              <span className={`dt-days${dl <= 10 ? ' dt-days--urgent' : ''}`}>{dl}d left</span>
+            )}
+          </div>
+        </td>
+        <td className="dt-cell-budget">{c.budget || '—'}</td>
+        <td className="dt-cell-reason">
+          <p>{cl.reason}</p>
+          <span className={`dt-origin dt-origin--${cl.origin}`}>{cl.origin === 'ai' ? 'AI' : 'Rule'}</span>
+          {recentChange && <p className="dt-change">↻ {c.changes?.join(' · ')}</p>}
+        </td>
+        <td className="dt-cell-actions">
+          <div className="dt-actions">
+            <button
+              type="button"
+              className="dt-act"
+              title={imported ? 'Already in Calls' : 'Promote to Calls'}
+              disabled={imported}
+              onClick={() => navigate(`/discovery/${c.id}/import`)}
+            >
+              {imported ? <Check size={14} /> : <ArrowUpRight size={14} />}
+            </button>
+            {dismissed ? (
+              <button type="button" className="dt-act" title="Restore" onClick={() => restoreCall(c.id)}>
+                <RotateCcw size={14} />
+              </button>
+            ) : (
+              <button type="button" className="dt-act" title="Dismiss" onClick={() => dismissCall(c.id)}>
+                <X size={14} />
+              </button>
+            )}
+            <button
+              type="button"
+              className={`dt-act${watching ? ' dt-act--on' : ''}`}
+              title={watching ? 'Stop watching' : 'Watch'}
+              onClick={() => toggleWatch(c.id)}
+            >
+              <Eye size={14} />
+            </button>
+            <a className="dt-act" href={c.url} target="_blank" rel="noopener noreferrer" title="Open source">
+              <ExternalLink size={14} />
+            </a>
+          </div>
+        </td>
+      </tr>
+    )
   }
 
   /* ----------------------------------------------------------
@@ -837,379 +987,267 @@ const Discovery = () => {
      ---------------------------------------------------------- */
 
   return (
-    <div className="page page--discovery">
-      <div className="page-header">
-        <div className="page-header-content">
+    <div className="page page--discovery dt-page">
+      <header className="dt-header">
+        <div className="dt-header-main">
           <h1 className="page-title">Discovery</h1>
-          <p className="page-subtitle">Discover and import funding opportunities from external sources</p>
-        </div>
-      </div>
-
-      {/* KPIs */}
-      <div className="disc-kpi-grid">
-        <KpiTile label="All" value={kpis.all} dotColor="brand" active={view === 'all'} onClick={() => setView('all')} />
-        <KpiTile label="Today" value={kpis.today} dotColor="warning" active={view === 'today'} onClick={() => setView('today')} />
-        <KpiTile label="Reviewing" value={kpis.reviewing} dotColor="warning" active={view === 'reviewing'} onClick={() => setView('reviewing')} />
-        <KpiTile label="Dismissed" value={kpis.dismissed} dotColor="muted" active={view === 'dismissed'} onClick={() => setView('dismissed')} />
-        <KpiTile label="Closing Soon" value={kpis.closingSoon} icon={<AlertTriangle size={14} />} variant="danger" active={view === 'closing-soon'} onClick={() => setView('closing-soon')} />
-        <KpiTile label="This Week" value={kpis.thisWeek} icon={<Sparkles size={14} />} variant="brand" active={view === 'this-week'} onClick={() => setView('this-week')} />
-      </div>
-
-      {/* Sources */}
-      <section className="disc-sources-section surface-card">
-        <header className="disc-sources-header">
-          <h2>Sources</h2>
-          <span className="disc-last-sync">
-            Last sync: {sources.EU_PORTAL.lastSync || sources.BDNS.lastSync
-              ? formatDate(
-                  [sources.EU_PORTAL.lastSync, sources.BDNS.lastSync]
-                    .filter((d): d is string => Boolean(d))
-                    .sort()
-                    .pop()
-                )
-              : '—'}
-          </span>
-        </header>
-
-        <div className="disc-sources-cards">
-          <SourceCard
-            source="BDNS"
-            sources={sources}
-            syncingSource={syncingSource}
-            onSync={() => triggerSync('BDNS')}
-          />
-          <SourceCard
-            source="EU_PORTAL"
-            sources={sources}
-            syncingSource={syncingSource}
-            onSync={() => triggerSync('EU_PORTAL')}
-          />
+          <p className="dt-subtitle">Triage new funding calls and keep the tray at zero.</p>
+          <div className="dt-legend">
+            <span className="dt-legend-label">Ámbito:</span>
+            <span className="dt-legend-item"><i className="dt-dot dt-dot--EU" />Europea</span>
+            <span className="dt-legend-item"><i className="dt-dot dt-dot--NACIONAL" />Nacional</span>
+            <span className="dt-legend-item"><i className="dt-dot dt-dot--REGIONAL" />Regional / local</span>
+          </div>
+          <label className="dt-hide-direct">
+            <input type="checkbox" checked={hideDirect} onChange={e => toggleHideDirect(e.target.checked)} />
+            <span>Hide direct and nominative awards</span>
+            {hideDirect && view.hiddenDirect > 0 && (
+              <span className="dt-muted">({view.hiddenDirect} hidden in this view)</span>
+            )}
+          </label>
         </div>
 
-        {syncBanner && (
-          <div className="disc-sync-banner">
-            <span>{syncBanner}</span>
-            <button type="button" onClick={() => setSyncBanner(null)} aria-label="Dismiss">
+        <div className="dt-header-kpis">
+          <div className="dt-kpi">
+            <span className="dt-kpi-value">{tabCounts.tray}</span>
+            <span className="dt-kpi-label">new since your last review</span>
+            <span className="dt-kpi-sub">Last review: {lastReviewAt ? formatDateTime(lastReviewAt) : 'never'}</span>
+          </div>
+          <div className="dt-kpi dt-kpi--system">
+            <span className="dt-kpi-eyebrow">Last ingestion</span>
+            <span className="dt-kpi-value dt-kpi-value--mono">
+              {ingestion.newTotal} new · {ingestion.changedTotal} changed
+            </span>
+            <span className="dt-kpi-sub">
+              {ingestion.lastRun ? `${formatDateTime(ingestion.lastRun)} · ` : ''}system activity, not your review queue
+            </span>
+          </div>
+          <button
+            type="button"
+            className="dt-mark-btn"
+            onClick={() => markReviewed(tabCounts.tray)}
+            disabled={tabCounts.tray === 0}
+          >
+            Mark reviewed now
+          </button>
+        </div>
+      </header>
+
+      {banner && (
+        <div className="dt-banner">
+          <span>{banner.text}</span>
+          <div className="dt-banner-actions">
+            {banner.undo && (
+              <button type="button" className="dt-banner-undo" onClick={banner.undo}>Undo</button>
+            )}
+            <button type="button" className="dt-banner-close" onClick={() => setBanner(null)} aria-label="Close">
               <X size={14} />
             </button>
           </div>
-        )}
-      </section>
-
-      {/* Filters */}
-      <div className="disc-filters">
-        <div className="search-bar-inline disc-search">
-          <Search size={18} className="search-icon" />
-          <input
-            type="text"
-            placeholder="Search calls…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="search-input-inline"
-          />
         </div>
+      )}
+      {qualify.error && !qualify.running && (
+        <div className="dt-banner dt-banner--error">
+          <span>AI qualification stopped: {qualify.error}</span>
+          <button
+            type="button"
+            className="dt-banner-close"
+            onClick={() => setQualify(q => ({ ...q, error: null }))}
+            aria-label="Close"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
-        <select
-          value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value as typeof sourceFilter)}
-          className="filter-btn"
-        >
-          <option value="all">All Sources</option>
-          <option value="EU_PORTAL">EU Funding & Tenders Portal</option>
-          <option value="BDNS">BDNS — Spanish Grants</option>
-        </select>
-
-        <select
-          value={programFilter}
-          onChange={(e) => setProgramFilter(e.target.value)}
-          className="filter-btn"
-        >
-          <option value="all">All Programs</option>
-          {uniquePrograms.map(p => <option key={p} value={p}>{p}</option>)}
-        </select>
-
-        <select
-          value={typeOfActionFilter}
-          onChange={(e) => setTypeOfActionFilter(e.target.value)}
-          className="filter-btn"
-          title="Filter by type of action (RIA, IA, CSA, Cascade…)"
-        >
-          <option value="all">All Action Types</option>
-          {uniqueTypesOfAction.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
-
-        <select
-          value={regionFilter}
-          onChange={(e) => setRegionFilter(e.target.value)}
-          className="filter-btn"
-          title="Filter by region (only BDNS calls have region)"
-        >
-          <option value="all">All Regions</option>
-          {uniqueRegions.map(r => <option key={r} value={r}>{r}</option>)}
-        </select>
-
-        <select
-          value={deadlineYearFilter}
-          onChange={(e) => setDeadlineYearFilter(e.target.value)}
-          className="filter-btn"
-          title="Filter by deadline year"
-        >
-          <option value="all">All Years</option>
-          {uniqueDeadlineYears.map(y => <option key={y} value={String(y)}>{y}</option>)}
-        </select>
-
-        <label className="disc-actionable">
-          <input
-            type="checkbox"
-            checked={actionableOnly}
-            onChange={(e) => setActionableOnly(e.target.checked)}
-          />
-          <Clock size={14} />
-          <span>Actionable</span>
-        </label>
-
-        <div className="disc-counts">
-          Total: <strong>{totalCount}</strong>
-          &nbsp;·&nbsp; Actionable: <strong className="text-success">{actionableCount}</strong>
-          &nbsp;·&nbsp; No deadline: <strong className="text-muted">{noDeadlineCount}</strong>
-          &nbsp;·&nbsp; Past: <strong className="text-danger">{pastCount}</strong>
+      <div className="dt-toolbar">
+        <nav className="dt-tabs" role="tablist">
+          {TABS.map(t => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={tab === t}
+              className={`dt-tab${tab === t ? ' dt-tab--active' : ''}`}
+              onClick={() => setTab(t)}
+            >
+              {TAB_LABEL[t]}
+              <span className="dt-tab-count">{tabCounts[t]}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="dt-toolbar-right">
+          {tab === 'all' && (
+            <label className="dt-check">
+              <input type="checkbox" checked={includeDismissed} onChange={e => setIncludeDismissed(e.target.checked)} />
+              Show dismissed
+            </label>
+          )}
+          <div className="dt-search">
+            <Search size={14} />
+            <input
+              type="text"
+              placeholder="Search calls, bodies, programmes…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          {qualify.running ? (
+            <button
+              type="button"
+              className="dt-ai-btn dt-ai-btn--running"
+              onClick={() => { cancelQualifyRef.current = true }}
+              title="Stop after the current batch"
+            >
+              <Loader2 size={14} className="dt-spin" />
+              Qualifying {qualify.done}/{qualify.total} · Stop
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="dt-ai-btn"
+              onClick={() => void qualifyWithAi()}
+              disabled={aiStats.pending === 0}
+              title="Qualify unscored and low-signal national/regional calls with AI"
+            >
+              <Sparkles size={14} />
+              Qualify with AI ({aiStats.pending})
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Table */}
-      <div className="disc-table-container">
-        <table className="data-table disc-table">
-          <thead>
-            <tr>
-              <th style={{ width: 32 }}>
-                <input
-                  type="checkbox"
-                  checked={pageCalls.length > 0 && pageCalls.every(c => selected.has(c.id))}
-                  onChange={(e) => {
-                    const next = new Set(selected)
-                    if (e.target.checked) pageCalls.forEach(c => next.add(c.id))
-                    else pageCalls.forEach(c => next.delete(c.id))
-                    setSelected(next)
-                  }}
-                />
-              </th>
-              <th>Call</th>
-              <th>Program</th>
-              <th>Type of Action</th>
-              <th>Region</th>
-              <th>Budget</th>
-              <th>Deadline</th>
-              <th>Status</th>
-              <th style={{ width: 90, textAlign: 'right' }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pageCalls.length === 0 ? (
-              <tr><td colSpan={9} className="empty-row">No calls found. Try syncing a source to fetch fresh opportunities.</td></tr>
-            ) : pageCalls.map(call => {
-              const dDays = daysUntil(call.closeDate)
-              return (
-                <tr key={call.id} className={`disc-row ${call.userStatus === 'imported' ? 'disc-row--imported' : ''}`}>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={selected.has(call.id)}
-                      onChange={(e) => {
-                        const next = new Set(selected)
-                        if (e.target.checked) next.add(call.id)
-                        else next.delete(call.id)
-                        setSelected(next)
-                      }}
-                    />
-                  </td>
-                  <td>
-                    <div className="disc-call-cell">
-                      <div className="disc-call-title">{call.title}</div>
-                      <a
-                        href={call.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="disc-call-entity"
-                        title={call.url}
-                      >
-                        {call.fundingBody}
-                        <ExternalLink size={12} />
-                      </a>
+      <div className="dt-body">
+        <div className="dt-lanes">
+          {!hydrated && (
+            <div className="dt-loading"><Loader2 size={16} className="dt-spin" /> Loading calls…</div>
+          )}
+          {hydrated && BAND_ORDER.map(band => {
+            const rows = view.lanes[band]
+            const open = openLanes[band]
+            const limit = laneLimit[band]
+            return (
+              <section key={band} className={`dt-lane dt-lane--${band}`}>
+                <button
+                  type="button"
+                  className="dt-lane-head"
+                  aria-expanded={open}
+                  onClick={() => setOpenLanes(o => ({ ...o, [band]: !o[band] }))}
+                >
+                  <div className="dt-lane-titles">
+                    <div className="dt-lane-title">
+                      <span>{LANE_META[band].title}</span>
+                      <span className="dt-count">{rows.length}</span>
                     </div>
-                  </td>
-                  <td className="disc-program">{call.program || '—'}</td>
-                  <td className="disc-type-action">{call.typeOfAction || '—'}</td>
-                  <td className="disc-region">{call.region || '—'}</td>
-                  <td className="disc-budget">{call.budget || '—'}</td>
-                  <td>
-                    <div className="disc-deadline">
-                      <span>{formatDate(call.closeDate)}</span>
-                      {dDays !== null && (
-                        <span className={`disc-deadline-rel ${dDays < 0 ? 'past' : dDays <= 30 ? 'soon' : ''}`}>
-                          {dDays < 0 ? `${Math.abs(dDays)} days past` : `${dDays} days`}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td>
-                    <DiscoveryStatusBadge status={call.userStatus} externalStatus={call.externalStatus} />
-                  </td>
-                  <td>
-                    <div className="disc-actions">
+                    <p className="dt-lane-desc">{LANE_META[band].desc}</p>
+                  </div>
+                  {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                </button>
+                {open && (rows.length === 0 ? (
+                  <div className="dt-lane-empty">No calls in this lane.</div>
+                ) : (
+                  <div className="dt-table-wrap">
+                    <table className="dt-table">
+                      <thead>
+                        <tr>
+                          <th>Call</th>
+                          <th>Ámbito</th>
+                          <th>Opening / Closing</th>
+                          <th>Budget</th>
+                          <th>Reason for band</th>
+                          <th className="dt-th-actions">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>{rows.slice(0, limit).map(renderRow)}</tbody>
+                    </table>
+                    {rows.length > limit && (
                       <button
                         type="button"
-                        className={`disc-action-btn ${call.userStatus === 'imported' ? 'disc-action-btn--done' : 'disc-action-btn--primary'}`}
-                        onClick={() => call.userStatus !== 'imported' && openImportFlow(call.id)}
-                        disabled={call.userStatus === 'imported'}
-                        title={
-                          call.userStatus === 'imported'
-                            ? 'Ya importada a /calls — abre /calls para editarla o archivarla'
-                            : 'Review and import to Calls'
-                        }
+                        className="dt-more"
+                        onClick={() => setLaneLimit(l => ({ ...l, [band]: l[band] + LANE_PAGE }))}
                       >
-                        {call.userStatus === 'imported'
-                          ? <Check size={14} />
-                          : <ExternalLink size={14} />
-                        }
+                        Show {Math.min(LANE_PAGE, rows.length - limit)} more · {rows.length - limit} remaining
                       </button>
-                      {call.userStatus === 'dismissed' ? (
-                        <button
-                          type="button"
-                          className="disc-action-btn"
-                          onClick={() => restoreCall(call.id)}
-                          title="Restore"
-                        >
-                          <RefreshCw size={14} />
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="disc-action-btn"
-                          onClick={() => dismissCall(call.id)}
-                          title="Dismiss"
-                        >
-                          <X size={14} />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+                    )}
+                  </div>
+                ))}
+              </section>
+            )
+          })}
+        </div>
 
-        {totalPages > 1 && (
-          <div className="pagination">
-            <span className="pagination-info">Page {page} of {totalPages}</span>
-            <div className="pagination-controls">
-              <button className="pagination-btn" disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>‹</button>
-              <button className="pagination-btn" disabled={page === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>›</button>
-            </div>
+        <aside className="dt-side">
+          <div className="dt-card">
+            <h3>Last ingestion</h3>
+            <p className="dt-card-sub">Activity per source, independent of your review badge</p>
+            <table className="dt-mini">
+              <thead>
+                <tr><th>Source</th><th>New</th><th>Chg</th><th>Err</th></tr>
+              </thead>
+              <tbody>
+                {ALL_SOURCES.map(s => (
+                  <tr key={s} title={SOURCE_LABELS[s]}>
+                    <td>{SOURCE_SHORT[s]}</td>
+                    <td>{sources[s].newCount ?? 0}</td>
+                    <td>{sources[s].changedCount ?? 0}</td>
+                    <td className={sources[s].lastSyncStatus === 'error' ? 'dt-err' : ''}>
+                      {sources[s].lastSyncStatus === 'error' ? 1 : 0}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="dt-card-meta">AI: {aiStats.qualified} qualified · {aiStats.pending} pending</p>
           </div>
-        )}
+
+          <div className="dt-card">
+            <h3>Ingestion health</h3>
+            {ALL_SOURCES.map(s => (
+              <div key={s} className="dt-health-row" title={SOURCE_LABELS[s]}>
+                <span className={`dt-status-dot dt-status-dot--${syncingSource === s ? 'syncing' : sources[s].lastSyncStatus}`} />
+                <span className="dt-health-text">
+                  Last {SOURCE_SHORT[s]} run: {formatDateTime(sources[s].lastSync)}
+                </span>
+                <button
+                  type="button"
+                  className="dt-link-btn"
+                  disabled={!!syncingSource}
+                  onClick={() => void triggerSync([s])}
+                >
+                  {syncingSource === s ? <Loader2 size={12} className="dt-spin" /> : <RefreshCw size={12} />}
+                  Sync
+                </button>
+              </div>
+            ))}
+            {sourceErrors.map(s => (
+              <p key={s} className="dt-err-text">
+                {SOURCE_SHORT[s]}: {(sources[s].lastError || 'error').replace(/<[^>]+>/g, ' ').slice(0, 140)}
+              </p>
+            ))}
+            <p className="dt-card-meta">Tray items: {tabCounts.tray} · Records: {calls.length}</p>
+            <button
+              type="button"
+              className="dt-sync-all"
+              disabled={!!syncingSource}
+              onClick={() => void triggerSync(ALL_SOURCES)}
+            >
+              {syncingSource ? <Loader2 size={13} className="dt-spin" /> : <RefreshCw size={13} />}
+              {syncingSource ? `Syncing ${SOURCE_SHORT[syncingSource]}…` : 'Sync all sources'}
+            </button>
+          </div>
+
+          <div className="dt-card">
+            <h3>Quick actions</h3>
+            <ul className="dt-legend-list">
+              <li><ArrowUpRight size={13} /> Promote to Calls</li>
+              <li><X size={13} /> Dismiss</li>
+              <li><Eye size={13} /> Watch</li>
+              <li><ExternalLink size={13} /> Open source</li>
+            </ul>
+          </div>
+        </aside>
       </div>
     </div>
-  )
-}
-
-/* ============================================================
-   Subcomponentes
-   ============================================================ */
-
-const KpiTile = ({
-  label, value, dotColor, icon, variant, active, onClick,
-}: {
-  label: string
-  value: number
-  dotColor?: 'brand' | 'warning' | 'muted'
-  icon?: React.ReactNode
-  variant?: 'brand' | 'danger'
-  active?: boolean
-  onClick?: () => void
-}) => (
-  <button
-    type="button"
-    className={`disc-kpi-tile ${active ? 'disc-kpi-tile--active' : ''} ${variant ? `disc-kpi-tile--${variant}` : ''}`}
-    onClick={onClick}
-  >
-    <div className="disc-kpi-label">
-      {icon || (dotColor && <span className={`disc-kpi-dot disc-kpi-dot--${dotColor}`} />)}
-      <span>{label}</span>
-    </div>
-    <div className="disc-kpi-value tabular-nums">{value}</div>
-  </button>
-)
-
-const SourceCard = ({
-  source, sources, syncingSource, onSync,
-}: {
-  source: DiscoverySource
-  sources: DiscoverySourcesState
-  syncingSource: DiscoverySource | null
-  onSync: () => void
-}) => {
-  const meta = sources[source]
-  const isSyncing = syncingSource === source
-  return (
-    <div className={`disc-source-card ${isSyncing ? 'disc-source-card--syncing' : ''}`}>
-      <div className="disc-source-icon"><Globe size={18} /></div>
-      <div className="disc-source-info">
-        <span className="disc-source-name">{SOURCE_LABELS[source]}</span>
-        <span className="disc-source-meta">
-          {isSyncing ? 'Syncing…' : `${meta.recordCount} records`}
-          {meta.lastSyncStatus === 'success' && !isSyncing && ' · success'}
-          {meta.lastSyncStatus === 'error' && !isSyncing && ' · error'}
-        </span>
-      </div>
-      <button
-        type="button"
-        className={`disc-source-sync-btn ${isSyncing ? 'disc-source-sync-btn--syncing' : ''}`}
-        onClick={onSync}
-        disabled={!!syncingSource}
-      >
-        {isSyncing ? (
-          <>
-            <Loader2 size={14} className="cc-spinner" />
-            <span>Syncing…</span>
-          </>
-        ) : (
-          <>
-            <RefreshCw size={14} />
-            <span>Sync</span>
-          </>
-        )}
-      </button>
-    </div>
-  )
-}
-
-const DiscoveryStatusBadge = ({
-  status, externalStatus,
-}: {
-  status: DiscoveryUserStatus
-  externalStatus: DiscoveryExternalStatus
-}) => {
-  // Reglas de display:
-  //  · Si has tomado acción (reviewing / dismissed / imported) → prima esa.
-  //  · Si no, mostramos el externalStatus (Open / Forthcoming / Closed) — más útil que "New"
-  //    porque siempre todo es "new" tras sync inicial.
-  //  · Sin externalStatus reconocible → fallback "—"
-  let label = ''
-  let cls = ''
-  if (status === 'reviewing') { label = 'Reviewing'; cls = 'warning' }
-  else if (status === 'dismissed') { label = 'Dismissed'; cls = 'muted' }
-  else if (status === 'imported') { label = 'Imported'; cls = 'success' }
-  else if (externalStatus === 'open') { label = 'Open'; cls = 'success' }
-  else if (externalStatus === 'forthcoming') { label = 'Forthcoming'; cls = 'warning' }
-  else if (externalStatus === 'closed') { label = 'Closed'; cls = 'muted' }
-  else { label = '—'; cls = 'muted' }
-
-  return (
-    <span className={`disc-badge disc-badge--${cls}`}>
-      <span className="disc-badge-dot" />
-      {label}
-    </span>
   )
 }
 
