@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { isQuotaExceededError, tryFreeStorage } from '../utils/appData'
 import { idbGet, idbSet } from '../utils/idbStorage'
-import { getAiApiBase, getApiBase } from '../utils/aiApiBase'
+import { getAiApiBase } from '../utils/aiApiBase'
 import {
   AMBITO_LABEL,
   BAND_ORDER,
@@ -73,6 +73,8 @@ export interface DiscoveryCall {
   /** Relevancia I+D+i 0-100 calculada por el backend (organismos + keywords). */
   rdiScore?: number
   rdiReasons?: string[]
+  /** Versión de la puntuación I+D+i con la que se calculó rdiScore (backend). */
+  scoreVersion?: number
   /** Seguimiento manual (pestaña Watching). */
   watching?: boolean
   /** Cualificación IA (solo BDNS). */
@@ -246,6 +248,8 @@ const CHANGED_WINDOW_DAYS = 14
 const LANE_PAGE = 50
 const AI_BATCH = 20
 const AI_AUTO_CAP = 60
+/** Igual que RDI_SCORE_VERSION en el backend: si cambia, se vuelven a leer las fichas BDNS. */
+const BDNS_SCORE_VERSION = 2
 const AI_RETRY_AFTER_MS = 7 * 86400000
 
 /* ============================================================
@@ -682,17 +686,29 @@ const Discovery = () => {
       patchSource(s, { ...sourcesRef.current[s], lastSyncStatus: 'syncing' })
       try {
         const token = localStorage.getItem('authToken') || ''
-        const response = await fetch(`${getApiBase()}/discovery/sync`, {
+        // BDNS: las que ya tenemos (abiertas y puntuadas con la versión actual) no se
+        // vuelven a pedir; así cada sync dedica su cupo de fichas a convocatorias nuevas.
+        const knownIds = s === 'BDNS'
+          ? callsRef.current
+            .filter(c => c.source === 'BDNS' && !isPastDeadline(c) && c.scoreVersion === BDNS_SCORE_VERSION)
+            .map(c => c.externalId)
+          : undefined
+        // Render directo: el sync puede tardar casi un minuto
+        const response = await fetch(`${getAiApiBase()}/discovery/sync`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ source: s }),
+          body: JSON.stringify(knownIds ? { source: s, knownIds } : { source: s }),
         })
         if (!response.ok) {
           const errText = await response.text()
           throw new Error(errText || `HTTP ${response.status}`)
         }
-        const data = await response.json() as { calls?: IncomingCall[] }
+        const data = await response.json() as {
+          calls?: IncomingCall[]
+          diagnostics?: { bdns?: { pending?: number; stoppedEarly?: boolean } }
+        }
         const incoming = Array.isArray(data.calls) ? data.calls : []
+        const bdnsPending = s === 'BDNS' ? Number(data.diagnostics?.bdns?.pending || 0) : 0
         const result = mergeSync(callsRef.current, incoming, s)
         commitCalls(result.merged)
         if (s === 'BDNS') newBdnsIds.push(...result.newIds)
@@ -704,7 +720,10 @@ const Discovery = () => {
           updatedCount: result.matchedCount,
           changedCount: result.changedCount,
         })
-        messages.push(`${SOURCE_SHORT[s]}: ${result.newCount} new · ${result.changedCount} changed`)
+        messages.push(
+          `${SOURCE_SHORT[s]}: ${result.newCount} new · ${result.changedCount} changed` +
+          (bdnsPending > 0 ? ` · ${bdnsPending} more to read on next sync` : '')
+        )
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error'
         patchSource(s, { ...sourcesRef.current[s], lastSyncStatus: 'error', lastError: message.slice(0, 300) })

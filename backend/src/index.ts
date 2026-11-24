@@ -2895,7 +2895,12 @@ interface NormalizedCall {
   rdiScore?: number
   /** Razones del score (debug/transparencia para el agente del Roadmap). */
   rdiReasons?: string[]
+  /** Versión del cálculo de rdiScore (el CRM vuelve a pedir las fichas si cambia). */
+  scoreVersion?: number
 }
+
+/** Súbelo cuando cambien las listas o reglas de calculateRdiScore (y BDNS_SCORE_VERSION en el CRM). */
+const RDI_SCORE_VERSION = 2
 
 /* ----------------------------------------------------------
    Heurística "actionable" para detectar I+D+i en BDNS
@@ -2997,6 +3002,28 @@ const RDI_STRONG_KEYWORDS = [
   { kw: 'agrupación empresarial innovadora', label: 'AEI' },
   { kw: 'centro tecnológico', label: 'Centro Tecnológico' },
   { kw: 'valorización', label: 'valorización' },
+  // innovador/a/es/as ("de carácter innovador", "proyectos innovadores"): p. ej. GoToMarket Extremadura
+  { kw: 'innovador', label: 'innovador' },
+  { kw: 'investigador', label: 'investigador' },
+  { kw: 'startup', label: 'startup' },
+  { kw: 'start-up', label: 'startup' },
+  { kw: 'empresas emergentes', label: 'empresas emergentes' },
+  { kw: 'empresa emergente', label: 'empresa emergente' },
+]
+
+// Agencias regionales de desarrollo/innovación: también convocan ayudas que no son
+// I+D+i, así que cuentan menos que un organismo fuerte; la IA decide después.
+const RDI_REGIONAL_AGENCIES = [
+  { kw: 'ivace', label: 'IVACE' },
+  { kw: 'instituto valenciano de competitividad', label: 'IVACE' },
+  { kw: 'idepa', label: 'IDEPA' },
+  { kw: 'instituto de desarrollo económico del principado', label: 'IDEPA' },
+  { kw: 'sodercan', label: 'SODERCAN' },
+  { kw: 'instituto de fomento de la región de murcia', label: 'INFO Murcia' },
+  { kw: 'instituto para la competitividad empresarial', label: 'ICE Castilla y León' },
+  { kw: 'instituto aragonés de fomento', label: 'IAF Aragón' },
+  { kw: 'agencia de desarrollo económico de la rioja', label: 'ADER La Rioja' },
+  { kw: 'extremadura avante', label: 'Extremadura Avante' },
 ]
 
 const RDI_MEDIUM_KEYWORDS = [
@@ -3017,6 +3044,9 @@ const RDI_MEDIUM_KEYWORDS = [
   { kw: 'sostenibilidad', label: 'sostenibilidad' },
   { kw: 'internacionalización', label: 'internacionalización' },
   { kw: 'internacionalizacion', label: 'internacionalización' },
+  { kw: 'tecnologí', label: 'tecnología' },
+  { kw: 'nuevos productos', label: 'nuevos productos' },
+  { kw: 'científic', label: 'científico' },
 ]
 
 interface RdiScoreResult {
@@ -3024,34 +3054,48 @@ interface RdiScoreResult {
   reasons: string[]   // qué matched (para debug + transparencia agente)
 }
 
+/** Minúsculas y sin tildes, para comparar textos de BDNS con o sin acentos. */
+const foldAccents = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+
 function calculateRdiScore(call: NormalizedCall): RdiScoreResult {
   // EU portal: todo el portal es I+D+i + Emprendimiento + Innovación
   if (call.source === 'EU_PORTAL') {
     return { score: 100, reasons: ['EU funding portal (Horizon/Digital Europe/EIC/etc.)'] }
   }
 
-  // BDNS: analizamos texto
-  const text = `${call.title} ${call.fundingBody} ${call.program} ${call.typeOfAction || ''} ${call.description || ''}`.toLowerCase()
+  // BDNS: analizamos texto, sin distinguir tildes ("INSTITUTO ARAGONES" = "aragonés")
+  const text = foldAccents(`${call.title} ${call.fundingBody} ${call.program} ${call.typeOfAction || ''} ${call.description || ''}`)
+  const has = (kw: string) => text.includes(foldAccents(kw))
 
   let score = 0
   const reasons: string[] = []
 
   // Organismo fuerte → 80 (uno solo basta)
-  const orgMatch = RDI_STRONG_ORGS.find(o => text.includes(o.kw))
+  const orgMatch = RDI_STRONG_ORGS.find(o => has(o.kw))
   if (orgMatch) {
     score = Math.max(score, 80)
     reasons.push(`organismo: ${orgMatch.label}`)
   }
 
   // Keyword fuerte → 70 (cualquiera de la lista)
-  const kwMatch = RDI_STRONG_KEYWORDS.find(k => text.includes(k.kw))
+  const kwMatch = RDI_STRONG_KEYWORDS.find(k => has(k.kw))
   if (kwMatch) {
     score = Math.max(score, 70)
     reasons.push(`keyword: ${kwMatch.label}`)
   }
 
-  // Keywords medios → 20 cada uno, acumulativo, cap 100
-  const mediumHits = RDI_MEDIUM_KEYWORDS.filter(m => text.includes(m.kw))
+  // Agencia regional de desarrollo/innovación → 50
+  const agencyMatch = RDI_REGIONAL_AGENCIES.find(a => has(a.kw))
+  if (agencyMatch) {
+    score = Math.max(score, 50)
+    reasons.push(`agencia regional: ${agencyMatch.label}`)
+  }
+
+  // Keywords medios → 20 cada uno, acumulativo, cap 100 (sin contar dos veces la
+  // misma idea escrita con y sin tilde)
+  const mediumHits = RDI_MEDIUM_KEYWORDS
+    .filter(m => has(m.kw))
+    .filter((m, i, arr) => arr.findIndex(x => x.label === m.label) === i)
   if (mediumHits.length > 0) {
     score += mediumHits.length * 20
     for (const m of mediumHits) reasons.push(`tema: ${m.label}`)
@@ -3852,12 +3896,46 @@ function normalizeEUCall(raw: any): NormalizedCall | null {
 
 const BDNS_SEARCH_BASE = 'https://www.pap.hacienda.gob.es/bdnstrans/api/convocatorias/busqueda'
 const BDNS_DETAIL_BASE = 'https://www.pap.hacienda.gob.es/bdnstrans/api/convocatorias'
-const BDNS_DETAIL_CONCURRENCY = 30 // detail requests en paralelo
-const BDNS_DETAIL_TIMEOUT_MS = 5000 // si un detail tarda > 5s, lo descartamos
+// BDNS corta cuando recibe demasiadas peticiones seguidas: pidiendo fichas de 30 en 30
+// solo respondió 288 de 2.901 (nov. 2026) y se perdían convocatorias como
+// INNTERCONECTA-STEP. Ahora se puntúa con lo que ya trae la búsqueda, se piden primero
+// las fichas más prometedoras, pocas a la vez y con un tope por sincronización, y no se
+// vuelven a pedir las que Discovery ya tiene.
+const BDNS_DETAIL_CONCURRENCY = 6
+const BDNS_DETAIL_TIMEOUT_MS = 8000
+const BDNS_DETAIL_BUDGET = 220 // fichas por sincronización
+const BDNS_DETAIL_TIME_BUDGET_MS = 50000 // el sync completo debe quedar muy por debajo de 100 s
+
+const sleepMs = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+
+interface BDNSSearchItem {
+  numeroConvocatoria: string | number
+  nivel1?: string
+  nivel2?: string
+  nivel3?: string
+  descripcion?: string
+  fechaRecepcion?: string
+}
+
+interface BDNSSyncStats {
+  scanned: number
+  organoMatched: number
+  known: number
+  directByTitle: number
+  zeroScore: number
+  candidates: number
+  requested: number
+  fetched: number
+  failed: number
+  pending: number
+  stoppedEarly: boolean
+  statuses: Record<string, number>
+  returned: number
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchBDNSDetail(numConv: string | number): Promise<any | null> {
-  const url = `${BDNS_DETAIL_BASE}?vpd=GE&numConv=${numConv}`
+async function fetchBDNSDetailOutcome(numConv: string | number): Promise<{ data: any | null; status: string }> {
+  const url = `${BDNS_DETAIL_BASE}?vpd=GE&numConv=${encodeURIComponent(String(numConv))}`
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), BDNS_DETAIL_TIMEOUT_MS)
   try {
@@ -3865,16 +3943,82 @@ async function fetchBDNSDetail(numConv: string | number): Promise<any | null> {
       headers: { Accept: 'application/json', 'User-Agent': 'AlamosInnovacionCRM/1.0' },
       signal: controller.signal,
     })
-    clearTimeout(timer)
-    if (!r.ok) return null
-    return await r.json()
+    if (!r.ok) return { data: null, status: String(r.status) }
+    return { data: await r.json(), status: 'ok' }
   } catch {
+    return { data: null, status: controller.signal.aborted ? 'timeout' : 'network' }
+  } finally {
     clearTimeout(timer)
-    return null
   }
 }
 
-async function fetchBDNSCalls(): Promise<NormalizedCall[]> {
+/**
+ * Pide fichas de BDNS sin saturar: pocas a la vez, un reintento para las que fallan y,
+ * si BDNS empieza a rechazar seguido, pausa y baja el ritmo; si sigue, para y deja el
+ * resto para la próxima sincronización.
+ */
+async function fetchBDNSDetailsPolite(numConvs: Array<string | number>) {
+  const startedAt = Date.now()
+  const outOfTime = () => Date.now() - startedAt > BDNS_DETAIL_TIME_BUDGET_MS
+  const queue = numConvs.slice()
+  const retryQueue: Array<string | number> = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const details: any[] = []
+  const statuses: Record<string, number> = {}
+  let failed = 0
+  let consecutiveFailures = 0
+  let slowedDown = false
+  let stoppedEarly = false
+  let pauseUntil = 0
+  let lanes = BDNS_DETAIL_CONCURRENCY
+
+  const work = async (lane: number, list: Array<string | number>, isRetry: boolean) => {
+    while (!stoppedEarly && lane < lanes && !outOfTime()) {
+      const wait = pauseUntil - Date.now()
+      if (wait > 0) await sleepMs(wait)
+      const n = list.shift()
+      if (n === undefined) return
+      const out = await fetchBDNSDetailOutcome(n)
+      statuses[out.status] = (statuses[out.status] || 0) + 1
+      if (out.data) {
+        details.push(out.data)
+        consecutiveFailures = 0
+        continue
+      }
+      if (out.status === '404') continue
+      consecutiveFailures++
+      if (isRetry) failed++
+      else retryQueue.push(n)
+      if (consecutiveFailures >= 10) {
+        consecutiveFailures = 0
+        if (!slowedDown) {
+          slowedDown = true
+          lanes = 2
+          pauseUntil = Date.now() + 8000
+        } else {
+          stoppedEarly = true
+        }
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: BDNS_DETAIL_CONCURRENCY }, (_, i) => work(i, queue, false)))
+  if (!stoppedEarly && retryQueue.length > 0 && !outOfTime()) {
+    await sleepMs(1500)
+    const retryList = retryQueue.splice(0)
+    await Promise.all(Array.from({ length: Math.min(lanes, 3) }, (_, i) => work(i, retryList, true)))
+    failed += retryList.length
+  } else {
+    failed += retryQueue.length
+  }
+  return { details, statuses, failed, notAttempted: queue.length, stoppedEarly, elapsedMs: Date.now() - startedAt }
+}
+
+async function fetchBDNSCalls(knownIds: Set<string> = new Set()): Promise<{ calls: NormalizedCall[]; stats: BDNSSyncStats }> {
+  const stats: BDNSSyncStats = {
+    scanned: 0, organoMatched: 0, known: 0, directByTitle: 0, zeroScore: 0, candidates: 0,
+    requested: 0, fetched: 0, failed: 0, pending: 0, stoppedEarly: false, statuses: {}, returned: 0,
+  }
   // ESTRATEGIA: paginar el search SIN filtro de fecha (porque excluye Forthcoming)
   // y filtrar al organo:
   //   - nivel1 = AUTONOMICA → todos (todas las CCAA)
@@ -3885,9 +4029,9 @@ async function fetchBDNSCalls(): Promise<NormalizedCall[]> {
   // páginas son las más recientes. 50 pages × 200 = 10.000 calls cubre ~6 semanas de
   // BDNS activity, más que suficiente para captar Forthcoming + Open recientes.
 
-  // 20 pages × 200 = 4000 calls scanned. Render HTTP timeout ~60s, así que limitamos.
-  // CDTI 912587 (numConv ~912587, top numConv ~913524) está en página 5-7, dentro del rango.
-  const MAX_SEARCH_PAGES = 20
+  // 30 pages × 200 = 6000 calls (unas 3-4 semanas de BDNS). Lo que entra se conserva en
+  // Discovery mientras siga abierto, así que basta con no perder lo recién registrado.
+  const MAX_SEARCH_PAGES = 30
 
   // Patrones de match para nivel2 = ministerios relevantes. Substring match
   // (case-insensitive) para tolerar variaciones del nombre completo.
@@ -3923,86 +4067,114 @@ async function fetchBDNSCalls(): Promise<NormalizedCall[]> {
     return false
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const allRelevantSearchItems = new Map<string | number, { numeroConvocatoria: string | number; nivel1?: string; nivel2?: string }>()
+  const allRelevantSearchItems = new Map<string, BDNSSearchItem>()
+
+  // Una página de búsqueda, con un reintento si BDNS falla
+  const fetchSearchPage = async (queryParams: string, page: number) => {
+    const url = `${BDNS_SEARCH_BASE}?${queryParams}&pageSize=200&page=${page}`
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const resp = await fetch(url, {
+          headers: { Accept: 'application/json', 'User-Agent': 'AlamosInnovacionCRM/1.0' },
+        })
+        if (resp.ok) return await resp.json() as { content?: unknown[]; last?: boolean }
+      } catch {
+        /* se reintenta una vez */
+      }
+      if (attempt === 0) await sleepMs(1500)
+    }
+    return null
+  }
 
   // Helper para paginar un endpoint con filtros opcionales
   const paginatedSearch = async (label: string, queryParams: string, maxPages: number) => {
-    let scanned = 0, relevant = 0
+    let scanned = 0, relevant = 0, failedPages = 0
     let stopPaging = false
-    const SEARCH_BATCH = 5
+    const SEARCH_BATCH = 4
     for (let start = 0; start < maxPages && !stopPaging; start += SEARCH_BATCH) {
       const pages = Array.from({ length: Math.min(SEARCH_BATCH, maxPages - start) }, (_, i) => start + i)
-      const responses = await Promise.all(pages.map(async p => {
-        const url = `${BDNS_SEARCH_BASE}?${queryParams}&pageSize=200&page=${p}`
-        try {
-          const resp = await fetch(url, {
-            headers: { Accept: 'application/json', 'User-Agent': 'AlamosInnovacionCRM/1.0' },
-          })
-          if (!resp.ok) return { page: p, data: null }
-          return { page: p, data: await resp.json() as { content?: unknown[]; last?: boolean } }
-        } catch {
-          return { page: p, data: null }
-        }
-      }))
+      const responses = await Promise.all(pages.map(async p => ({ page: p, data: await fetchSearchPage(queryParams, p) })))
       for (const r of responses) {
-        if (!r.data) continue
-        const pageItems = (r.data.content || []) as Array<{ numeroConvocatoria?: string | number; nivel1?: string; nivel2?: string }>
+        if (!r.data) { failedPages++; continue }
+        const pageItems = (r.data.content || []) as Array<Partial<BDNSSearchItem>>
         scanned += pageItems.length
         for (const it of pageItems) {
-          if (!isRelevantOrgano(it.nivel1, it.nivel2)) continue
           if (it.numeroConvocatoria === undefined || it.numeroConvocatoria === null) continue
-          if (!allRelevantSearchItems.has(it.numeroConvocatoria)) relevant++
-          allRelevantSearchItems.set(it.numeroConvocatoria, {
+          if (!isRelevantOrgano(it.nivel1, it.nivel2)) continue
+          const key = String(it.numeroConvocatoria)
+          if (!allRelevantSearchItems.has(key)) relevant++
+          allRelevantSearchItems.set(key, {
             numeroConvocatoria: it.numeroConvocatoria,
             nivel1: it.nivel1,
             nivel2: it.nivel2,
+            nivel3: it.nivel3,
+            descripcion: it.descripcion,
+            fechaRecepcion: it.fechaRecepcion,
           })
         }
         if (r.data.last || pageItems.length < 200) stopPaging = true
       }
     }
-    console.log(`   ↳ [${label}] scanned ${scanned}, ${relevant} new relevant added`)
+    stats.scanned += scanned
+    console.log(`   ↳ [${label}] scanned ${scanned}, ${relevant} new relevant added${failedPages ? `, ${failedPages} pages failed` : ''}`)
   }
 
   console.log(`📡 BDNS search — pagination + text searches in parallel…`)
-  // 4 estrategias en paralelo para cubrir más coverage:
-  //  1) Recent pagination (calls recientes, captura Forthcoming)
-  //  2) Text "CONSEJERÍA" (típica autonómica — Andalucía, Madrid, Galicia, etc.)
-  //  3) Text "MINISTERIO" (estatal — refuerza ministerios)
-  //  4) Text "AGENCIA" (agencias estatales y autonómicas de innovación)
+  // Estrategias en paralelo (≈42 páginas en total, como antes, para no saturar BDNS):
+  //  1) Lo más reciente (capta Forthcoming y lo recién registrado)
+  //  2-5) Títulos con innovación / investigación / I+D / innovador: llegan más atrás en
+  //       el tiempo a las convocatorias que de verdad interesan
   await Promise.all([
     paginatedSearch('recent', 'vpd=GE', MAX_SEARCH_PAGES),
-    paginatedSearch('CONSEJERÍA', `vpd=GE&descripcion=${encodeURIComponent('CONSEJERÍA')}`, 10),
-    paginatedSearch('MINISTERIO', `vpd=GE&descripcion=${encodeURIComponent('MINISTERIO')}`, 5),
-    paginatedSearch('AGENCIA', `vpd=GE&descripcion=${encodeURIComponent('AGENCIA')}`, 5),
+    paginatedSearch('INNOVACIÓN', `vpd=GE&descripcion=${encodeURIComponent('INNOVACIÓN')}`, 4),
+    paginatedSearch('INVESTIGACIÓN', `vpd=GE&descripcion=${encodeURIComponent('INVESTIGACIÓN')}`, 4),
+    paginatedSearch('I+D', `vpd=GE&descripcion=${encodeURIComponent('I+D')}`, 2),
+    paginatedSearch('INNOVADOR', `vpd=GE&descripcion=${encodeURIComponent('INNOVADOR')}`, 2),
   ])
+  stats.organoMatched = allRelevantSearchItems.size
+  console.log(`   ✓ BDNS search: ${allRelevantSearchItems.size} unique calls passed organo filter across all strategies`)
 
-  const totalScanned = allRelevantSearchItems.size
+  if (allRelevantSearchItems.size === 0) return { calls: [], stats }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const allRelevantSearchItemsArr = Array.from(allRelevantSearchItems.values()) as Array<{ numeroConvocatoria?: string | number; nivel1?: string }>
-  console.log(`   ✓ BDNS search: ${allRelevantSearchItemsArr.length} unique calls passed organo filter across all strategies`)
-  void totalScanned // suprimir TS unused
-
-  if (allRelevantSearchItemsArr.length === 0) return []
-
-  // Paso 2: Detail por cada uno, en batches paralelos
-  const numConvs = allRelevantSearchItemsArr
-    .map(it => it.numeroConvocatoria)
-    .filter((n): n is string | number => n !== undefined && n !== null)
-
-  console.log(`   📡 Fetching ${numConvs.length} BDNS details in batches of ${BDNS_DETAIL_CONCURRENCY}…`)
-  const startMs = Date.now()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const details: any[] = []
-  for (let i = 0; i < numConvs.length; i += BDNS_DETAIL_CONCURRENCY) {
-    const batch = numConvs.slice(i, i + BDNS_DETAIL_CONCURRENCY)
-    const batchResults = await Promise.all(batch.map(n => fetchBDNSDetail(n)))
-    details.push(...batchResults.filter(Boolean))
+  // Paso 2: puntuar con lo que trae la búsqueda (título + órgano) y pedir ficha solo a
+  // las prometedoras, de más a menos relevante y de más nueva a más antigua.
+  const DIRECT_TITLE_RE = /concesi[oó]n\s+directa|nominativ/i
+  const candidates: Array<{ id: string | number; tier: number; num: number }> = []
+  for (const [key, it] of allRelevantSearchItems) {
+    if (knownIds.has(key)) { stats.known++; continue }
+    const title = String(it.descripcion || '').trim()
+    if (title && DIRECT_TITLE_RE.test(title)) { stats.directByTitle++; continue }
+    // Si la búsqueda no trae título no se puede puntuar: se pide la ficha igualmente
+    let score = 50
+    if (title) {
+      score = calculateRdiScore({
+        externalId: key,
+        source: 'BDNS',
+        title,
+        fundingBody: it.nivel3 || it.nivel2 || it.nivel1 || '',
+        program: [it.nivel3, it.nivel2, it.nivel1].filter(Boolean).join(' · '),
+        externalStatus: 'unknown',
+        url: '',
+        actionable: true,
+      }).score
+    }
+    if (score <= 0) { stats.zeroScore++; continue }
+    candidates.push({ id: it.numeroConvocatoria, tier: score >= 70 ? 0 : score >= 50 ? 1 : 2, num: Number(key) || 0 })
   }
-  const elapsed = ((Date.now() - startMs) / 1000).toFixed(1)
-  console.log(`   ✓ Retrieved ${details.length}/${numConvs.length} details in ${elapsed}s`)
+  candidates.sort((a, b) => a.tier - b.tier || b.num - a.num)
+  stats.candidates = candidates.length
+  const toFetch = candidates.slice(0, BDNS_DETAIL_BUDGET)
+  stats.requested = toFetch.length
+
+  console.log(`   📡 Fetching ${toFetch.length}/${candidates.length} BDNS details (known ${stats.known}, direct by title ${stats.directByTitle}, no R+D+i signal ${stats.zeroScore})…`)
+  const pool = await fetchBDNSDetailsPolite(toFetch.map(c => c.id))
+  const details = pool.details
+  stats.fetched = details.length
+  stats.failed = pool.failed
+  stats.statuses = pool.statuses
+  stats.stoppedEarly = pool.stoppedEarly
+  stats.pending = (candidates.length - toFetch.length) + pool.notAttempted + pool.failed
+  console.log(`   ✓ Retrieved ${details.length}/${toFetch.length} details in ${(pool.elapsedMs / 1000).toFixed(1)}s · statuses ${JSON.stringify(pool.statuses)} · pending for next sync ${stats.pending}${pool.stoppedEarly ? ' · STOPPED: BDNS rejecting requests' : ''}`)
 
   // Paso 3a: Filtra por tipoConvocatoria — descartamos Concesión directa
   // (son nominativas con beneficiario predeterminado, no son competitivas, no aplican).
@@ -4023,10 +4195,12 @@ async function fetchBDNSCalls(): Promise<NormalizedCall[]> {
     if (Number.isNaN(t)) return true
     return t >= todayMs
   })
-  console.log(`   📦 BDNS after deadline filter: ${stillOpen.length} (was ${details.length})`)
+  console.log(`   📦 BDNS after deadline filter: ${stillOpen.length} (was ${competitiveDetails.length})`)
 
   // Paso 4: Normaliza
-  return stillOpen.map(d => normalizeBDNSCall(d)).filter(Boolean) as NormalizedCall[]
+  const calls = stillOpen.map(d => normalizeBDNSCall(d)).filter(Boolean) as NormalizedCall[]
+  stats.returned = calls.length
+  return { calls, stats }
 }
 
 function formatBDNSDate(d: Date): string {
@@ -4145,13 +4319,20 @@ function parseSpanishDate(s: string): Date {
    ---------------------------------------------------------- */
 
 app.post('/discovery/sync', requireAuth, async (req, res) => {
-  const { source } = (req.body || {}) as { source?: DiscoverySource | 'all' }
+  const { source, knownIds } = (req.body || {}) as { source?: DiscoverySource | 'all'; knownIds?: unknown }
   const targets: DiscoverySource[] = source === 'all' || !source
     ? ['EU_PORTAL', 'BDNS']
     : [source]
+  // Códigos BDNS que Discovery ya tiene: no se vuelve a pedir su ficha
+  const knownBdns = new Set<string>(
+    Array.isArray(knownIds)
+      ? knownIds.filter(x => typeof x === 'string' || typeof x === 'number').slice(0, 5000).map(String)
+      : []
+  )
 
   const allCalls: NormalizedCall[] = []
   const errors: Record<string, string> = {}
+  let bdnsStats: BDNSSyncStats | undefined
 
   for (const s of targets) {
     try {
@@ -4161,7 +4342,8 @@ app.post('/discovery/sync', requireAuth, async (req, res) => {
         console.log(`   → EU portal returned ${calls.length} calls`)
         allCalls.push(...calls)
       } else if (s === 'BDNS') {
-        const calls = await fetchBDNSCalls()
+        const { calls, stats } = await fetchBDNSCalls(knownBdns)
+        bdnsStats = stats
         console.log(`   → BDNS returned ${calls.length} calls`)
         allCalls.push(...calls)
       }
@@ -4177,6 +4359,7 @@ app.post('/discovery/sync', requireAuth, async (req, res) => {
     const { score, reasons } = calculateRdiScore(c)
     c.rdiScore = score
     c.rdiReasons = reasons
+    c.scoreVersion = RDI_SCORE_VERSION
   }
   const idiHigh = allCalls.filter(c => (c.rdiScore || 0) >= 80).length
   const idiMid = allCalls.filter(c => (c.rdiScore || 0) >= 50 && (c.rdiScore || 0) < 80).length
@@ -4195,6 +4378,7 @@ app.post('/discovery/sync', requireAuth, async (req, res) => {
       idiHigh,
       idiMid,
     },
+    diagnostics: bdnsStats ? { bdns: bdnsStats } : undefined,
   })
 })
 
