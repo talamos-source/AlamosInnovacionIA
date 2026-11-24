@@ -19,6 +19,7 @@ import {
   Compass,
   BookOpen,
   Target,
+  HeartHandshake,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import LoginModal from './LoginModal'
@@ -67,6 +68,7 @@ const Layout = ({ children }: LayoutProps) => {
     { path: '/billing', label: 'Billing', icon: CreditCard },
     { path: '/call-analytics', label: 'Call Analytics', icon: BarChart3 },
     { path: '/other-analytics', label: 'Other Analytics', icon: TrendingUp },
+    ...(user?.role === 'Admin' ? [{ path: '/colabora-admin', label: 'Colabora', icon: HeartHandshake }] : []),
   ]
 
   const filteredNavItems =

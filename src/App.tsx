@@ -25,6 +25,7 @@ import CallAnalytics from './pages/CallAnalytics'
 import OtherAnalytics from './pages/OtherAnalytics'
 import ProfileSettings from './pages/ProfileSettings'
 import Admin from './pages/Admin'
+import ColaboraAdmin from './pages/ColaboraAdmin'
 import CompanySettings from './pages/CompanySettings'
 import InvoicePage from './pages/InvoicePage'
 import LoginPage from './pages/LoginPage'
@@ -76,6 +77,7 @@ const AppRoutes = () => {
         <Route path="/other-analytics" element={isCustomer ? <Navigate to="/projects" replace /> : <OtherAnalytics />} />
         <Route path="/profile" element={<ProfileSettings />} />
         <Route path="/admin" element={isCustomer ? <Navigate to="/projects" replace /> : <Admin />} />
+        <Route path="/colabora-admin" element={isCustomer ? <Navigate to="/projects" replace /> : <ColaboraAdmin />} />
         <Route path="/company-settings" element={isCustomer ? <Navigate to="/projects" replace /> : <CompanySettings />} />
         <Route path="/invoice/:id" element={isCustomer ? <Navigate to="/projects" replace /> : <InvoicePage />} />
         <Route path="*" element={<Navigate to={homeRoute} replace />} />

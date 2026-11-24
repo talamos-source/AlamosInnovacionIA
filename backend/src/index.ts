@@ -114,18 +114,44 @@ const GMAIL_REDIRECT_URI =
 const signToken = (payload: { id: string; email: string; role: string }) =>
   jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' })
 
-const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+/**
+ * Acceso a datos y funciones internas del CRM: SOLO personal (Admin / Worker).
+ * Antes bastaba con un token válido; ahora además se exige rol de personal, de
+ * modo que ninguna otra cuenta (p. ej. rol Customer) lee clientes, proyectos o
+ * facturación por la API. Colabora NO usa estos tokens: tiene su propio acceso
+ * en la web y su propio usuario de base de datos.
+ */
+const STAFF_ROLES = new Set(['Admin', 'Worker'])
+
+type AuthPayload = { id?: string; email?: string; role?: string }
+
+const readAuth = (req: express.Request): AuthPayload | null => {
   const authHeader = req.headers.authorization
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined
-  if (!token) {
-    return res.status(401).json({ error: 'Unauthorized.' })
-  }
+  if (!token) return null
   try {
-    jwt.verify(token, JWT_SECRET)
-    return next()
+    const payload = jwt.verify(token, JWT_SECRET)
+    return typeof payload === 'object' && payload ? (payload as AuthPayload) : null
   } catch {
-    return res.status(401).json({ error: 'Unauthorized.' })
+    return null
   }
+}
+
+const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const payload = readAuth(req)
+  if (!payload) return res.status(401).json({ error: 'Unauthorized.' })
+  if (!payload.role || !STAFF_ROLES.has(payload.role)) {
+    return res.status(403).json({ error: 'Forbidden.' })
+  }
+  return next()
+}
+
+const requireAdmin = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const payload = readAuth(req)
+  if (!payload) return res.status(401).json({ error: 'Unauthorized.' })
+  if (payload.role !== 'Admin') return res.status(403).json({ error: 'Forbidden.' })
+  ;(req as express.Request & { auth?: AuthPayload }).auth = payload
+  return next()
 }
 
 const createResetToken = () => {
@@ -2583,6 +2609,159 @@ app.get('/public/funding-map', async (_req, res) => {
   } catch (error) {
     console.error('Failed to read funding map:', error)
     return res.status(500).json({ error: 'Failed to read funding map.' })
+  }
+})
+
+/* ============================================================
+   COLABORA · Administración desde el CRM (solo rol Admin)
+   ------------------------------------------------------------
+   Los usuarios externos de Colabora NO pasan por aquí: usan la web
+   (www.alamosinnovacion.com/[lang]/colabora) con su propia sesión y el
+   usuario de BD colabora_app, que solo ve el esquema "colabora".
+   Estas rutas usan la conexión del CRM y requieren rol Admin.
+   ============================================================ */
+
+type ColaboraAdminReq = express.Request & { auth?: AuthPayload }
+
+const colaboraEvent = async (actor: string, action: string, resource: string | null, detail: unknown) => {
+  try {
+    await prisma.$executeRawUnsafe(
+      'INSERT INTO colabora.events (actor, action, resource, detail) VALUES ($1, $2, $3, $4::jsonb)',
+      actor, action, resource, JSON.stringify(detail ?? {}),
+    )
+  } catch (err) {
+    console.warn('[colabora] event log failed:', err)
+  }
+}
+
+/** Genera (o rota) la contraseña del usuario de BD restringido y devuelve la cadena para Vercel. */
+app.post('/admin/colabora/db-credentials', requireAdmin, async (req: ColaboraAdminReq, res) => {
+  try {
+    const password = crypto.randomBytes(32).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 36)
+    if (!/^[A-Za-z0-9]{24,}$/.test(password)) throw new Error('password generation failed')
+    await prisma.$executeRawUnsafe(`ALTER ROLE colabora_app WITH LOGIN PASSWORD '${password}'`)
+    const dbUrl = new URL(process.env.DATABASE_URL || '')
+    let host = dbUrl.hostname
+    // En Render, DATABASE_URL usa el host interno ("dpg-xxx-a"); Vercel necesita el externo.
+    if (!host.includes('.')) host = `${host}.${process.env.RENDER_PG_REGION || 'oregon'}-postgres.render.com`
+    const connectionString = `postgresql://colabora_app:${password}@${host}:${dbUrl.port || '5432'}${dbUrl.pathname}?sslmode=require`
+    await colaboraEvent(`admin:${req.auth?.email || '?'}`, 'db_credentials_rotated', null, {})
+    return res.json({ connectionString })
+  } catch (error) {
+    console.error('colabora db-credentials error:', error)
+    return res.status(500).json({ error: 'No se pudieron generar las credenciales.' })
+  }
+})
+
+app.get('/admin/colabora/overview', requireAdmin, async (_req, res) => {
+  try {
+    const byState = await prisma.$queryRawUnsafe<Array<{ state: string; n: number }>>(
+      'SELECT state, count(*)::int AS n FROM colabora.listings GROUP BY state',
+    )
+    const [{ accounts, suspended, pending, support, linkedin }] = await prisma.$queryRawUnsafe<Array<{
+      accounts: number; suspended: number; pending: number; support: number; linkedin: number
+    }>>(
+      `SELECT
+         (SELECT count(*)::int FROM colabora.accounts) AS accounts,
+         (SELECT count(*)::int FROM colabora.accounts WHERE status = 'suspended') AS suspended,
+         (SELECT count(*)::int FROM colabora.listings WHERE state = 'pendiente' OR review_pending) AS pending,
+         (SELECT count(*)::int FROM colabora.listings WHERE wants_support) AS support,
+         (SELECT count(*)::int FROM colabora.listings WHERE linkedin_authorized AND state = 'publicado') AS linkedin`,
+    )
+    return res.json({ byState, accounts, suspended, pending, support, linkedin })
+  } catch (error) {
+    console.error('colabora overview error:', error)
+    return res.status(500).json({ error: 'Colabora no está inicializado todavía.' })
+  }
+})
+
+app.get('/admin/colabora/listings', requireAdmin, async (req, res) => {
+  const filter = String(req.query.filter || 'all')
+  const where =
+    filter === 'pending' ? `WHERE (l.state = 'pendiente' OR l.review_pending)` :
+    filter === 'published' ? `WHERE l.state = 'publicado'` :
+    filter === 'support' ? `WHERE l.wants_support` :
+    filter === 'linkedin' ? `WHERE l.linkedin_authorized` :
+    ''
+  try {
+    const rows = await prisma.$queryRawUnsafe<unknown[]>(
+      `SELECT l.id, l.public_id, l.call_id, l.call_title, l.call_close_date, l.mode, l.collab_type,
+              l.title, l.summary, l.details, l.specialties, l.phase, l.state, l.close_reason,
+              l.review_flags, l.review_pending, l.published_snapshot, l.entity_label, l.contact_name,
+              l.contact_email, l.contact_phone, l.wants_support, l.linkedin_authorized,
+              l.created_at, l.updated_at, l.published_at, a.email AS account_email, a.status AS account_status
+         FROM colabora.listings l JOIN colabora.accounts a ON a.id = l.account_id
+         ${where}
+         ORDER BY l.updated_at DESC LIMIT 500`,
+    )
+    return res.json({ listings: rows })
+  } catch (error) {
+    console.error('colabora listings error:', error)
+    return res.status(500).json({ error: 'No se pudieron cargar los anuncios.' })
+  }
+})
+
+app.post('/admin/colabora/listings/:id/action', requireAdmin, async (req: ColaboraAdminReq, res) => {
+  const { action, reason } = (req.body || {}) as { action?: string; reason?: string }
+  const id = String(req.params.id || '')
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'id inválido' })
+  const sql: Record<string, string> = {
+    approve: `UPDATE colabora.listings l SET state = 'publicado', review_flags = '{}', review_pending = false,
+                published_snapshot = colabora.public_snapshot(l), published_at = COALESCE(l.published_at, now()),
+                updated_at = now() WHERE id = $1::uuid RETURNING id`,
+    reject: `UPDATE colabora.listings SET state = 'rechazado', review_pending = false, close_reason = $2,
+               updated_at = now() WHERE id = $1::uuid RETURNING id`,
+    pause: `UPDATE colabora.listings SET state = 'pausado', updated_at = now() WHERE id = $1::uuid RETURNING id`,
+    retire: `UPDATE colabora.listings SET state = 'cerrado', close_reason = 'retirado_admin', closed_at = now(),
+               updated_at = now() WHERE id = $1::uuid RETURNING id`,
+  }
+  if (!action || !sql[action]) return res.status(400).json({ error: 'acción no válida' })
+  try {
+    const params: unknown[] = action === 'reject' ? [id, String(reason || 'no_cumple_condiciones').slice(0, 300)] : [id]
+    const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(sql[action], ...params)
+    if (rows.length === 0) return res.status(404).json({ error: 'No encontrado' })
+    await colaboraEvent(`admin:${req.auth?.email || '?'}`, `listing_${action}`, id, { reason: reason || null })
+    return res.json({ ok: true })
+  } catch (error) {
+    console.error('colabora listing action error:', error)
+    return res.status(500).json({ error: 'No se pudo aplicar la acción.' })
+  }
+})
+
+app.get('/admin/colabora/accounts', requireAdmin, async (_req, res) => {
+  try {
+    const rows = await prisma.$queryRawUnsafe<unknown[]>(
+      `SELECT a.id, a.email, a.status, a.created_at, a.last_login_at,
+              p.contact_name, p.entity_name, p.entity_type, p.country,
+              (SELECT count(*)::int FROM colabora.listings l WHERE l.account_id = a.id) AS listings
+         FROM colabora.accounts a LEFT JOIN colabora.profiles p ON p.account_id = a.id
+        ORDER BY a.created_at DESC LIMIT 500`,
+    )
+    return res.json({ accounts: rows })
+  } catch (error) {
+    console.error('colabora accounts error:', error)
+    return res.status(500).json({ error: 'No se pudieron cargar los usuarios.' })
+  }
+})
+
+app.post('/admin/colabora/accounts/:id/status', requireAdmin, async (req: ColaboraAdminReq, res) => {
+  const id = String(req.params.id || '')
+  const { status, reason } = (req.body || {}) as { status?: string; reason?: string }
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'id inválido' })
+  if (status !== 'active' && status !== 'suspended') return res.status(400).json({ error: 'estado no válido' })
+  try {
+    const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
+      'UPDATE colabora.accounts SET status = $2 WHERE id = $1::uuid RETURNING id', id, status,
+    )
+    if (rows.length === 0) return res.status(404).json({ error: 'No encontrado' })
+    if (status === 'suspended') {
+      await prisma.$executeRawUnsafe('DELETE FROM colabora.sessions WHERE account_id = $1::uuid', id)
+    }
+    await colaboraEvent(`admin:${req.auth?.email || '?'}`, `account_${status}`, id, { reason: reason || null })
+    return res.json({ ok: true })
+  } catch (error) {
+    console.error('colabora account status error:', error)
+    return res.status(500).json({ error: 'No se pudo cambiar el estado.' })
   }
 })
 
