@@ -11,7 +11,31 @@ import './ColaboraAdmin.css'
    usan la web con su propia sesión y su propio usuario de BD.
    ============================================================ */
 
-type Tab = 'pending' | 'published' | 'all' | 'support' | 'linkedin' | 'accounts' | 'config'
+type Tab = 'pending' | 'published' | 'all' | 'support' | 'linkedin' | 'requests' | 'accounts' | 'config'
+
+interface AdminRequest {
+  id: string
+  status: string
+  created_at: string
+  responded_at: string | null
+  listing_title: string | null
+  call_title: string | null
+  message: string
+  requester_email: string
+  owner_email: string
+  public_id: string | null
+}
+
+interface AdminReport {
+  id: string
+  reason: string
+  status: string
+  created_at: string
+  reporter_email: string | null
+  listing_title: string | null
+  request_status: string | null
+  public_id: string | null
+}
 
 interface AdminListing {
   id: string
@@ -65,6 +89,13 @@ interface Overview {
   pending: number
   support: number
   linkedin: number
+  requestsPending?: number
+  connections?: number
+  reportsOpen?: number
+}
+
+const REQUEST_STATE: Record<string, string> = {
+  pendiente: 'Pendiente', aceptada: 'Aceptada', rechazada: 'No aceptada', retirada: 'Retirada', caducada: 'Caducada',
 }
 
 const WEB_URL = 'https://www.alamosinnovacion.com/es/colabora'
@@ -81,6 +112,7 @@ const TABS: Array<{ key: Tab; label: string }> = [
   { key: 'all', label: 'Todos' },
   { key: 'support', label: 'Piden apoyo' },
   { key: 'linkedin', label: 'LinkedIn autorizados' },
+  { key: 'requests', label: 'Solicitudes de contacto' },
   { key: 'accounts', label: 'Usuarios' },
   { key: 'config', label: 'Configuración' },
 ]
@@ -123,6 +155,8 @@ const ColaboraAdmin = () => {
   const [overview, setOverview] = useState<Overview | null>(null)
   const [listings, setListings] = useState<AdminListing[]>([])
   const [accounts, setAccounts] = useState<AdminAccount[]>([])
+  const [requests, setRequests] = useState<AdminRequest[]>([])
+  const [reports, setReports] = useState<AdminReport[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -138,6 +172,10 @@ const ColaboraAdmin = () => {
       setOverview(await api<Overview>('/admin/colabora/overview'))
       if (tab === 'accounts') {
         setAccounts((await api<{ accounts: AdminAccount[] }>('/admin/colabora/accounts')).accounts)
+      } else if (tab === 'requests') {
+        const r = await api<{ requests: AdminRequest[]; reports: AdminReport[] }>('/admin/colabora/requests')
+        setRequests(r.requests)
+        setReports(r.reports)
       } else if (tab !== 'config') {
         setListings((await api<{ listings: AdminListing[] }>(`/admin/colabora/listings?filter=${tab}`)).listings)
       }
@@ -211,6 +249,18 @@ const ColaboraAdmin = () => {
     }
   }
 
+  const markReportReviewed = async (id: string) => {
+    setBusy(id)
+    try {
+      await api(`/admin/colabora/reports/${id}/status`, { method: 'POST', body: '{}' })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error')
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const generateCredentials = async () => {
     if (!window.confirm('Se generará una contraseña nueva para el usuario de base de datos de Colabora. La anterior dejará de funcionar hasta que actualices Vercel. ¿Continuar?')) return
     setBusy('config')
@@ -249,6 +299,9 @@ const ColaboraAdmin = () => {
         <div className="ca-kpi"><span>{overview?.suspended ?? '—'}</span>Suspendidos</div>
         <div className="ca-kpi"><span>{overview?.support ?? '—'}</span>Piden apoyo</div>
         <div className="ca-kpi"><span>{overview?.linkedin ?? '—'}</span>LinkedIn autorizados</div>
+        <div className="ca-kpi"><span>{overview?.requestsPending ?? '—'}</span>Solicitudes pendientes</div>
+        <div className="ca-kpi"><span>{overview?.connections ?? '—'}</span>Conexiones aceptadas</div>
+        <div className="ca-kpi"><span>{overview?.reportsOpen ?? '—'}</span>Denuncias abiertas</div>
       </div>
 
       <nav className="ca-tabs" role="tablist">
@@ -298,6 +351,71 @@ const ColaboraAdmin = () => {
         </section>
       )}
 
+      {tab === 'requests' && (
+        <section className="ca-requests">
+          <p className="ca-hint">
+            Las partes solo ven los datos de contacto de la otra cuando la solicitud se acepta. Aquí se ven los correos de las cuentas para operar el servicio.
+          </p>
+          <div className="ca-table-wrap">
+            <table className="ca-table">
+              <thead>
+                <tr><th>Fecha</th><th>Anuncio</th><th>Solicita</th><th>Autor del anuncio</th><th>Estado</th><th>Respuesta</th></tr>
+              </thead>
+              <tbody>
+                {requests.length === 0 && <tr><td colSpan={6} className="ca-empty">Sin solicitudes todavía.</td></tr>}
+                {requests.map((r) => (
+                  <tr key={r.id} title={r.message}>
+                    <td>{fmt(r.created_at)}</td>
+                    <td>
+                      {r.public_id ? (
+                        <a className="ca-link" href={publicUrl(r.public_id)} target="_blank" rel="noopener noreferrer">{r.listing_title || '—'}</a>
+                      ) : (r.listing_title || 'Anuncio eliminado')}
+                      <div className="ca-hint">{r.call_title || ''}</div>
+                    </td>
+                    <td>{r.requester_email}</td>
+                    <td>{r.owner_email}</td>
+                    <td><span className={`ca-state ca-state--${r.status}`}>{REQUEST_STATE[r.status] || r.status}</span></td>
+                    <td>{fmt(r.responded_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <h2 className="ca-subtitle">Denuncias</h2>
+          {reports.length === 0 ? (
+            <p className="ca-empty">Sin denuncias.</p>
+          ) : (
+            <ul className="ca-list">
+              {reports.map((rp) => (
+                <li key={rp.id} className="ca-item">
+                  <div className="ca-item__head">
+                    <div>
+                      <p className="ca-item__meta">
+                        <span className={`ca-state ca-state--${rp.status === 'abierta' ? 'pendiente' : 'publicado'}`}>{rp.status === 'abierta' ? 'Abierta' : 'Revisada'}</span>
+                        <span>{fmt(rp.created_at)}</span>
+                        <span>De: {rp.reporter_email || '—'}</span>
+                        {rp.request_status && <span>Solicitud: {REQUEST_STATE[rp.request_status] || rp.request_status}</span>}
+                      </p>
+                      <h3 className="ca-item__title">{rp.listing_title || 'Anuncio eliminado'}</h3>
+                      <p className="ca-text">{rp.reason}</p>
+                    </div>
+                    <div className="ca-item__actions">
+                      {rp.public_id && (
+                        <a className="ca-link" href={publicUrl(rp.public_id)} target="_blank" rel="noopener noreferrer">Ver anuncio ↗</a>
+                      )}
+                      {rp.status === 'abierta' && (
+                        <button type="button" className="btn-secondary" disabled={busy === rp.id} onClick={() => void markReportReviewed(rp.id)}>Marcar revisada</button>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
       {tab === 'accounts' && (
         <div className="ca-table-wrap">
           <table className="ca-table">
@@ -329,7 +447,7 @@ const ColaboraAdmin = () => {
         </div>
       )}
 
-      {tab !== 'accounts' && tab !== 'config' && (
+      {tab !== 'accounts' && tab !== 'config' && tab !== 'requests' && (
         <ul className="ca-list">
           {!loading && listings.length === 0 && <li className="ca-empty">No hay anuncios en esta vista.</li>}
           {listings.map((l) => (

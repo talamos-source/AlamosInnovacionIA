@@ -2668,10 +2668,66 @@ app.get('/admin/colabora/overview', requireAdmin, async (_req, res) => {
          (SELECT count(*)::int FROM colabora.listings WHERE wants_support) AS support,
          (SELECT count(*)::int FROM colabora.listings WHERE linkedin_authorized AND state = 'publicado') AS linkedin`,
     )
-    return res.json({ byState, accounts, suspended, pending, support, linkedin })
+    // Fase 2 (solicitudes): si la migración aún no está aplicada, cifras a 0
+    let requestsPending = 0, connections = 0, reportsOpen = 0
+    try {
+      const [r] = await prisma.$queryRawUnsafe<Array<{ requestsPending: number; connections: number; reportsOpen: number }>>(
+        `SELECT
+           (SELECT count(*)::int FROM colabora.contact_requests WHERE status = 'pendiente') AS "requestsPending",
+           (SELECT count(*)::int FROM colabora.contact_requests WHERE status = 'aceptada') AS connections,
+           (SELECT count(*)::int FROM colabora.reports WHERE status = 'abierta') AS "reportsOpen"`,
+      )
+      ;({ requestsPending, connections, reportsOpen } = r)
+    } catch { /* sin tablas de fase 2 */ }
+    return res.json({ byState, accounts, suspended, pending, support, linkedin, requestsPending, connections, reportsOpen })
   } catch (error) {
     console.error('colabora overview error:', error)
     return res.status(500).json({ error: 'Colabora no está inicializado todavía.' })
+  }
+})
+
+/** Solicitudes de contacto y denuncias (solo lectura para administración, con motivo registrado). */
+app.get('/admin/colabora/requests', requireAdmin, async (_req, res) => {
+  try {
+    const requests = await prisma.$queryRawUnsafe<unknown[]>(
+      `SELECT r.id, r.status, r.created_at, r.responded_at, r.listing_title, r.call_title, r.message,
+              ra.email AS requester_email, oa.email AS owner_email, l.public_id
+         FROM colabora.contact_requests r
+         JOIN colabora.accounts ra ON ra.id = r.requester_id
+         JOIN colabora.accounts oa ON oa.id = r.owner_id
+         LEFT JOIN colabora.listings l ON l.id = r.listing_id
+        ORDER BY r.created_at DESC LIMIT 500`,
+    )
+    const reports = await prisma.$queryRawUnsafe<unknown[]>(
+      `SELECT rp.id, rp.reason, rp.status, rp.created_at, a.email AS reporter_email,
+              r.listing_title, r.status AS request_status, l.public_id
+         FROM colabora.reports rp
+         LEFT JOIN colabora.accounts a ON a.id = rp.reporter_id
+         LEFT JOIN colabora.contact_requests r ON r.id = rp.request_id
+         LEFT JOIN colabora.listings l ON l.id = rp.listing_id
+        ORDER BY rp.created_at DESC LIMIT 200`,
+    )
+    return res.json({ requests, reports })
+  } catch (error) {
+    console.error('colabora requests error:', error)
+    return res.status(500).json({ error: 'Las solicitudes aún no están disponibles (despliega el backend).' })
+  }
+})
+
+app.post('/admin/colabora/reports/:id/status', requireAdmin, async (req: ColaboraAdminReq, res) => {
+  const id = String(req.params.id || '')
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'id inválido' })
+  try {
+    const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
+      `UPDATE colabora.reports SET status = 'revisada' WHERE id = $1::uuid RETURNING id`,
+      id,
+    )
+    if (rows.length === 0) return res.status(404).json({ error: 'No encontrado' })
+    await colaboraEvent(`admin:${req.auth?.email || '?'}`, 'report_reviewed', id, {})
+    return res.json({ ok: true })
+  } catch (error) {
+    console.error('colabora report status error:', error)
+    return res.status(500).json({ error: 'No se pudo actualizar.' })
   }
 })
 
@@ -2724,6 +2780,13 @@ app.post('/admin/colabora/listings/:id/action', requireAdmin, async (req: Colabo
     const params: unknown[] = action === 'reject' ? [id, String(reason || 'no_cumple_condiciones').slice(0, 300)] : [id]
     const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(sql[action], ...params)
     if (rows.length === 0) return res.status(404).json({ error: 'No encontrado' })
+    if (action === 'retire' || action === 'reject') {
+      // Un anuncio retirado deja de admitir solicitudes: las pendientes caducan
+      await prisma.$executeRawUnsafe(
+        `UPDATE colabora.contact_requests SET status = 'caducada', updated_at = now() WHERE listing_id = $1::uuid AND status = 'pendiente'`,
+        id,
+      ).catch(() => { /* sin tablas de fase 2 */ })
+    }
     const detail: Record<string, unknown> = { reason: reason || null }
     if (action === 'linkedin_shared') {
       const snap = await prisma.$queryRawUnsafe<Array<{ title: string | null; summary: string | null }>>(
