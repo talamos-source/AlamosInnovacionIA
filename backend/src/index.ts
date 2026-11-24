@@ -2685,7 +2685,7 @@ app.get('/admin/colabora/listings', requireAdmin, async (req, res) => {
     ''
   try {
     const rows = await prisma.$queryRawUnsafe<unknown[]>(
-      `SELECT l.id, l.public_id, l.call_id, l.call_title, l.call_close_date, l.mode, l.collab_type,
+      `SELECT l.id, l.public_id, l.call_id, l.call_title, l.call_programme, l.call_close_date, l.mode, l.collab_type,
               l.title, l.summary, l.details, l.specialties, l.phase, l.state, l.close_reason,
               l.review_flags, l.review_pending, l.published_snapshot, l.entity_label, l.contact_name,
               l.contact_email, l.contact_phone, l.wants_support, l.linkedin_authorized,
@@ -2714,13 +2714,26 @@ app.post('/admin/colabora/listings/:id/action', requireAdmin, async (req: Colabo
     pause: `UPDATE colabora.listings SET state = 'pausado', updated_at = now() WHERE id = $1::uuid RETURNING id`,
     retire: `UPDATE colabora.listings SET state = 'cerrado', close_reason = 'retirado_admin', closed_at = now(),
                updated_at = now() WHERE id = $1::uuid RETURNING id`,
+    // Difusión manual supervisada: no cambia el anuncio, solo deja constancia de qué
+    // versión pública se compartió y cuándo (requiere autorización y anuncio publicado)
+    linkedin_shared: `SELECT id FROM colabora.listings
+                       WHERE id = $1::uuid AND linkedin_authorized AND state = 'publicado' AND published_snapshot IS NOT NULL`,
   }
   if (!action || !sql[action]) return res.status(400).json({ error: 'acción no válida' })
   try {
     const params: unknown[] = action === 'reject' ? [id, String(reason || 'no_cumple_condiciones').slice(0, 300)] : [id]
     const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(sql[action], ...params)
     if (rows.length === 0) return res.status(404).json({ error: 'No encontrado' })
-    await colaboraEvent(`admin:${req.auth?.email || '?'}`, `listing_${action}`, id, { reason: reason || null })
+    const detail: Record<string, unknown> = { reason: reason || null }
+    if (action === 'linkedin_shared') {
+      const snap = await prisma.$queryRawUnsafe<Array<{ title: string | null; summary: string | null }>>(
+        `SELECT published_snapshot->>'title' AS title, published_snapshot->>'summary' AS summary
+           FROM colabora.listings WHERE id = $1::uuid`,
+        id,
+      )
+      detail.sharedVersion = { title: snap[0]?.title || null, summary: snap[0]?.summary || null }
+    }
+    await colaboraEvent(`admin:${req.auth?.email || '?'}`, `listing_${action}`, id, detail)
     return res.json({ ok: true })
   } catch (error) {
     console.error('colabora listing action error:', error)

@@ -18,6 +18,7 @@ interface AdminListing {
   public_id: string
   call_id: string
   call_title: string
+  call_programme: string | null
   call_close_date: string | null
   mode: string
   collab_type: string
@@ -30,7 +31,7 @@ interface AdminListing {
   close_reason: string | null
   review_flags: string[]
   review_pending: boolean
-  published_snapshot: { title?: string; summary?: string } | null
+  published_snapshot: { title?: string; summary?: string; mode?: string; collabType?: string; specialties?: string[] } | null
   entity_label: string | null
   contact_name: string | null
   contact_email: string | null
@@ -85,6 +86,25 @@ const TABS: Array<{ key: Tab; label: string }> = [
 
 const fmt = (s?: string | null) => (s ? new Date(s).toLocaleString('es-ES', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—')
 
+/* ---------- Difusión en LinkedIn (manual supervisada) ---------- */
+
+const publicUrl = (publicId: string) => `https://www.alamosinnovacion.com/es/colabora/anuncios/${publicId}`
+const linkedInShareUrl = (url: string) => `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`
+
+/** Texto sugerido: SOLO la versión pública aprobada y la convocatoria; nunca entidad, persona ni contacto. */
+function linkedInText(l: AdminListing): string | null {
+  const s = l.published_snapshot
+  if (!s?.title) return null
+  const type = (TYPE[s.collabType || l.collab_type] || '').toLowerCase()
+  const lead = `${(s.mode || l.mode) === 'busco' ? 'Se busca' : 'Se ofrece'} ${type} para la convocatoria ${l.call_title}${l.call_programme ? ` (${l.call_programme})` : ''}.`
+  const tags = s.specialties?.length ? ['', `Especialidades: ${s.specialties.join(', ')}`] : []
+  return [
+    lead, '', s.title, s.summary || '', ...tags, '',
+    'Detalle y contacto gratuito en Colabora, de Álamos Innovación (la identidad solo se comparte cuando ambas partes aceptan):',
+    publicUrl(l.public_id),
+  ].join('\n')
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const token = localStorage.getItem('authToken') || ''
   const res = await fetch(`${getAiApiBase()}${path}`, {
@@ -108,6 +128,7 @@ const ColaboraAdmin = () => {
   const [busy, setBusy] = useState<string | null>(null)
   const [conn, setConn] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [copiedShare, setCopiedShare] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -155,6 +176,25 @@ const ColaboraAdmin = () => {
     } finally {
       setBusy(null)
     }
+  }
+
+  const copyShareText = async (l: AdminListing) => {
+    const text = linkedInText(l)
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedShare(l.id)
+      setTimeout(() => setCopiedShare(null), 2000)
+    } catch {
+      window.prompt('Copia el texto:', text)
+    }
+  }
+
+  /** Abre la ventana de LinkedIn (en el mismo clic, para que no la bloquee el navegador) y deja constancia. */
+  const shareOnLinkedIn = (l: AdminListing) => {
+    window.open(linkedInShareUrl(publicUrl(l.public_id)), '_blank', 'noopener,noreferrer')
+    void api(`/admin/colabora/listings/${l.id}/action`, { method: 'POST', body: JSON.stringify({ action: 'linkedin_shared' }) })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Error'))
   }
 
   const setAccountStatus = async (id: string, status: 'active' | 'suspended') => {
@@ -324,6 +364,29 @@ const ColaboraAdmin = () => {
                   </button>
                 </div>
               </div>
+              {tab === 'linkedin' && (
+                <div className="ca-share">
+                  {l.state === 'publicado' && linkedInText(l) ? (
+                    <>
+                      <p className="ca-label">Texto para LinkedIn · versión pública aprobada, sin entidad, persona ni contacto</p>
+                      {l.review_pending && <p className="ca-hint">Hay una edición pendiente de revisión: se comparte la versión pública actual.</p>}
+                      <pre className="ca-share__text">{linkedInText(l)}</pre>
+                      <div className="ca-share__actions">
+                        <button type="button" className="btn-secondary" onClick={() => void copyShareText(l)}>
+                          {copiedShare === l.id ? <Check size={14} /> : <Copy size={14} />} {copiedShare === l.id ? 'Copiado' : 'Copiar texto'}
+                        </button>
+                        <button type="button" className="btn-primary" onClick={() => shareOnLinkedIn(l)}>
+                          <ExternalLink size={14} /> Compartir en LinkedIn
+                        </button>
+                        <a className="ca-link" href={publicUrl(l.public_id)} target="_blank" rel="noopener noreferrer">Ver ficha pública ↗</a>
+                      </div>
+                      <p className="ca-hint">LinkedIn mostrará la tarjeta del anuncio (título, convocatoria y especialidades). Pega el texto, revísalo y publica desde la página de Álamos Innovación.</p>
+                    </>
+                  ) : (
+                    <p className="ca-hint">Solo se puede difundir cuando el anuncio está publicado.</p>
+                  )}
+                </div>
+              )}
               {expanded === l.id && (
                 <div className="ca-item__body">
                   <div>

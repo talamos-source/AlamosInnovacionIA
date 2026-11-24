@@ -54,6 +54,14 @@
 .ca-spin { animation: ca-spin 0.9s linear infinite; }
 @keyframes ca-spin { to { transform: rotate(360deg); } }
 
+/* Difusión en LinkedIn */
+.ca-share { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border-subtle); display: grid; gap: 6px; }
+.ca-share__text {
+  margin: 0; padding: 12px 14px; white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: var(--font-size-sm);
+  line-height: 1.5; background: var(--color-bg-subtle, #f7f5f2); border: 1px solid var(--color-border-subtle); border-radius: 6px;
+}
+.ca-share__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+
 @media (max-width: 1100px) {
   .ca-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ca-item__head, .ca-item__body { grid-template-columns: minmax(0, 1fr); display: grid; }
