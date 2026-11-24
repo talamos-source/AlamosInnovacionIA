@@ -82,11 +82,13 @@ export function organismLine(call: TriageInput): string {
    Concesión directa / nominativa
    ---------------------------------------------------------- */
 
-const DIRECT_PATTERNS: Array<{ re: RegExp; label: string }> = [
-  { re: /concesion directa/, label: 'concesión directa' },
+/** openCall: no cuenta como directa si hay convocatoria pública (ver OPEN_CALL_RE). */
+const DIRECT_PATTERNS: Array<{ re: RegExp; label: string; openCall?: boolean }> = [
+  { re: /concesion directa\s*[-–—]?\s*instrumental/, label: 'registro instrumental, sin convocatoria' },
+  { re: /concesion directa/, label: 'concesión directa', openCall: true },
   { re: /\bnominativa/, label: 'subvención nominativa' },
   { re: /excluida de (la )?concurrencia/, label: 'excluida de concurrencia' },
-  { re: /sin concurrencia( competitiva)?/, label: 'sin concurrencia competitiva' },
+  { re: /sin concurrencia( competitiva)?/, label: 'sin concurrencia competitiva', openCall: true },
   { re: /\bse conceden? (una |la |las )?(subvencion|ayuda|aportacion)/, label: 'acto de concesión a beneficiario concreto' },
   { re: /\bacuerdo de concesion\b/, label: 'acuerdo de concesión' },
   { re: /aportaciones? dinerarias?/, label: 'aportación dineraria' },
@@ -94,17 +96,24 @@ const DIRECT_PATTERNS: Array<{ re: RegExp; label: string }> = [
   { re: /encomienda de gestion|\bencargo a medio propio/, label: 'encargo / encomienda' },
 ]
 
+/** Concesión directa CON convocatoria pública: cualquiera que cumpla requisitos puede
+ *  pedirla hasta agotar crédito (p. ej. GoToMarket Extremadura; en BDNS
+ *  "Concesión directa - canónica"). Sí admite solicitud. */
+const OPEN_CALL_RE = /\bconvoca|canonica|convocatoria abierta|hasta agotar(se)? (el )?credito/
+
 export function detectDirectAward(call: TriageInput): { isDirect: boolean; reason?: string } {
   if (call.aiDirectAward) {
     return { isDirect: true, reason: 'Concesión directa o beneficiario predeterminado (detectado por IA)' }
   }
   if (call.source === 'EU_PORTAL') return { isDirect: false }
   const text = `${norm(call.title)} ${norm(call.typeOfAction)}`
+  const openCall = OPEN_CALL_RE.test(text)
   // Si el texto habla de convocar/bases reguladoras y NO de concesión directa,
   // damos prioridad a que es competitiva (evita falsos positivos tipo
   // "se convocan ayudas ... y se conceden…").
   for (const p of DIRECT_PATTERNS) {
     if (p.re.test(text)) {
+      if (p.openCall && openCall) continue
       if (p.label === 'acto de concesión a beneficiario concreto' && /\bconvoca|bases reguladoras|concurrencia competitiva/.test(text)) {
         continue
       }

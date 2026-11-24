@@ -2779,9 +2779,9 @@ Para cada convocatoria asigna una banda de relevancia para la consultora:
 - "high": convocatoria competitiva que financia proyectos de I+D, innovación tecnológica, transferencia de tecnología, startups o empresas de base tecnológica, digitalización avanzada (IA, datos, ciberseguridad, industria 4.0) o talento investigador vinculado a empresa (Torres Quevedo, doctorados industriales). Encaje directo: la consultora podría preparar la solicitud para un cliente.
 - "medium": encaje parcial o indirecto: beneficiarios solo universidades u organismos públicos de investigación, clústeres o agrupaciones empresariales innovadoras, innovación no tecnológica, internacionalización, eficiencia energética o economía circular con componente tecnológico, formación especializada en I+D.
 - "low": relación débil con I+D+i (inversión productiva genérica, empleo, comercio, turismo, modernización sin innovación).
-- "excluded": fuera de perfil (cultura, deporte, servicios sociales, educación no investigadora, ayuntamientos o entidades locales como únicos beneficiarios, agricultura o ganadería ordinaria, eventos, becas de estudio) o SIN concurrencia.
+- "excluded": fuera de perfil (cultura, deporte, servicios sociales, educación no investigadora, ayuntamientos o entidades locales como únicos beneficiarios, agricultura o ganadería ordinaria, eventos, becas de estudio) o sin posibilidad de presentar solicitud (beneficiario predeterminado).
 
-"directAward": true si es concesión directa, nominativa o con beneficiario predeterminado (no se puede solicitar en concurrencia). En ese caso band = "excluded".
+"directAward": true SOLO si nadie puede presentar solicitud: subvención nominativa, concesión a una entidad concreta con nombre, aportación o transferencia a un organismo público, encargo a medio propio (en BDNS suele figurar como "Concesión directa - instrumental"). OJO: varias comunidades (p. ej. Extremadura) convocan ayudas "en régimen de concesión directa" con convocatoria pública y plazo, que cualquier empresa que cumpla los requisitos puede solicitar hasta agotar el crédito (en BDNS suele figurar como "Concesión directa - canónica"): eso NO es directAward (false) y se valora como cualquier otra convocatoria. Si directAward es true, band = "excluded".
 
 "reason": 1-2 frases en español (máximo 35 palabras) que expliquen qué financia y por qué tiene ese encaje. No repitas el título.
 
@@ -4138,12 +4138,19 @@ async function fetchBDNSCalls(knownIds: Set<string> = new Set()): Promise<{ call
 
   // Paso 2: puntuar con lo que trae la búsqueda (título + órgano) y pedir ficha solo a
   // las prometedoras, de más a menos relevante y de más nueva a más antigua.
-  const DIRECT_TITLE_RE = /concesi[oó]n\s+directa|nominativ/i
+  // Por el título solo se descartan las que claramente no admiten solicitud: nominativas o
+  // "concesión directa" sin convocatoria. Las de concesión directa CON convocatoria (p. ej.
+  // GoToMarket Extremadura: se piden hasta agotar crédito) sí interesan.
+  const isDirectByTitle = (title: string) => {
+    const t = foldAccents(title)
+    if (/nominativ/.test(t)) return true
+    return /concesion\s+directa/.test(t) && !/convoca|convocatoria abierta|hasta agotar/.test(t)
+  }
   const candidates: Array<{ id: string | number; tier: number; num: number }> = []
   for (const [key, it] of allRelevantSearchItems) {
     if (knownIds.has(key)) { stats.known++; continue }
     const title = String(it.descripcion || '').trim()
-    if (title && DIRECT_TITLE_RE.test(title)) { stats.directByTitle++; continue }
+    if (title && isDirectByTitle(title)) { stats.directByTitle++; continue }
     // Si la búsqueda no trae título no se puede puntuar: se pide la ficha igualmente
     let score = 50
     if (title) {
@@ -4178,10 +4185,14 @@ async function fetchBDNSCalls(knownIds: Set<string> = new Set()): Promise<{ call
 
   // Paso 3a: Filtra por tipoConvocatoria — descartamos Concesión directa
   // (son nominativas con beneficiario predeterminado, no son competitivas, no aplican).
+  // Solo fuera las que no tienen convocatoria pública: "Concesión directa - instrumental"
+  // (nominativas, beneficiario predeterminado). "Concesión directa - canónica" sí tiene
+  // convocatoria y cualquiera que cumpla requisitos puede pedirla (p. ej. GoToMarket).
   const beforeTipoFilter = details.length
   const competitiveDetails = details.filter(d => {
-    const tipo = String(d?.tipoConvocatoria || '').toUpperCase()
-    if (tipo.includes('CONCESIÓN DIRECTA') || tipo.includes('CONCESION DIRECTA')) return false
+    const tipo = foldAccents(String(d?.tipoConvocatoria || ''))
+    if (tipo.includes('instrumental')) return false
+    if (tipo.includes('concesion directa') && !tipo.includes('canonica')) return false
     return true
   })
   console.log(`   📦 BDNS after tipoConvocatoria filter (excluded Concesión directa): ${competitiveDetails.length} (was ${beforeTipoFilter})`)
