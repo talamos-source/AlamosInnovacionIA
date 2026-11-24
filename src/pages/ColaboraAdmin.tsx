@@ -68,8 +68,9 @@ interface Overview {
 }
 
 const WEB_URL = 'https://www.alamosinnovacion.com/es/colabora'
-const MODE: Record<string, string> = { busco: 'Busca', ofrezco: 'Ofrece' }
-const TYPE: Record<string, string> = { consorcio: 'Socio de consorcio', tecnica: 'Colaboración técnica', talento: 'Talento' }
+const MODE: Record<string, string> = { busco: 'Demanda', ofrezco: 'Oferta' }
+const MODE_LONG: Record<string, string> = { busco: 'Demanda de colaboración', ofrezco: 'Oferta de colaboración' }
+const TYPE: Record<string, string> = { consorcio: 'Socio de consorcio', tecnica: 'Colaboración técnica', talento: 'Talento investigador' }
 const STATE: Record<string, string> = {
   borrador: 'Borrador', pendiente: 'Pendiente', publicado: 'Publicado', pausado: 'Pausado', cerrado: 'Cerrado', rechazado: 'Rechazado',
 }
@@ -95,8 +96,8 @@ const linkedInShareUrl = (url: string) => `https://www.linkedin.com/sharing/shar
 function linkedInText(l: AdminListing): string | null {
   const s = l.published_snapshot
   if (!s?.title) return null
-  const type = (TYPE[s.collabType || l.collab_type] || '').toLowerCase()
-  const lead = `${(s.mode || l.mode) === 'busco' ? 'Se busca' : 'Se ofrece'} ${type} para la convocatoria ${l.call_title}${l.call_programme ? ` (${l.call_programme})` : ''}.`
+  const type = TYPE[s.collabType || l.collab_type] || ''
+  const lead = `${MODE_LONG[s.mode || l.mode] || ''} · ${type} para la convocatoria ${l.call_title}${l.call_programme ? ` (${l.call_programme})` : ''}.`
   const tags = s.specialties?.length ? ['', `Especialidades: ${s.specialties.join(', ')}`] : []
   return [
     lead, '', s.title, s.summary || '', ...tags, '',
