@@ -655,3 +655,16 @@
 
 .dt-spin { animation: dt-spin 0.9s linear infinite; }
 @keyframes dt-spin { to { transform: rotate(360deg); } }
+
+/* —— Publicación en la web (Funding Map) —— */
+.dt-tag--web { background: var(--color-brand-500); color: #fff; }
+.dt-tag--webhidden { background: var(--color-bg-muted); color: var(--color-text-muted); border: 1px dashed var(--color-border-strong); }
+.dt-act--web { color: #fff; background: var(--color-brand-500); }
+.dt-act--web:hover:not(:disabled) { background: var(--color-brand-600); color: #fff; border-color: var(--color-brand-600); }
+.dt-web-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.dt-web-actions .dt-link-btn { text-decoration: none; }
+/* 5 acciones por fila */
+.dt-table { min-width: 980px; }
+.dt-table th:nth-child(1) { width: 35%; }
+.dt-table th:nth-child(5) { width: 23%; }
+.dt-table th.dt-th-actions { width: 150px; }

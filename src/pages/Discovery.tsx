@@ -7,6 +7,7 @@ import {
   ChevronRight,
   ExternalLink,
   Eye,
+  Globe,
   Loader2,
   RefreshCw,
   RotateCcw,
@@ -29,6 +30,13 @@ import {
   type TriageBand,
   type TriageResult,
 } from '../utils/discoveryTriage'
+import {
+  FUNDING_MAP_PUBLIC_URL,
+  nextPublishOverride,
+  publicationOf,
+  toPublicCall,
+  type PublicFundingCall,
+} from '../utils/fundingMapPublish'
 import './Page.css'
 import './Discovery.css'
 
@@ -76,6 +84,8 @@ export interface DiscoveryCall {
   /** Cambios detectados en el último sync que la modificó (pestaña Changed). */
   changedAt?: string
   changes?: string[]
+  /** Publicación en la web: forzar publicar / despublicar (sin valor = regla automática). */
+  publishOverride?: 'publish' | 'unpublish'
 }
 
 export interface DiscoverySourceMeta {
@@ -94,7 +104,7 @@ interface DiscoverySourcesState {
 }
 
 type IncomingCall = Omit<DiscoveryCall, 'id' | 'userStatus' | 'discoveredAt'>
-type TabKey = 'tray' | 'watching' | 'changed' | 'all'
+type TabKey = 'tray' | 'watching' | 'changed' | 'web' | 'all'
 
 /* ============================================================
    Constantes
@@ -192,11 +202,12 @@ const SOURCE_SHORT: Record<DiscoverySource, string> = {
   BDNS: 'BDNS',
 }
 
-const TABS: TabKey[] = ['tray', 'watching', 'changed', 'all']
+const TABS: TabKey[] = ['tray', 'watching', 'changed', 'web', 'all']
 const TAB_LABEL: Record<TabKey, string> = {
   tray: 'Daily Tray',
   watching: 'Watching',
   changed: 'Changed',
+  web: 'On web',
   all: 'All',
 }
 
@@ -229,6 +240,8 @@ const DEFAULT_OPEN_LANES: Record<TriageBand, boolean> = {
 
 const LAST_REVIEW_KEY = 'discoveryLastReviewAt'
 const HIDE_DIRECT_KEY = 'discoveryHideDirect'
+const WEB_SIG_KEY = 'discoveryWebPublishedSig'
+const WEB_STATUS_KEY = 'discoveryWebPublishStatus'
 const CHANGED_WINDOW_DAYS = 14
 const LANE_PAGE = 50
 const AI_BATCH = 20
@@ -429,6 +442,7 @@ function mergeSync(current: DiscoveryCall[], incomingList: IncomingCall[], s: Di
         aiAttemptedAt: existing.aiAttemptedAt,
         changedAt: changes.length > 0 ? now : existing.changedAt,
         changes: changes.length > 0 ? changes : existing.changes,
+        publishOverride: existing.publishOverride,
       })
       matchedCount += 1
       existingByKey.delete(key)
@@ -461,6 +475,13 @@ const needsAiQualification = (c: DiscoveryCall): boolean => {
   if (c.aiAttemptedAt && Date.now() - parseDate(c.aiAttemptedAt) < AI_RETRY_AFTER_MS) return false
   const rb = ruleBand(c).band
   return rb === 'unscored' || rb === 'low'
+}
+
+/** Hash corto (djb2) para detectar cambios en la lista publicada sin guardarla entera. */
+const hashString = (s: string): string => {
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0
+  return (h >>> 0).toString(16)
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, ms: number): Promise<Response> {
@@ -506,6 +527,22 @@ const Discovery = () => {
   })
   const qualifyingRef = useRef(false)
   const cancelQualifyRef = useRef(false)
+
+  // Publicación en la web (Funding Map)
+  const [webSync, setWebSync] = useState<{
+    status: 'idle' | 'saving' | 'saved' | 'error'
+    at?: string
+    count?: number
+    error?: string
+  }>(() => {
+    try {
+      const raw = localStorage.getItem(WEB_STATUS_KEY)
+      return raw ? JSON.parse(raw) : { status: 'idle' }
+    } catch {
+      return { status: 'idle' }
+    }
+  })
+  const publishTouchedRef = useRef(false)
 
   /* ----------------------------------------------------------
      Persistencia (siempre sobre la versión más reciente vía ref,
@@ -804,6 +841,13 @@ const Discovery = () => {
       }
     }))
 
+  const togglePublish = (id: string) => {
+    publishTouchedRef.current = true
+    commitCalls(prev => prev.map(c => (
+      c.id === id ? { ...c, publishOverride: nextPublishOverride(c, classifyCall(c)) } : c
+    )))
+  }
+
   const toggleHideDirect = (value: boolean) => {
     setHideDirect(value)
     try { localStorage.setItem(HIDE_DIRECT_KEY, value ? '1' : '0') } catch { /* noop */ }
@@ -842,7 +886,7 @@ const Discovery = () => {
   const tabCalls = useMemo(() => {
     const lastReviewMs = lastReviewAt ? parseDate(lastReviewAt) : 0
     const since = Date.now() - CHANGED_WINDOW_DAYS * 86400000
-    const out: Record<TabKey, DiscoveryCall[]> = { tray: [], watching: [], changed: [], all: [] }
+    const out: Record<TabKey, DiscoveryCall[]> = { tray: [], watching: [], changed: [], web: [], all: [] }
     for (const c of calls) {
       if (isPastDeadline(c)) continue
       const dismissed = c.userStatus === 'dismissed'
@@ -850,10 +894,11 @@ const Discovery = () => {
       if (!dismissed && !imported && (!lastReviewMs || parseDate(c.discoveredAt) > lastReviewMs)) out.tray.push(c)
       if (!dismissed && isWatching(c)) out.watching.push(c)
       if (!dismissed && c.changedAt && parseDate(c.changedAt) >= since) out.changed.push(c)
+      if (publicationOf(c, classified.get(c.id) || classifyCall(c)).published) out.web.push(c)
       if (includeDismissed || !dismissed) out.all.push(c)
     }
     return out
-  }, [calls, lastReviewAt, includeDismissed])
+  }, [calls, lastReviewAt, includeDismissed, classified])
 
   const tabCounts = useMemo(() => {
     const visible = (list: DiscoveryCall[]) =>
@@ -862,6 +907,7 @@ const Discovery = () => {
       tray: visible(tabCalls.tray),
       watching: visible(tabCalls.watching),
       changed: visible(tabCalls.changed),
+      web: tabCalls.web.length,
       all: visible(tabCalls.all),
     } as Record<TabKey, number>
   }, [tabCalls, hideDirect, classified])
@@ -876,7 +922,7 @@ const Discovery = () => {
     const lanes: Record<TriageBand, DiscoveryCall[]> = { high: [], medium: [], unscored: [], low: [], excluded: [] }
     for (const c of list) {
       const cl = classified.get(c.id) || classifyCall(c)
-      if (cl.direct && hideDirect) { hiddenDirect += 1; continue }
+      if (cl.direct && hideDirect && tab !== 'web') { hiddenDirect += 1; continue }
       lanes[cl.band].push(c)
     }
     for (const b of BAND_ORDER) lanes[b].sort(sortByDeadline)
@@ -901,6 +947,65 @@ const Discovery = () => {
   const sourceErrors = ALL_SOURCES.filter(s => sources[s].lastSyncStatus === 'error')
 
   /* ----------------------------------------------------------
+     Publicación en la web (Funding Map)
+     ---------------------------------------------------------- */
+
+  const web = useMemo(() => {
+    const list: PublicFundingCall[] = []
+    let auto = 0
+    let manual = 0
+    let hidden = 0
+    for (const c of calls) {
+      const st = publicationOf(c, classified.get(c.id) || classifyCall(c))
+      if (st.mode === 'auto') auto += 1
+      else if (st.mode === 'manual') manual += 1
+      else if (st.mode === 'hidden') hidden += 1
+      if (st.published) list.push(toPublicCall(c))
+    }
+    list.sort((a, b) => (parseDate(a.closeDate) || Infinity) - (parseDate(b.closeDate) || Infinity))
+    return { list, auto, manual, hidden, sig: hashString(JSON.stringify(list)) }
+  }, [calls, classified])
+
+  const pushPublished = async (list: PublicFundingCall[], sig: string) => {
+    setWebSync(s => ({ ...s, status: 'saving', error: undefined }))
+    try {
+      const token = localStorage.getItem('authToken') || ''
+      const res = await fetchWithTimeout(`${getAiApiBase()}/discovery/published`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ calls: list }),
+      }, 60000)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: string }
+        throw new Error(body.error || `HTTP ${res.status}`)
+      }
+      const json = await res.json() as { count?: number }
+      const next = { status: 'saved' as const, at: new Date().toISOString(), count: json.count ?? list.length }
+      setWebSync(next)
+      try {
+        localStorage.setItem(WEB_SIG_KEY, sig)
+        localStorage.setItem(WEB_STATUS_KEY, JSON.stringify(next))
+      } catch { /* noop */ }
+    } catch (err) {
+      const msg = err instanceof Error ? (err.name === 'AbortError' ? 'timeout' : err.message) : 'error'
+      setWebSync(s => ({ ...s, status: 'error', error: msg }))
+    }
+  }
+
+  // Sube la lista a la web cuando cambia (debounce). Nunca vacía la web
+  // automáticamente desde un navegador sin datos: solo si lo pide la usuaria.
+  useEffect(() => {
+    if (!hydrated) return
+    let lastSig: string | null = null
+    try { lastSig = localStorage.getItem(WEB_SIG_KEY) } catch { /* noop */ }
+    if (web.sig === lastSig) return
+    if (web.list.length === 0 && !publishTouchedRef.current) return
+    const timer = setTimeout(() => { void pushPublished(web.list, web.sig) }, 3000)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, web.sig])
+
+  /* ----------------------------------------------------------
      Render de fila
      ---------------------------------------------------------- */
 
@@ -912,14 +1017,28 @@ const Discovery = () => {
     const watching = isWatching(c)
     const dismissed = c.userStatus === 'dismissed'
     const recentChange = !!c.changedAt && parseDate(c.changedAt) >= changedSinceMs && (c.changes?.length || 0) > 0
+    const pub = publicationOf(c, cl)
+    const pubTitle = pub.mode === 'expired'
+      ? 'Deadline passed: not shown on the web'
+      : pub.published
+        ? `On the web (${pub.mode === 'auto' ? 'automatic, High' : 'manual'}): click to unpublish`
+        : pub.mode === 'hidden'
+          ? 'Hidden from the web: click to publish again'
+          : 'Publish on the web'
 
     return (
       <tr key={c.id} className={`dt-row dt-row--${amb}${dismissed ? ' dt-row--dismissed' : ''}`}>
         <td className="dt-cell-call">
           <div className="dt-call-title" title={c.title}>{c.title}</div>
           <div className="dt-call-org">{organismLine(c)}</div>
-          {(imported || watching || cl.direct || dismissed) && (
+          {(imported || watching || cl.direct || dismissed || pub.published || pub.mode === 'hidden') && (
             <div className="dt-call-tags">
+              {pub.published && (
+                <span className="dt-tag dt-tag--web">
+                  <Globe size={11} /> On web{pub.mode === 'manual' ? ' · manual' : ''}
+                </span>
+              )}
+              {pub.mode === 'hidden' && <span className="dt-tag dt-tag--webhidden">Hidden from web</span>}
               {imported && <span className="dt-tag dt-tag--imported"><Check size={11} /> In Calls</span>}
               {watching && <span className="dt-tag dt-tag--watching"><Eye size={11} /> Watching</span>}
               {cl.direct && <span className="dt-tag dt-tag--direct">Direct award</span>}
@@ -972,6 +1091,15 @@ const Discovery = () => {
               onClick={() => toggleWatch(c.id)}
             >
               <Eye size={14} />
+            </button>
+            <button
+              type="button"
+              className={`dt-act${pub.published ? ' dt-act--web' : ''}`}
+              title={pubTitle}
+              disabled={pub.mode === 'expired'}
+              onClick={() => togglePublish(c.id)}
+            >
+              <Globe size={14} />
             </button>
             <a className="dt-act" href={c.url} target="_blank" rel="noopener noreferrer" title="Open source">
               <ExternalLink size={14} />
@@ -1237,11 +1365,47 @@ const Discovery = () => {
           </div>
 
           <div className="dt-card">
+            <h3>Web · Funding map</h3>
+            <p className="dt-card-sub">High calls in date go live automatically. Use the globe to publish or hide any call; expired ones drop off on their own.</p>
+            <table className="dt-mini">
+              <tbody>
+                <tr><td>Published</td><td>{web.list.length}</td></tr>
+                <tr><td>Auto (High)</td><td>{web.auto}</td></tr>
+                <tr><td>Manual</td><td>{web.manual}</td></tr>
+                <tr><td>Hidden</td><td>{web.hidden}</td></tr>
+              </tbody>
+            </table>
+            <p className={webSync.status === 'error' ? 'dt-err-text' : 'dt-card-meta'}>
+              {webSync.status === 'saving'
+                ? 'Updating the web…'
+                : webSync.status === 'error'
+                  ? `Web not updated: ${webSync.error || 'error'}`
+                  : webSync.at
+                    ? `Web updated ${formatDateTime(webSync.at)} (${webSync.count ?? 0} calls)`
+                    : 'Not published yet'}
+            </p>
+            <div className="dt-web-actions">
+              <a className="dt-link-btn" href={FUNDING_MAP_PUBLIC_URL} target="_blank" rel="noopener noreferrer">
+                <ExternalLink size={12} /> View page
+              </a>
+              <button
+                type="button"
+                className="dt-link-btn"
+                disabled={webSync.status === 'saving' || !hydrated}
+                onClick={() => { publishTouchedRef.current = true; void pushPublished(web.list, web.sig) }}
+              >
+                <RefreshCw size={12} /> Push now
+              </button>
+            </div>
+          </div>
+
+          <div className="dt-card">
             <h3>Quick actions</h3>
             <ul className="dt-legend-list">
               <li><ArrowUpRight size={13} /> Promote to Calls</li>
               <li><X size={13} /> Dismiss</li>
               <li><Eye size={13} /> Watch</li>
+              <li><Globe size={13} /> Publish / hide on web</li>
               <li><ExternalLink size={13} /> Open source</li>
             </ul>
           </div>

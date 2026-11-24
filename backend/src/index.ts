@@ -2479,6 +2479,114 @@ ${text.slice(0, 12000)}`,
 })
 
 /* ============================================================
+   FUNDING MAP PÚBLICO (web www.alamosinnovacion.com/[lang]/ayudas)
+   ------------------------------------------------------------
+   El CRM decide qué convocatorias se publican (auto: High en fecha;
+   manual: publicar/despublicar) y sube la lista completa aquí.
+   Se guarda en AppData (id 'public-funding-map') → sin migraciones.
+   GET público filtra SIEMPRE las vencidas, aunque el CRM no haya
+   vuelto a subir la lista.
+   ============================================================ */
+
+const FUNDING_MAP_ID = 'public-funding-map'
+
+type PublicFundingCall = {
+  id: string
+  source: 'EU_PORTAL' | 'BDNS'
+  title: string
+  body: string
+  programme?: string
+  ambito: 'EU' | 'NACIONAL' | 'REGIONAL'
+  typeOfAction?: string
+  openDate?: string
+  closeDate?: string
+  budget?: string
+  url: string
+  summary?: string
+  publishedAt?: string
+}
+
+function sanitizePublicCall(raw: unknown): PublicFundingCall | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  const str = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined)
+  const id = str(r.id, 200)
+  const title = str(r.title, 400)
+  const url = str(r.url, 600)
+  if (!id || !title || !url || !/^https?:\/\//i.test(url)) return null
+  const source = r.source === 'EU_PORTAL' ? 'EU_PORTAL' : 'BDNS'
+  const ambito = r.ambito === 'EU' || r.ambito === 'REGIONAL' ? r.ambito : 'NACIONAL'
+  return {
+    id,
+    source,
+    title,
+    body: str(r.body, 200) || (source === 'EU_PORTAL' ? 'European Commission' : 'Administración Pública'),
+    programme: str(r.programme, 300),
+    ambito,
+    typeOfAction: str(r.typeOfAction, 160),
+    openDate: str(r.openDate, 40),
+    closeDate: str(r.closeDate, 40),
+    budget: str(r.budget, 60),
+    url,
+    summary: str(r.summary, 900),
+    publishedAt: str(r.publishedAt, 40),
+  }
+}
+
+const isStillOpen = (c: PublicFundingCall): boolean => {
+  if (!c.closeDate) return true
+  const t = Date.parse(c.closeDate)
+  return Number.isNaN(t) || t >= Date.now() - 86400000
+}
+
+app.put('/discovery/published', requireAuth, async (req, res) => {
+  const { calls } = (req.body || {}) as { calls?: unknown[] }
+  if (!Array.isArray(calls)) {
+    return res.status(400).json({ error: 'calls[] is required.' })
+  }
+  const clean = calls
+    .slice(0, 800)
+    .map(sanitizePublicCall)
+    .filter((c): c is PublicFundingCall => !!c)
+  try {
+    const record = await prisma.appData.upsert({
+      where: { id: FUNDING_MAP_ID },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      create: { id: FUNDING_MAP_ID, data: { calls: clean } as any },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      update: { data: { calls: clean } as any },
+    })
+    return res.json({ ok: true, count: clean.length, updatedAt: record.updatedAt })
+  } catch (error) {
+    console.error('Failed to save funding map:', error)
+    return res.status(500).json({ error: 'Failed to save funding map.' })
+  }
+})
+
+app.get('/public/funding-map', async (_req, res) => {
+  try {
+    const record = await prisma.appData.findUnique({ where: { id: FUNDING_MAP_ID } })
+    const data = (record?.data || {}) as { calls?: unknown[] }
+    const calls = (Array.isArray(data.calls) ? data.calls : [])
+      .map(sanitizePublicCall)
+      .filter((c): c is PublicFundingCall => !!c && isStillOpen(c))
+      .sort((a, b) => {
+        const ta = a.closeDate ? Date.parse(a.closeDate) : NaN
+        const tb = b.closeDate ? Date.parse(b.closeDate) : NaN
+        if (Number.isNaN(ta) && Number.isNaN(tb)) return 0
+        if (Number.isNaN(ta)) return 1
+        if (Number.isNaN(tb)) return -1
+        return ta - tb
+      })
+    res.set('Cache-Control', 'public, max-age=300')
+    return res.json({ updatedAt: record?.updatedAt ?? null, count: calls.length, calls })
+  } catch (error) {
+    console.error('Failed to read funding map:', error)
+    return res.status(500).json({ error: 'Failed to read funding map.' })
+  }
+})
+
+/* ============================================================
    POST /ai/qualify-discovery-calls
    Cualifica un lote de convocatorias de Discovery (BDNS) para el
    perfil de Álamos Innovación: banda high/medium/low/excluded +
