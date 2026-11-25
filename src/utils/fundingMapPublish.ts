@@ -34,6 +34,8 @@ export interface PublicFundingCall {
   url: string
   summary?: string
   publishedAt?: string
+  /** Título oficial completo cuando `title` es el corto (BDNS). */
+  officialTitle?: string
 }
 
 /** URL pública de la página (para el enlace "View page" del CRM). */
@@ -123,6 +125,54 @@ function sentenceIfUpper(s: string): string {
   return lower.charAt(0).toLocaleUpperCase('es') + lower.slice(1)
 }
 
+/* ----------------------------------------------------------
+   Título corto (BDNS publica la resolución entera)
+   ---------------------------------------------------------- */
+
+/** Mayúsculas que no son el nombre de un programa. */
+const NOT_PROGRAMME = new Set([
+  'RESOLUCIÓN', 'RESOLUCION', 'ORDEN', 'EXTRACTO', 'DECRETO', 'ACUERDO', 'BASES', 'CONVOCATORIA',
+  'FEDER', 'FSE', 'FEADER', 'CDTI', 'EPE', 'BOE', 'MRR', 'NGEU', 'PRTR', 'PYME', 'PYMES', 'BDNS',
+  'CCAA', 'IDAE', 'ENISA', 'ISCIII', 'CSIC', 'ICEX', 'SEPE', 'TIC', 'NEXTGENERATIONEU',
+  'DOG', 'DOGV', 'DOGC', 'BOCYL', 'BORM', 'DOCM', 'DOE', 'BOJA', 'BOPA', 'BOA', 'BOC', 'BOIB', 'BON', 'BOR', 'BOCM',
+])
+
+/** Siglas de organismos que conviene mostrar tras el programa. */
+const BODY_ACRONYMS: Array<[RegExp, string]> = [
+  [/\bCDTI\b|centro para el desarrollo tecnol[oó]gico/i, 'CDTI'],
+  [/\bAgencia Estatal de Investigaci[oó]n\b/i, 'AEI'],
+  [/\bENISA\b/i, 'ENISA'],
+  [/\bIDAE\b/i, 'IDAE'],
+  [/\bRed\.es\b/i, 'Red.es'],
+  [/\bISCIII\b|Instituto de Salud Carlos III/i, 'ISCIII'],
+]
+
+/**
+ * Título corto sin IA para los casos claros: programa en mayúsculas
+ * («…proyectos INNTERCONECTA-STEP, cofinanciada…» → «INNTERCONECTA-STEP 2026 · CDTI»)
+ * o «Programa X: …». Si no lo ve claro, devuelve null (lo hará la IA).
+ */
+export function shortTitleGuess(c: Pick<DiscoveryCall, 'title' | 'fundingBody' | 'program'>): string | null {
+  const full = (c.title || '').replace(/\s+/g, ' ').trim()
+  if (full.length <= 80 || full === full.toUpperCase()) return null
+  const year = full.match(/\b(20\d{2})\b/)?.[1]
+  const tokens = [...full.matchAll(/\b[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ0-9]{3,}(?:[-–][A-ZÁÉÍÓÚÑ0-9]{2,})*\b/g)]
+    .map(m => m[0])
+    .filter(t => !NOT_PROGRAMME.has(t.replace(/[-–].*$/, '')) && !NOT_PROGRAMME.has(t))
+  const programme = full.match(/\b[Pp]rograma\s+([\p{L}\d][\p{L}\d\- ]{2,40}?)(?=\s*[:,.;(]|\s+(?:de|del|para|destinad))/u)?.[1]
+  const name = tokens[0] || (programme ? `Programa ${programme.trim()}` : null)
+  if (!name) return null
+  const haystack = `${full} ${c.fundingBody || ''} ${c.program || ''}`
+  const acronym = BODY_ACRONYMS.find(([re]) => re.test(haystack))?.[1]
+  return [`${name}${year && !name.includes(year) ? ` ${year}` : ''}`, acronym].filter(Boolean).join(' · ')
+}
+
+/** Título que se muestra en la web: el tuyo, el de la IA, el deducido o el oficial. */
+export function webTitleOf(c: DiscoveryCall): string {
+  if (c.source !== 'BDNS') return c.title
+  return c.publicTitle?.trim() || c.aiShortTitle?.trim() || shortTitleGuess(c) || sentenceIfUpper(c.title)
+}
+
 /** "Horizon Europe (HORIZON) — CL5" → "Horizon Europe — CL5". */
 const stripProgrammeCode = (p: string): string => p.replace(/\s*\((?:[A-Z0-9+\-]{2,})\)/g, '').trim()
 
@@ -152,10 +202,13 @@ export function toPublicCall(c: DiscoveryCall): PublicFundingCall {
     if (programme && programme === body) programme = undefined
   }
 
+  const official = c.source === 'BDNS' ? sentenceIfUpper(c.title) : c.title
+  const title = webTitleOf(c)
   return {
     id: `${c.source}::${c.externalId}`,
     source: c.source,
-    title: c.source === 'BDNS' ? sentenceIfUpper(c.title) : c.title,
+    title,
+    officialTitle: title !== official ? official : undefined,
     body,
     programme,
     ambito,

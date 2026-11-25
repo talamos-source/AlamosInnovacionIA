@@ -10,6 +10,7 @@ import {
   Globe,
   Loader2,
   RefreshCw,
+  Pencil,
   RotateCcw,
   Search,
   Sparkles,
@@ -35,6 +36,7 @@ import {
   nextPublishOverride,
   publicationOf,
   toPublicCall,
+  webTitleOf,
   type PublicFundingCall,
 } from '../utils/fundingMapPublish'
 import './Page.css'
@@ -82,6 +84,10 @@ export interface DiscoveryCall {
   aiReason?: string
   aiDirectAward?: boolean
   aiQualifiedAt?: string
+  /** Título corto para la web generado por la IA (BDNS publica la resolución entera). */
+  aiShortTitle?: string
+  /** Título para la web escrito a mano (manda sobre el de la IA). */
+  publicTitle?: string
   aiAttemptedAt?: string
   /** Cambios detectados en el último sync que la modificó (pestaña Changed). */
   changedAt?: string
@@ -443,6 +449,8 @@ function mergeSync(current: DiscoveryCall[], incomingList: IncomingCall[], s: Di
         aiReason: existing.aiReason,
         aiDirectAward: existing.aiDirectAward,
         aiQualifiedAt: existing.aiQualifiedAt,
+        aiShortTitle: existing.aiShortTitle,
+        publicTitle: existing.publicTitle,
         aiAttemptedAt: existing.aiAttemptedAt,
         changedAt: changes.length > 0 ? now : existing.changedAt,
         changes: changes.length > 0 ? changes : existing.changes,
@@ -547,6 +555,7 @@ const Discovery = () => {
     }
   })
   const publishTouchedRef = useRef(false)
+  const shortTitleTriedRef = useRef<Set<string>>(new Set())
 
   /* ----------------------------------------------------------
      Persistencia (siempre sobre la versión más reciente vía ref,
@@ -799,7 +808,7 @@ const Discovery = () => {
           throw new Error(body.error || `HTTP ${res.status}`)
         }
         const json = await res.json() as {
-          results?: Array<{ id: string; band: AiBand; reason: string; directAward?: boolean }>
+          results?: Array<{ id: string; band: AiBand; reason: string; directAward?: boolean; shortTitle?: string }>
         }
         const byId = new Map((json.results || []).map(r => [r.id, r]))
         const batchIds = new Set(batch.map(c => c.id))
@@ -815,6 +824,7 @@ const Discovery = () => {
             aiDirectAward: !!r.directAward,
             aiQualifiedAt: now,
             aiAttemptedAt: now,
+            aiShortTitle: r.shortTitle || c.aiShortTitle,
           }
         }))
         qualified += byId.size
@@ -865,6 +875,16 @@ const Discovery = () => {
     commitCalls(prev => prev.map(c => (
       c.id === id ? { ...c, publishOverride: nextPublishOverride(c, classifyCall(c)) } : c
     )))
+  }
+
+  /** Título para la web escrito a mano (vacío = vuelve al automático). */
+  const editWebTitle = (c: DiscoveryCall) => {
+    const current = webTitleOf(c)
+    const next = window.prompt('Título corto para la web (vacío = automático):', c.publicTitle || current)
+    if (next === null) return
+    const value = next.replace(/\s+/g, ' ').trim().slice(0, 120)
+    publishTouchedRef.current = true
+    commitCalls(prev => prev.map(x => (x.id === c.id ? { ...x, publicTitle: value || undefined } : x)))
   }
 
   const toggleHideDirect = (value: boolean) => {
@@ -1024,6 +1044,37 @@ const Discovery = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, web.sig])
 
+  // Títulos cortos con IA para las BDNS publicadas que aún no lo tienen
+  // (las nuevas lo reciben al cualificarse). Un intento por convocatoria y sesión.
+  useEffect(() => {
+    if (!hydrated) return
+    const pending = calls
+      .filter(c =>
+        c.source === 'BDNS' && !c.publicTitle && !c.aiShortTitle && c.title.length > 70 &&
+        !shortTitleTriedRef.current.has(c.id) &&
+        publicationOf(c, classified.get(c.id) || classifyCall(c)).published)
+      .slice(0, 25)
+    if (pending.length === 0) return
+    pending.forEach(c => shortTitleTriedRef.current.add(c.id))
+    void (async () => {
+      try {
+        const token = localStorage.getItem('authToken') || ''
+        const res = await fetchWithTimeout(`${getAiApiBase()}/ai/short-titles`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ calls: pending.map(c => ({ id: c.id, title: c.title, organism: organismLine(c) })) }),
+        }, 60000)
+        if (!res.ok) return
+        const json = await res.json() as { results?: Array<{ id: string; shortTitle: string }> }
+        const byId = new Map((json.results || []).filter(r => r.shortTitle).map(r => [r.id, r.shortTitle]))
+        if (byId.size > 0) {
+          commitCalls(prev => prev.map(c => (byId.has(c.id) && !c.aiShortTitle ? { ...c, aiShortTitle: byId.get(c.id) } : c)))
+        }
+      } catch { /* se reintentará en otra visita */ }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, web.sig])
+
   /* ----------------------------------------------------------
      Render de fila
      ---------------------------------------------------------- */
@@ -1050,6 +1101,14 @@ const Discovery = () => {
         <td className="dt-cell-call">
           <div className="dt-call-title" title={c.title}>{c.title}</div>
           <div className="dt-call-org">{organismLine(c)}</div>
+          {pub.published && c.source === 'BDNS' && (
+            <div className="dt-webtitle">
+              <span>Web: «{webTitleOf(c)}»{c.publicTitle ? ' · manual' : ''}</span>
+              <button type="button" className="dt-webtitle__edit" title="Edit the short title shown on the website" onClick={() => editWebTitle(c)}>
+                <Pencil size={11} />
+              </button>
+            </div>
+          )}
           {(imported || watching || cl.direct || dismissed || pub.published || pub.mode === 'hidden') && (
             <div className="dt-call-tags">
               {pub.published && (

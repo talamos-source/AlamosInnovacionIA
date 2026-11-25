@@ -668,3 +668,9 @@
 .dt-table th:nth-child(1) { width: 35%; }
 .dt-table th:nth-child(5) { width: 23%; }
 .dt-table th.dt-th-actions { width: 150px; }
+
+/* Título corto con el que la convocatoria sale en la web */
+.dt-webtitle { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 11px; color: var(--color-text-muted, #6b6475); }
+.dt-webtitle span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
+.dt-webtitle__edit { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 1px solid var(--color-border-subtle, #e5e0d8); border-radius: 4px; background: transparent; color: inherit; cursor: pointer; }
+.dt-webtitle__edit:hover { color: var(--color-text-primary, #1a1622); border-color: currentColor; }

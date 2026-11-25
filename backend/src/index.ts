@@ -2530,6 +2530,8 @@ type PublicFundingCall = {
   url: string
   summary?: string
   publishedAt?: string
+  /** Título oficial completo cuando `title` es el corto (BDNS). */
+  officialTitle?: string
 }
 
 function sanitizePublicCall(raw: unknown): PublicFundingCall | null {
@@ -2556,6 +2558,7 @@ function sanitizePublicCall(raw: unknown): PublicFundingCall | null {
     url,
     summary: str(r.summary, 900),
     publishedAt: str(r.publishedAt, 40),
+    officialTitle: str(r.officialTitle, 600),
   }
 }
 
@@ -2849,6 +2852,16 @@ app.post('/admin/colabora/accounts/:id/status', requireAdmin, async (req: Colabo
    Lote máx. 25 → Haiku responde en ~10-15s (lejos del timeout).
    ============================================================ */
 
+/** Regla común para el título corto que se muestra en la web (BDNS publica la resolución entera). */
+const SHORT_TITLE_RULE = `título corto para mostrar en la web, en español y de 60 caracteres como máximo: nombre del programa o de la línea de ayuda + año + organismo abreviado, separados por « · ». Ejemplos: «INNTERCONECTA-STEP 2026 · CDTI», «GoToMarket 2026 · Junta de Extremadura», «Ayudas a proyectos de I+D 2026 · Galicia». Nunca empieces por «Resolución», «Orden», «Extracto» o «Acuerdo», ni incluyas fechas de firma ni «por la que se aprueba». Si el título ya es corto y claro, devuélvelo igual.`
+
+/** Limpia el título corto que devuelve la IA. */
+const cleanShortTitle = (v: unknown): string => {
+  const s = String(v || '').replace(/[«»"“”]/g, '').replace(/\s+/g, ' ').trim()
+  if (!s || /^(resoluci[oó]n|orden|extracto|acuerdo)\b/i.test(s)) return ''
+  return s.slice(0, 80)
+}
+
 const QUALIFY_DISCOVERY_PROMPT = `Eres analista senior de financiación pública en Álamos Innovación, consultora de I+D+i en España que prepara y gestiona solicitudes COMPETITIVAS para empresas (pymes, startups, empresas de base tecnológica, industria) y, en consorcio, para universidades y centros de investigación.
 
 Para cada convocatoria asigna una banda de relevancia para la consultora:
@@ -2861,8 +2874,10 @@ Para cada convocatoria asigna una banda de relevancia para la consultora:
 
 "reason": 1-2 frases en español (máximo 35 palabras) que expliquen qué financia y por qué tiene ese encaje. No repitas el título.
 
+"shortTitle": ${SHORT_TITLE_RULE}
+
 Responde SOLO con JSON válido, sin markdown:
-{"results":[{"id":"...","band":"high|medium|low|excluded","directAward":false,"reason":"..."}]}`
+{"results":[{"id":"...","band":"high|medium|low|excluded","directAward":false,"reason":"...","shortTitle":"..."}]}`
 
 app.post('/ai/qualify-discovery-calls', requireAuth, async (req, res) => {
   if (!anthropic) {
@@ -2924,7 +2939,8 @@ app.post('/ai/qualify-discovery-calls', requireAuth, async (req, res) => {
         let band = String(r?.band || '').toLowerCase()
         if (directAward) band = 'excluded'
         const reason = String(r?.reason || '').replace(/\s+/g, ' ').trim().slice(0, 300)
-        return { id, band, directAward, reason }
+        const shortTitle = cleanShortTitle(r?.shortTitle)
+        return { id, band, directAward, reason, shortTitle }
       })
       .filter(r => validIds.has(r.id) && BANDS.has(r.band))
 
@@ -2940,6 +2956,48 @@ app.post('/ai/qualify-discovery-calls', requireAuth, async (req, res) => {
   } catch (err: unknown) {
     console.error('qualify-discovery-calls error:', err)
     return res.status(500).json({ error: err instanceof Error ? err.message : 'qualify failed' })
+  }
+})
+
+/* ============================================================
+   POST /ai/short-titles
+   Títulos cortos para convocatorias BDNS ya publicadas en la web
+   (las nuevas los reciben al cualificarse). Lote máx. 25.
+   ============================================================ */
+
+app.post('/ai/short-titles', requireAuth, async (req, res) => {
+  if (!anthropic) return res.status(503).json({ error: 'AI not configured.' })
+  const { calls } = (req.body || {}) as { calls?: Array<{ id?: string; title?: string; organism?: string }> }
+  if (!Array.isArray(calls) || calls.length === 0) return res.status(400).json({ error: 'calls[] is required.' })
+  const batch = calls.filter(c => c && typeof c.id === 'string' && c.id && c.title).slice(0, 25)
+  const validIds = new Set(batch.map(c => String(c.id)))
+  const lines = batch
+    .map(c => [`id: ${c.id}`, `título: ${String(c.title).slice(0, 400)}`, c.organism ? `organismo: ${String(c.organism).slice(0, 200)}` : '']
+      .filter(Boolean).join(' | '))
+    .join('\n')
+  try {
+    const message = await anthropic.messages.create({
+      model: CLAUDE_MODEL_FAST,
+      max_tokens: Math.min(2000, 100 + batch.length * 50),
+      system: `Para cada convocatoria de ayudas públicas españolas, escribe "shortTitle": ${SHORT_TITLE_RULE}\n\nResponde SOLO con JSON válido, sin markdown:\n{"results":[{"id":"...","shortTitle":"..."}]}`,
+      messages: [{ role: 'user', content: `Convocatorias (${batch.length}):\n\n${lines}` }],
+    })
+    const firstBlock = message.content[0]
+    const text = firstBlock && firstBlock.type === 'text' ? firstBlock.text : ''
+    let parsed: { results?: unknown } | null = null
+    try {
+      parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1))
+    } catch {
+      parsed = null
+    }
+    if (!parsed || !Array.isArray(parsed.results)) return res.status(502).json({ error: 'AI returned invalid JSON' })
+    const results = (parsed.results as Array<Record<string, unknown>>)
+      .map(r => ({ id: String(r?.id || ''), shortTitle: cleanShortTitle(r?.shortTitle) }))
+      .filter(r => validIds.has(r.id) && r.shortTitle)
+    return res.json({ results })
+  } catch (err) {
+    console.error('short-titles error:', err)
+    return res.status(500).json({ error: 'No se pudieron generar los títulos.' })
   }
 })
 
