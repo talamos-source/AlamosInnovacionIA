@@ -10,7 +10,10 @@ import { google } from 'googleapis'
 import jwt from 'jsonwebtoken'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
-import * as cheerio from 'cheerio'
+// Solo el parser: el paquete completo carga "undici" y sustituye el cliente HTTP de
+// Node para todos los fetch; esa versión tumba el proceso en Node 26 con respuestas
+// grandes (sync de la UE, nov. 2026: AssertionError en client-h1 → reinicio).
+import * as cheerio from 'cheerio/slim'
 
 dotenv.config()
 
