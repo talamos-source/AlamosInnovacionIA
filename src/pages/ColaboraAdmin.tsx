@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Check, Copy, ExternalLink, HeartHandshake, Loader2, RefreshCw } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { getAiApiBase } from '../utils/aiApiBase'
+import { persistAppData } from '../utils/appData'
 import './Page.css'
 import './ColaboraAdmin.css'
 
@@ -11,7 +12,7 @@ import './ColaboraAdmin.css'
    usan la web con su propia sesión y su propio usuario de BD.
    ============================================================ */
 
-type Tab = 'pending' | 'published' | 'all' | 'support' | 'linkedin' | 'requests' | 'accounts' | 'config'
+type Tab = 'pending' | 'published' | 'all' | 'support' | 'linkedin' | 'requests' | 'metrics' | 'accounts' | 'config'
 
 interface AdminRequest {
   id: string
@@ -67,6 +68,27 @@ interface AdminListing {
   published_at: string | null
   account_email: string
   account_status: string
+  // Fase 3 (si la migración está aplicada)
+  linkedin_authorized_at?: string | null
+  linkedin_authorized_text?: string | null
+  support_status?: string
+  profile_entity_name?: string | null
+  profile_country?: string | null
+  profile_phone?: string | null
+}
+
+interface Metrics {
+  byCall: Array<{ call_title: string; busco: number; ofrezco: number; total: number }>
+  bySpecialty: Array<{ specialty: string; n: number }>
+  byMode: Array<{ mode: string; n: number }>
+  byType: Array<{ collab_type: string; n: number }>
+  byState: Array<{ state: string; n: number }>
+  requestsByStatus: Array<{ status: string; n: number }>
+  outcomes: Array<{ outcome: string; n: number }>
+  closeReasons: Array<{ reason: string; n: number }>
+  viewsBySource: Array<{ source: string; n: number }>
+  viewsByDay: Array<{ day: string; n: number }>
+  acceptanceRate: number | null
 }
 
 interface AdminAccount {
@@ -105,6 +127,15 @@ const TYPE: Record<string, string> = { consorcio: 'Socio de consorcio', tecnica:
 const STATE: Record<string, string> = {
   borrador: 'Borrador', pendiente: 'Pendiente', publicado: 'Publicado', pausado: 'Pausado', cerrado: 'Cerrado', rechazado: 'Rechazado',
 }
+const OUTCOME: Record<string, string> = {
+  preparando: 'Preparando propuesta', presentada: 'Propuesta presentada', concedida: 'Concedida', denegada: 'Denegada', no_seguimos: 'No seguimos',
+}
+const SOURCE: Record<string, string> = { colabora: 'Colabora', ayudas: 'Mapa de ayudas', linkedin: 'LinkedIn / enlace compartido', sugerencia: 'Sugerencias', directo: 'Directo' }
+const CLOSE_REASON: Record<string, string> = {
+  encontrada_aqui: 'Colaboración encontrada en Colabora', encontrada_otro_medio: 'Encontrada por otro medio',
+  necesidad_retirada: 'Ya no lo necesita', otro: 'Otro motivo', retirado_admin: 'Retirado por administración',
+}
+const SUPPORT_STATE: Record<string, string> = { pendiente: 'Pendiente', en_crm: 'En el CRM', descartada: 'Descartada' }
 const FLAG: Record<string, string> = { email: 'correo', url: 'web', telefono: 'teléfono', nombre: 'nombre propio', duplicado: 'duplicado' }
 const TABS: Array<{ key: Tab; label: string }> = [
   { key: 'pending', label: 'Pendientes de revisión' },
@@ -113,6 +144,7 @@ const TABS: Array<{ key: Tab; label: string }> = [
   { key: 'support', label: 'Piden apoyo' },
   { key: 'linkedin', label: 'LinkedIn autorizados' },
   { key: 'requests', label: 'Solicitudes de contacto' },
+  { key: 'metrics', label: 'Métricas' },
   { key: 'accounts', label: 'Usuarios' },
   { key: 'config', label: 'Configuración' },
 ]
@@ -136,6 +168,48 @@ function linkedInText(l: AdminListing): string | null {
     'Detalle y contacto gratuito en Colabora, de Álamos Innovación (la identidad solo se comparte cuando ambas partes aceptan):',
     publicUrl(l.public_id),
   ].join('\n')
+}
+
+/** La versión publicada es exactamente la que el autor autorizó para LinkedIn. */
+function linkedInVersionOk(l: AdminListing): boolean {
+  const s = l.published_snapshot
+  if (!s?.title || !l.linkedin_authorized_text) return false
+  return l.linkedin_authorized_text === `${s.title}\n${s.summary || ''}`
+}
+
+interface StoredCustomer { id: string; name?: string; company?: string; notes?: string; [k: string]: unknown }
+
+/** Crea la ficha de cliente en el CRM con los datos privados de la solicitud de apoyo. */
+function createCrmCustomer(l: AdminListing): { created: boolean; name: string } {
+  const name = l.entity_label || l.profile_entity_name || l.contact_name || l.account_email
+  const saved = localStorage.getItem('customers')
+  const customers: StoredCustomer[] = saved ? JSON.parse(saved) : []
+  const norm = (v?: string) => (v || '').trim().toLowerCase()
+  if (customers.some((c) => norm(c.name) === norm(name) || norm(c.company) === norm(name))) return { created: false, name }
+  const now = new Date().toISOString()
+  const customer = {
+    id: `customer-${Date.now()}`,
+    name,
+    company: name,
+    country: l.profile_country || '',
+    region: '',
+    partner: { name: 'Default Partner', initials: 'DP' },
+    website: '',
+    category: '',
+    status: 'Active',
+    notes: `Solicitud de apoyo desde Colabora: ${l.title} (${l.call_title}). Anuncio ${publicUrl(l.public_id)}`,
+    contacts: [{
+      id: `contact-${Date.now()}`,
+      name: l.contact_name || '',
+      email: l.contact_email || l.account_email,
+      phone: l.contact_phone || l.profile_phone || '',
+      comments: 'Desde Colabora',
+    }],
+    createdAt: now,
+    updatedAt: now,
+  }
+  persistAppData('customers', JSON.stringify([...customers, customer]))
+  return { created: true, name }
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -164,6 +238,8 @@ const ColaboraAdmin = () => {
   const [conn, setConn] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [copiedShare, setCopiedShare] = useState<string | null>(null)
+  const [metrics, setMetrics] = useState<Metrics | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -176,6 +252,8 @@ const ColaboraAdmin = () => {
         const r = await api<{ requests: AdminRequest[]; reports: AdminReport[] }>('/admin/colabora/requests')
         setRequests(r.requests)
         setReports(r.reports)
+      } else if (tab === 'metrics') {
+        setMetrics(await api<Metrics>('/admin/colabora/metrics'))
       } else if (tab !== 'config') {
         setListings((await api<{ listings: AdminListing[] }>(`/admin/colabora/listings?filter=${tab}`)).listings)
       }
@@ -234,6 +312,24 @@ const ColaboraAdmin = () => {
     window.open(linkedInShareUrl(publicUrl(l.public_id)), '_blank', 'noopener,noreferrer')
     void api(`/admin/colabora/listings/${l.id}/action`, { method: 'POST', body: JSON.stringify({ action: 'linkedin_shared' }) })
       .catch((err) => setError(err instanceof Error ? err.message : 'Error'))
+  }
+
+  const setSupport = async (l: AdminListing, status: 'en_crm' | 'descartada') => {
+    setNotice(null)
+    if (status === 'descartada' && !window.confirm('¿Descartar esta solicitud de apoyo?')) return
+    setBusy(l.id)
+    try {
+      if (status === 'en_crm') {
+        const r = createCrmCustomer(l)
+        setNotice(r.created ? `Cliente «${r.name}» creado en el CRM.` : `Ya existía un cliente «${r.name}» en el CRM: no se ha duplicado.`)
+      }
+      await api(`/admin/colabora/listings/${l.id}/support`, { method: 'POST', body: JSON.stringify({ status }) })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error')
+    } finally {
+      setBusy(null)
+    }
   }
 
   const setAccountStatus = async (id: string, status: 'active' | 'suspended') => {
@@ -319,6 +415,10 @@ const ColaboraAdmin = () => {
             : error}
         </div>
       )}
+
+      {notice && <div className="ca-notice">{notice}</div>}
+
+      {tab === 'metrics' && metrics && <MetricsView m={metrics} />}
 
       {tab === 'config' && (
         <section className="ca-config">
@@ -447,7 +547,7 @@ const ColaboraAdmin = () => {
         </div>
       )}
 
-      {tab !== 'accounts' && tab !== 'config' && tab !== 'requests' && (
+      {tab !== 'accounts' && tab !== 'config' && tab !== 'requests' && tab !== 'metrics' && (
         <ul className="ca-list">
           {!loading && listings.length === 0 && <li className="ca-empty">No hay anuncios en esta vista.</li>}
           {listings.map((l) => (
@@ -461,6 +561,9 @@ const ColaboraAdmin = () => {
                     {l.review_flags?.length > 0 && <span className="ca-flags">Detectado: {l.review_flags.map((f) => FLAG[f] || f).join(', ')}</span>}
                     {l.wants_support && <span className="ca-badge">Pide apoyo</span>}
                     {l.linkedin_authorized && <span className="ca-badge">LinkedIn ✓</span>}
+                    {l.wants_support && l.support_status && l.support_status !== 'pendiente' && (
+                      <span className="ca-badge">Apoyo: {SUPPORT_STATE[l.support_status] || l.support_status}</span>
+                    )}
                   </p>
                   <h3 className="ca-item__title">{l.title}</h3>
                   <p className="ca-item__call">{l.call_title}{l.call_close_date ? ` · cierre ${new Date(l.call_close_date).toLocaleDateString('es-ES')}` : ''}</p>
@@ -485,9 +588,16 @@ const ColaboraAdmin = () => {
               </div>
               {tab === 'linkedin' && (
                 <div className="ca-share">
-                  {l.state === 'publicado' && linkedInText(l) ? (
+                  {l.state === 'publicado' && linkedInText(l) && !linkedInVersionOk(l) ? (
+                    <p className="ca-hint ca-warn">
+                      La versión publicada no coincide con el texto que el autor autorizó para LinkedIn
+                      {l.linkedin_authorized_at ? ` (autorizado el ${fmt(l.linkedin_authorized_at)})` : ''}.
+                      No se puede difundir hasta que el autor vuelva a autorizar la versión actual.
+                    </p>
+                  ) : l.state === 'publicado' && linkedInText(l) ? (
                     <>
                       <p className="ca-label">Texto para LinkedIn · versión pública aprobada, sin entidad, persona ni contacto</p>
+                      {l.linkedin_authorized_at && <p className="ca-hint">Autorizado por el autor el {fmt(l.linkedin_authorized_at)} para esta versión.</p>}
                       {l.review_pending && <p className="ca-hint">Hay una edición pendiente de revisión: se comparte la versión pública actual.</p>}
                       <pre className="ca-share__text">{linkedInText(l)}</pre>
                       <div className="ca-share__actions">
@@ -504,6 +614,24 @@ const ColaboraAdmin = () => {
                   ) : (
                     <p className="ca-hint">Solo se puede difundir cuando el anuncio está publicado.</p>
                   )}
+                </div>
+              )}
+              {tab === 'support' && (
+                <div className="ca-share">
+                  <p className="ca-label">Solicitud de apoyo profesional · estado: {SUPPORT_STATE[l.support_status || 'pendiente'] || l.support_status}</p>
+                  <p className="ca-text">
+                    {[l.entity_label || l.profile_entity_name, l.contact_name, l.contact_email || l.account_email, l.contact_phone || l.profile_phone]
+                      .filter(Boolean).join(' · ')}
+                  </p>
+                  <div className="ca-share__actions">
+                    {(l.support_status || 'pendiente') !== 'en_crm' && (
+                      <button type="button" className="btn-primary" disabled={busy === l.id} onClick={() => void setSupport(l, 'en_crm')}>Crear cliente en el CRM</button>
+                    )}
+                    {(l.support_status || 'pendiente') === 'pendiente' && (
+                      <button type="button" className="btn-secondary" disabled={busy === l.id} onClick={() => void setSupport(l, 'descartada')}>Descartar</button>
+                    )}
+                  </div>
+                  <p className="ca-hint">Crea la ficha en Clientes con el contacto del anuncio y una nota con el anuncio y la convocatoria. No se duplica si ya existe.</p>
                 </div>
               )}
               {expanded === l.id && (
@@ -537,6 +665,57 @@ const ColaboraAdmin = () => {
         </ul>
       )}
     </div>
+  )
+}
+
+/* ---------- Métricas (agregadas, sin datos personales) ---------- */
+
+function Bars({ title, rows, empty = 'Sin datos todavía.' }: { title: string; rows: Array<{ label: string; n: number; extra?: string }>; empty?: string }) {
+  const max = Math.max(1, ...rows.map((r) => r.n))
+  return (
+    <div className="ca-metric">
+      <h3>{title}</h3>
+      {rows.length === 0 ? <p className="ca-hint">{empty}</p> : (
+        <ul className="ca-bars">
+          {rows.map((r) => (
+            <li key={r.label}>
+              <span className="ca-bars__label" title={r.label}>{r.label}</span>
+              <span className="ca-bars__track"><span className="ca-bars__fill" style={{ width: `${(r.n / max) * 100}%` }} /></span>
+              <span className="ca-bars__n">{r.n}{r.extra ? <small> {r.extra}</small> : null}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function MetricsView({ m }: { m: Metrics }) {
+  const n = (rows: Array<{ n: number }>) => rows.reduce((s, r) => s + r.n, 0)
+  const modeN = (k: string) => m.byMode.find((r) => r.mode === k)?.n ?? 0
+  const views = n(m.viewsBySource)
+  return (
+    <section className="ca-metrics">
+      <div className="ca-kpis">
+        <div className="ca-kpi"><span>{modeN('busco')}</span>Demandas</div>
+        <div className="ca-kpi"><span>{modeN('ofrezco')}</span>Ofertas</div>
+        <div className="ca-kpi"><span>{n(m.requestsByStatus)}</span>Solicitudes</div>
+        <div className="ca-kpi"><span>{m.acceptanceRate === null ? '—' : `${Math.round(m.acceptanceRate * 100)} %`}</span>Aceptación (de las respondidas)</div>
+        <div className="ca-kpi"><span>{views}</span>Visitas a fichas</div>
+      </div>
+      <div className="ca-metrics__grid">
+        <Bars title="Convocatorias con más anuncios" rows={m.byCall.map((r) => ({ label: r.call_title, n: r.total, extra: `(${r.busco} D · ${r.ofrezco} O)` }))} />
+        <Bars title="Especialidades más usadas" rows={m.bySpecialty.map((r) => ({ label: r.specialty, n: r.n }))} />
+        <Bars title="Tipo de colaboración" rows={m.byType.map((r) => ({ label: TYPE[r.collab_type] || r.collab_type, n: r.n }))} />
+        <Bars title="Anuncios por estado" rows={m.byState.map((r) => ({ label: STATE[r.state] || r.state, n: r.n }))} />
+        <Bars title="Solicitudes por estado" rows={m.requestsByStatus.map((r) => ({ label: REQUEST_STATE[r.status] || r.status, n: r.n }))} />
+        <Bars title="Resultado declarado de las conexiones" rows={m.outcomes.map((r) => ({ label: OUTCOME[r.outcome] || r.outcome, n: r.n }))} />
+        <Bars title="Motivos de cierre" rows={m.closeReasons.map((r) => ({ label: CLOSE_REASON[r.reason] || r.reason, n: r.n }))} />
+        <Bars title="Visitas por procedencia" rows={m.viewsBySource.map((r) => ({ label: SOURCE[r.source] || r.source, n: r.n }))} />
+        <Bars title="Visitas en los últimos 30 días" rows={m.viewsByDay.map((r) => ({ label: new Date(`${r.day}T12:00:00`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }), n: r.n }))} />
+      </div>
+      <p className="ca-hint">Cifras agregadas. El resultado lo declara cada parte de una conexión aceptada (puede haber dos por conexión).</p>
+    </section>
   )
 }
 

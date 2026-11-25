@@ -2745,17 +2745,25 @@ app.get('/admin/colabora/listings', requireAdmin, async (req, res) => {
     filter === 'support' ? `WHERE l.wants_support` :
     filter === 'linkedin' ? `WHERE l.linkedin_authorized` :
     ''
-  try {
-    const rows = await prisma.$queryRawUnsafe<unknown[]>(
-      `SELECT l.id, l.public_id, l.call_id, l.call_title, l.call_programme, l.call_close_date, l.mode, l.collab_type,
+  const base = `SELECT l.id, l.public_id, l.call_id, l.call_title, l.call_programme, l.call_close_date, l.mode, l.collab_type,
               l.title, l.summary, l.details, l.specialties, l.phase, l.state, l.close_reason,
               l.review_flags, l.review_pending, l.published_snapshot, l.entity_label, l.contact_name,
               l.contact_email, l.contact_phone, l.wants_support, l.linkedin_authorized,
-              l.created_at, l.updated_at, l.published_at, a.email AS account_email, a.status AS account_status
-         FROM colabora.listings l JOIN colabora.accounts a ON a.id = l.account_id
+              l.created_at, l.updated_at, l.published_at, a.email AS account_email, a.status AS account_status`
+  const fase3 = `, l.linkedin_authorized_at, l.linkedin_authorized_text, l.support_status,
+              p.entity_name AS profile_entity_name, p.country AS profile_country, p.phone AS profile_phone`
+  const from = `FROM colabora.listings l JOIN colabora.accounts a ON a.id = l.account_id
+         LEFT JOIN colabora.profiles p ON p.account_id = l.account_id
          ${where}
-         ORDER BY l.updated_at DESC LIMIT 500`,
-    )
+         ORDER BY l.updated_at DESC LIMIT 500`
+  try {
+    let rows: unknown[]
+    try {
+      rows = await prisma.$queryRawUnsafe<unknown[]>(`${base}${fase3} ${from}`)
+    } catch {
+      // Migración de fase 3 aún no aplicada
+      rows = await prisma.$queryRawUnsafe<unknown[]>(`${base} ${from}`)
+    }
     return res.json({ listings: rows })
   } catch (error) {
     console.error('colabora listings error:', error)
@@ -2778,8 +2786,10 @@ app.post('/admin/colabora/listings/:id/action', requireAdmin, async (req: Colabo
                updated_at = now() WHERE id = $1::uuid RETURNING id`,
     // Difusión manual supervisada: no cambia el anuncio, solo deja constancia de qué
     // versión pública se compartió y cuándo (requiere autorización y anuncio publicado)
+    // y que la versión publicada sea exactamente la que el autor autorizó
     linkedin_shared: `SELECT id FROM colabora.listings
-                       WHERE id = $1::uuid AND linkedin_authorized AND state = 'publicado' AND published_snapshot IS NOT NULL`,
+                       WHERE id = $1::uuid AND linkedin_authorized AND state = 'publicado' AND published_snapshot IS NOT NULL
+                         AND linkedin_authorized_text = (published_snapshot->>'title') || E'\\n' || (published_snapshot->>'summary')`,
   }
   if (!action || !sql[action]) return res.status(400).json({ error: 'acción no válida' })
   try {
@@ -2807,6 +2817,80 @@ app.post('/admin/colabora/listings/:id/action', requireAdmin, async (req: Colabo
   } catch (error) {
     console.error('colabora listing action error:', error)
     return res.status(500).json({ error: 'No se pudo aplicar la acción.' })
+  }
+})
+
+/** Solicitudes de apoyo profesional: marcar como pasada al CRM o descartada. */
+app.post('/admin/colabora/listings/:id/support', requireAdmin, async (req: ColaboraAdminReq, res) => {
+  const id = String(req.params.id || '')
+  const { status } = (req.body || {}) as { status?: string }
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'id inválido' })
+  if (!['pendiente', 'en_crm', 'descartada'].includes(String(status))) return res.status(400).json({ error: 'estado no válido' })
+  try {
+    const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
+      'UPDATE colabora.listings SET support_status = $2 WHERE id = $1::uuid AND wants_support RETURNING id', id, status,
+    )
+    if (rows.length === 0) return res.status(404).json({ error: 'No encontrado' })
+    await colaboraEvent(`admin:${req.auth?.email || '?'}`, `support_${status}`, id, {})
+    return res.json({ ok: true })
+  } catch (error) {
+    console.error('colabora support status error:', error)
+    return res.status(500).json({ error: 'No se pudo actualizar (¿migración de fase 3 aplicada?).' })
+  }
+})
+
+/** Métricas agregadas (sin datos personales). */
+app.get('/admin/colabora/metrics', requireAdmin, async (_req, res) => {
+  const q = async <T,>(sql: string): Promise<T[]> => {
+    try {
+      return await prisma.$queryRawUnsafe<T[]>(sql)
+    } catch (err) {
+      console.warn('[colabora] metrics query failed:', err instanceof Error ? err.message : err)
+      return []
+    }
+  }
+  try {
+    const [byCall, bySpecialty, byMode, byType, byState, requestsByStatus, outcomes, closeReasons, viewsBySource, viewsByDay] = await Promise.all([
+      q<{ call_title: string; busco: number; ofrezco: number; total: number }>(
+        `SELECT call_title,
+                count(*) FILTER (WHERE mode = 'busco')::int AS busco,
+                count(*) FILTER (WHERE mode = 'ofrezco')::int AS ofrezco,
+                count(*)::int AS total
+           FROM colabora.listings WHERE state <> 'borrador'
+          GROUP BY call_title ORDER BY total DESC LIMIT 20`),
+      q<{ specialty: string; n: number }>(
+        `SELECT s AS specialty, count(*)::int AS n
+           FROM colabora.listings, unnest(specialties) s WHERE state <> 'borrador'
+          GROUP BY s ORDER BY n DESC LIMIT 20`),
+      q<{ mode: string; n: number }>(`SELECT mode, count(*)::int AS n FROM colabora.listings WHERE state <> 'borrador' GROUP BY mode`),
+      q<{ collab_type: string; n: number }>(`SELECT collab_type, count(*)::int AS n FROM colabora.listings WHERE state <> 'borrador' GROUP BY collab_type`),
+      q<{ state: string; n: number }>(`SELECT state, count(*)::int AS n FROM colabora.listings GROUP BY state`),
+      q<{ status: string; n: number }>(`SELECT status, count(*)::int AS n FROM colabora.contact_requests GROUP BY status`),
+      q<{ outcome: string; n: number }>(
+        `SELECT o AS outcome, count(*)::int AS n FROM (
+           SELECT requester_outcome AS o FROM colabora.contact_requests WHERE requester_outcome IS NOT NULL
+           UNION ALL
+           SELECT owner_outcome FROM colabora.contact_requests WHERE owner_outcome IS NOT NULL) t
+          GROUP BY o ORDER BY n DESC`),
+      q<{ reason: string; n: number }>(
+        `SELECT COALESCE(close_reason, '—') AS reason, count(*)::int AS n
+           FROM colabora.listings WHERE state = 'cerrado' GROUP BY 1 ORDER BY n DESC`),
+      q<{ source: string; n: number }>(`SELECT source, sum(views)::int AS n FROM colabora.listing_views GROUP BY source ORDER BY n DESC`),
+      q<{ day: string; n: number }>(
+        `SELECT to_char(day, 'YYYY-MM-DD') AS day, sum(views)::int AS n FROM colabora.listing_views
+          WHERE day >= current_date - 29 GROUP BY day ORDER BY day`),
+    ])
+    const answered = requestsByStatus
+      .filter((r: { status: string }) => ['aceptada', 'rechazada'].includes(r.status))
+      .reduce((sum: number, r: { n: number }) => sum + r.n, 0)
+    const accepted = requestsByStatus.find((r: { status: string }) => r.status === 'aceptada')?.n || 0
+    return res.json({
+      byCall, bySpecialty, byMode, byType, byState, requestsByStatus, outcomes, closeReasons, viewsBySource, viewsByDay,
+      acceptanceRate: answered > 0 ? accepted / answered : null,
+    })
+  } catch (error) {
+    console.error('colabora metrics error:', error)
+    return res.status(500).json({ error: 'No se pudieron calcular las métricas.' })
   }
 })
 

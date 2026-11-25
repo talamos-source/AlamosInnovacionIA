@@ -70,3 +70,17 @@
   .ca-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ca-item__head, .ca-item__body { grid-template-columns: minmax(0, 1fr); display: grid; }
 }
+
+/* Fase 3 */
+.ca-notice { margin: 0 0 12px; padding: 10px 14px; border-radius: 8px; background: #ecfdf5; color: #065f46; font-size: 13px; }
+.ca-warn { color: #92400e; background: #fffbeb; padding: 8px 10px; border-radius: 6px; }
+.ca-metrics__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
+.ca-metric { border: 1px solid var(--border-color, #e5e7eb); border-radius: 10px; padding: 14px 16px; background: var(--card-bg, #fff); }
+.ca-metric h3 { margin: 0 0 10px; font-size: 14px; }
+.ca-bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ca-bars li { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 12px; }
+.ca-bars__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-bars__track { height: 8px; background: #f1f5f9; border-radius: 4px; overflow: hidden; }
+.ca-bars__fill { display: block; height: 100%; background: #2563eb; border-radius: 4px; }
+.ca-bars__n { font-variant-numeric: tabular-nums; font-weight: 600; }
+.ca-bars__n small { font-weight: 400; color: #64748b; }
