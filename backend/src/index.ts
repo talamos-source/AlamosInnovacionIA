@@ -2850,7 +2850,7 @@ app.get('/admin/colabora/metrics', requireAdmin, async (_req, res) => {
     }
   }
   try {
-    const [byCall, bySpecialty, byMode, byType, byState, requestsByStatus, outcomes, closeReasons, viewsBySource, viewsByDay] = await Promise.all([
+    const [byCall, bySpecialty, byMode, byType, byState, requestsByStatus, outcomes, closeReasons, viewsBySource, viewsByDay, alertsByCall] = await Promise.all([
       q<{ call_title: string; busco: number; ofrezco: number; total: number }>(
         `SELECT call_title,
                 count(*) FILTER (WHERE mode = 'busco')::int AS busco,
@@ -2880,13 +2880,17 @@ app.get('/admin/colabora/metrics', requireAdmin, async (_req, res) => {
       q<{ day: string; n: number }>(
         `SELECT to_char(day, 'YYYY-MM-DD') AS day, sum(views)::int AS n FROM colabora.listing_views
           WHERE day >= current_date - 29 GROUP BY day ORDER BY day`),
+      // Personas que siguen cada convocatoria (alertas de nuevos anuncios)
+      q<{ call_title: string; n: number }>(
+        `SELECT COALESCE(call_title, call_id) AS call_title, count(*)::int AS n
+           FROM colabora.call_alerts GROUP BY 1 ORDER BY n DESC LIMIT 20`),
     ])
     const answered = requestsByStatus
       .filter((r: { status: string }) => ['aceptada', 'rechazada'].includes(r.status))
       .reduce((sum: number, r: { n: number }) => sum + r.n, 0)
     const accepted = requestsByStatus.find((r: { status: string }) => r.status === 'aceptada')?.n || 0
     return res.json({
-      byCall, bySpecialty, byMode, byType, byState, requestsByStatus, outcomes, closeReasons, viewsBySource, viewsByDay,
+      byCall, bySpecialty, byMode, byType, byState, requestsByStatus, outcomes, closeReasons, viewsBySource, viewsByDay, alertsByCall,
       acceptanceRate: answered > 0 ? accepted / answered : null,
     })
   } catch (error) {

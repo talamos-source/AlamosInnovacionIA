@@ -88,6 +88,7 @@ interface Metrics {
   closeReasons: Array<{ reason: string; n: number }>
   viewsBySource: Array<{ source: string; n: number }>
   viewsByDay: Array<{ day: string; n: number }>
+  alertsByCall?: Array<{ call_title: string; n: number }>
   acceptanceRate: number | null
 }
 
@@ -134,7 +135,10 @@ const OUTCOME: Record<string, string> = {
   // valores anteriores a la fase 5
   preparando: 'Acordado colaborar', no_seguimos: 'No hubo encaje',
 }
-const SOURCE: Record<string, string> = { colabora: 'Colabora', ayudas: 'Mapa de ayudas', linkedin: 'LinkedIn / enlace compartido', sugerencia: 'Sugerencias', directo: 'Directo' }
+const SOURCE: Record<string, string> = {
+  colabora: 'Colabora', ayudas: 'Mapa de ayudas', linkedin: 'LinkedIn / enlace compartido', sugerencia: 'Sugerencias',
+  alerta: 'Alertas por correo', directo: 'Directo',
+}
 const CLOSE_REASON: Record<string, string> = {
   encontrada_aqui: 'Colaboración encontrada en Colabora', encontrada_otro_medio: 'Encontrada por otro medio',
   necesidad_retirada: 'Ya no lo necesita', otro: 'Otro motivo', retirado_admin: 'Retirado por administración',
@@ -716,6 +720,7 @@ function MetricsView({ m }: { m: Metrics }) {
         <Bars title="Resultado declarado de las conexiones" rows={m.outcomes.map((r) => ({ label: OUTCOME[r.outcome] || r.outcome, n: r.n }))} />
         <Bars title="Motivos de cierre" rows={m.closeReasons.map((r) => ({ label: CLOSE_REASON[r.reason] || r.reason, n: r.n }))} />
         <Bars title="Visitas por procedencia" rows={m.viewsBySource.map((r) => ({ label: SOURCE[r.source] || r.source, n: r.n }))} />
+        <Bars title="Personas que siguen cada convocatoria" rows={(m.alertsByCall || []).map((r) => ({ label: r.call_title, n: r.n }))} />
         <Bars title="Visitas en los últimos 30 días" rows={m.viewsByDay.map((r) => ({ label: new Date(`${r.day}T12:00:00`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }), n: r.n }))} />
       </div>
       <p className="ca-hint">Cifras agregadas. El resultado lo declara cada parte de una conexión (hay dos respuestas por conexión, que pueden no coincidir); «Sin responder» es quien aún no lo ha indicado.</p>
