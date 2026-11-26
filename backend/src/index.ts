@@ -2866,11 +2866,12 @@ app.get('/admin/colabora/metrics', requireAdmin, async (_req, res) => {
       q<{ collab_type: string; n: number }>(`SELECT collab_type, count(*)::int AS n FROM colabora.listings WHERE state <> 'borrador' GROUP BY collab_type`),
       q<{ state: string; n: number }>(`SELECT state, count(*)::int AS n FROM colabora.listings GROUP BY state`),
       q<{ status: string; n: number }>(`SELECT status, count(*)::int AS n FROM colabora.contact_requests GROUP BY status`),
+      // Una respuesta por parte de cada conexión (aceptada o cortada); sin respuesta = «desconocido»
       q<{ outcome: string; n: number }>(
         `SELECT o AS outcome, count(*)::int AS n FROM (
-           SELECT requester_outcome AS o FROM colabora.contact_requests WHERE requester_outcome IS NOT NULL
+           SELECT COALESCE(requester_outcome, 'desconocido') AS o FROM colabora.contact_requests WHERE status IN ('aceptada', 'revocada')
            UNION ALL
-           SELECT owner_outcome FROM colabora.contact_requests WHERE owner_outcome IS NOT NULL) t
+           SELECT COALESCE(owner_outcome, 'desconocido') FROM colabora.contact_requests WHERE status IN ('aceptada', 'revocada')) t
           GROUP BY o ORDER BY n DESC`),
       q<{ reason: string; n: number }>(
         `SELECT COALESCE(close_reason, '—') AS reason, count(*)::int AS n

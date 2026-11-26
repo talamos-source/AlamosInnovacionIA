@@ -118,6 +118,7 @@ interface Overview {
 
 const REQUEST_STATE: Record<string, string> = {
   pendiente: 'Pendiente', aceptada: 'Aceptada', rechazada: 'No aceptada', retirada: 'Retirada', caducada: 'Caducada',
+  revocada: 'Conexión cortada',
 }
 
 const WEB_URL = 'https://www.alamosinnovacion.com/es/colabora'
@@ -128,7 +129,10 @@ const STATE: Record<string, string> = {
   borrador: 'Borrador', pendiente: 'Pendiente', publicado: 'Publicado', pausado: 'Pausado', cerrado: 'Cerrado', rechazado: 'Rechazado',
 }
 const OUTCOME: Record<string, string> = {
-  preparando: 'Preparando propuesta', presentada: 'Propuesta presentada', concedida: 'Concedida', denegada: 'Denegada', no_seguimos: 'No seguimos',
+  hablando: 'Seguimos hablando', acordado: 'Acordado colaborar', presentada: 'Propuesta presentada juntos',
+  concedida: 'Concedida', denegada: 'No concedida', sin_encaje: 'No hubo encaje', desconocido: 'Sin responder (desconocido)',
+  // valores anteriores a la fase 5
+  preparando: 'Acordado colaborar', no_seguimos: 'No hubo encaje',
 }
 const SOURCE: Record<string, string> = { colabora: 'Colabora', ayudas: 'Mapa de ayudas', linkedin: 'LinkedIn / enlace compartido', sugerencia: 'Sugerencias', directo: 'Directo' }
 const CLOSE_REASON: Record<string, string> = {
@@ -714,7 +718,7 @@ function MetricsView({ m }: { m: Metrics }) {
         <Bars title="Visitas por procedencia" rows={m.viewsBySource.map((r) => ({ label: SOURCE[r.source] || r.source, n: r.n }))} />
         <Bars title="Visitas en los últimos 30 días" rows={m.viewsByDay.map((r) => ({ label: new Date(`${r.day}T12:00:00`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }), n: r.n }))} />
       </div>
-      <p className="ca-hint">Cifras agregadas. El resultado lo declara cada parte de una conexión aceptada (puede haber dos por conexión).</p>
+      <p className="ca-hint">Cifras agregadas. El resultado lo declara cada parte de una conexión (hay dos respuestas por conexión, que pueden no coincidir); «Sin responder» es quien aún no lo ha indicado.</p>
     </section>
   )
 }
